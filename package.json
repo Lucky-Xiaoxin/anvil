@@ -1,0 +1,26 @@
+{
+  "name": "anvil",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ANVIL（铁砧）· 个人 ICPC 训练工作台 · 本地 Web 应用",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --workspace @anvil/web",
+    "start": "node --disable-warning=ExperimentalWarning packages/server/src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/server/tsconfig.json --noEmit && tsc -p packages/web/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

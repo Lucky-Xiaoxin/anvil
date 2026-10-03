@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+# 运行时数据（本地库 + 配置），模板见 vault.example/
+vault/

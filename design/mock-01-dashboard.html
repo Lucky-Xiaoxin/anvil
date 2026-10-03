@@ -1,0 +1,1731 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANVIL · 视觉稿 v2 · 工作台仪表盘</title>
+<meta name="description" content="ANVIL（铁砧）个人 ICPC 训练工作台 · 第一版静态视觉稿 · 深色机房 + 炉火">
+<style>
+/* ==========================================================================
+   ANVIL 视觉稿 v2
+   基调：深色机房 + 铁匠铺炉火。精密、安静、有锻打的力量感。
+   游戏化但克制 —— 是"成就系统"，不是"手游大厅"。
+   迁移说明：本文件所有 :root 变量与 docs/04 §5 的 token 一一对应，直接抄。
+   ========================================================================== */
+
+/* ---------- 1. Tokens ---------- */
+:root{
+  /* 色板 */
+  --bg:#0A0C10;
+  --panel:#12161D;
+  --panel-2:#171C25;
+  --line:#222A36;
+  --line-soft:#1B222C;
+  --text:#E8ECF3;
+  --text-dim:#94A0B4;
+  --text-mute:#6C7A8C;
+  --accent:#F5A524;          /* 炉火琥珀 · 主角 */
+  --accent-ink:#1A1206;
+  --accent-2:#4CC9F0;        /* 数据蓝 · 辅助 */
+  --ok:#3FB950;
+  --warn:#D29922;
+  --bad:#F85149;
+  --gold:#D9A441; --silver:#AEB8C6; --bronze:#B08968;   /* 奖牌色（切片 4 用） */
+
+  /* 热力色阶：冷铁 → 炉火（5 档） */
+  --heat-0:#1A1F29;
+  --heat-1:#4A3520;
+  --heat-2:#7A5426;
+  --heat-3:#B27B2E;
+  --heat-4:#F5A524;
+
+  /* 字体：界面 = Segoe UI / 雅黑；数字 = 等宽 + tabular-nums */
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  --font-num:"Cascadia Code","Cascadia Mono",Consolas,"JetBrains Mono","Liberation Mono",monospace;
+
+  /* 尺度 */
+  --r-s:4px; --r:10px; --r-l:14px;
+  --sp-1:8px; --sp-2:16px; --sp-3:24px; --sp-4:32px; --sp-5:40px; --sp-6:48px;
+  --nav-w:220px;
+  --cell:11px; --cell-gap:3px;
+
+  /* 动效 */
+  --dur:180ms;
+  --ease:cubic-bezier(.22,.71,.3,1);   /* ease-out 家族 */
+
+  --bar-h:40px; --foot-h:26px;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
+
+html{min-width:1200px;background:var(--bg)}
+body{
+  margin:0;height:100vh;min-width:1200px;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  font:14px/1.55 var(--font-ui);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  /* 机房地面：极淡方格纹理 + 顶部一丝炉口反光 */
+  background:
+    radial-gradient(1200px 380px at 50% -220px, rgba(245,165,36,.055), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    var(--bg);
+}
+::selection{background:rgba(245,165,36,.28);color:#FFF6E4}
+h1,h2,h3,h4,p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-s)}
+
+/* ---------- 2. 排字 ---------- */
+/* 刻印式微标签：机器刻线 + 大字距，本稿识别性主要来自这里 */
+.label{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-num);font-size:10px;line-height:1;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--text-mute);
+}
+.label::before{content:"";width:8px;height:1px;background:currentColor;opacity:.6}
+.label--accent{color:var(--accent)}
+.label--blue{color:var(--accent-2)}
+.dim{color:var(--text-dim)}
+.mute{color:var(--text-mute)}
+.hint{font-size:11.5px;color:var(--text-mute);line-height:1.7}
+.hint b{color:var(--text-dim)}
+
+/* ---------- 3. 视觉稿外壳（非产品 UI） ---------- */
+.mockbar{
+  flex:0 0 var(--bar-h);height:var(--bar-h);
+  display:flex;align-items:center;gap:var(--sp-3);
+  padding:0 var(--sp-3);
+  border-bottom:1px dashed var(--line);
+  background:#080A0E;
+}
+.mockbar__tag{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--font-num);font-size:10px;letter-spacing:.16em;
+  color:var(--accent);text-transform:uppercase;
+}
+.mockbar__tag i{width:6px;height:6px;background:var(--accent);display:block;transform:rotate(45deg)}
+.mocktabs{display:flex;gap:2px;margin-left:auto}
+.mocktab{
+  font-family:var(--font-num);font-size:11.5px;letter-spacing:.06em;
+  color:var(--text-dim);padding:6px 12px;border-radius:var(--r-s);
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.mocktab:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.mocktab[aria-selected="true"]{color:var(--accent-ink);background:var(--accent)}
+.mockbar__spec{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.04em}
+
+.mockfoot{
+  flex:0 0 var(--foot-h);height:var(--foot-h);
+  display:flex;align-items:center;gap:10px;padding:0 var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.06em;color:var(--text-mute);
+  background:#080A0E;
+}
+.mockfoot i{width:14px;height:2px;background:var(--accent);display:block;opacity:.8}
+
+/* ---------- 4. AppShell ---------- */
+.screen{flex:1 1 auto;min-height:0}
+.app{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);height:100%;min-height:0}
+
+.nav{
+  display:flex;flex-direction:column;min-height:0;
+  background:linear-gradient(180deg,#0E1218,#0A0D12);
+  border-right:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:11px;padding:var(--sp-3) var(--sp-2) var(--sp-3) 17px;border-bottom:1px solid var(--line-soft)}
+.brand svg{width:26px;height:26px;color:var(--accent);flex:0 0 auto}
+.brand__name{font-family:var(--font-num);font-size:15px;font-weight:600;letter-spacing:.20em;color:var(--text);line-height:1}
+.brand__sub{font-size:10px;letter-spacing:.26em;color:var(--text-mute);margin-top:5px;line-height:1}
+
+.navlist{padding:var(--sp-2) 10px;display:flex;flex-direction:column;gap:2px}
+.navitem{
+  position:relative;display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:var(--r-s);
+  color:var(--text-dim);font-size:13.5px;text-align:left;width:100%;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.navitem svg{width:16px;height:16px;flex:0 0 auto;opacity:.85}
+.navitem:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.navitem[aria-current="page"]{color:var(--text);background:rgba(245,165,36,.10)}
+.navitem[aria-current="page"]::before{
+  content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:2px;background:var(--accent);
+  box-shadow:0 0 10px rgba(245,165,36,.55);
+}
+.navitem--locked{color:var(--text-mute)}
+.navitem--locked:hover{color:var(--text-dim)}
+.navitem .lock{margin-left:auto;width:12px;height:12px;opacity:.7}
+
+.navfoot{
+  margin-top:auto;padding:var(--sp-2) 17px var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;line-height:1.95;color:var(--text-mute);
+}
+.navfoot b{color:var(--text-dim);font-weight:600}
+
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.topbar{
+  flex:0 0 56px;height:56px;position:relative;
+  display:flex;align-items:center;gap:var(--sp-2);padding:0 var(--sp-4);
+  background:rgba(18,22,29,.6);
+}
+/* 炉口余热线：顶栏底边，载入时一次 200ms 烧过去 */
+.topbar::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,var(--accent) 0%,rgba(245,165,36,.35) 22%,var(--line) 60%,var(--line) 100%);
+  transform-origin:left center;animation:railignite var(--dur) var(--ease) both;
+}
+@keyframes railignite{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.topbar h2{font-size:15px;font-weight:600;letter-spacing:.01em}
+.topbar__meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:4px 10px;border:1px solid var(--line);border-radius:999px;
+  font-family:var(--font-num);font-size:12px;color:var(--text);background:var(--panel-2);
+}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.topbar__spacer{flex:1 1 auto}
+
+.content{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-3) var(--sp-4) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2)}
+.content::-webkit-scrollbar{width:11px}
+.content::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--bg);border-radius:999px}
+.content::-webkit-scrollbar-thumb:hover{background:#31404F}
+
+/* ---------- 5. 卡片 ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-2) var(--sp-3) var(--sp-3);min-width:0}
+.card--pad0{padding:0}
+.card__head{display:flex;align-items:baseline;gap:var(--sp-2);padding:14px var(--sp-3) 0;min-width:0;flex-wrap:wrap}
+.card__title{font-size:13.5px;font-weight:600;letter-spacing:.01em}
+.card__head .spacer{flex:1 1 auto;min-width:8px}
+.card__note{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.card__note b{color:var(--accent);font-weight:600}
+
+.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-2)}
+.row-split{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:var(--sp-2);align-items:start}
+
+/* StatCard */
+.stat{
+  position:relative;overflow:hidden;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
+  border:1px solid var(--line);border-radius:var(--r);
+  padding:14px var(--sp-2) 16px;
+  transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.stat:hover{border-color:#2E3A49;transform:translateY(-1px)}
+.stat::after{ /* 每卡一条"炉温读数" */
+  content:"";position:absolute;left:0;bottom:0;height:2px;width:100%;
+  background:linear-gradient(90deg,var(--sc,var(--accent)) 0%,transparent 78%);opacity:.85;
+}
+.stat__label{margin-bottom:10px}
+.stat__num{
+  font-family:var(--font-num);font-variant-numeric:tabular-nums;
+  font-size:32px;line-height:1;font-weight:600;letter-spacing:-.02em;color:var(--text);
+  display:flex;align-items:baseline;gap:6px;
+}
+.stat__num--hot{color:var(--accent);text-shadow:0 0 22px rgba(245,165,36,.28)}
+.stat__num--blue{color:var(--accent-2)}
+.stat__unit{font-size:11px;letter-spacing:.06em;color:var(--text-mute);font-weight:400}
+.stat__sub{margin-top:9px;font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;min-height:18px;flex-wrap:wrap}
+.delta{font-family:var(--font-num);font-size:10.5px;padding:1.5px 5px;border-radius:var(--r-s);white-space:nowrap}
+.delta--up{color:var(--ok);background:rgba(63,185,80,.10)}
+.delta--down{color:var(--warn);background:rgba(210,153,34,.11)}
+.delta--flat{color:var(--text-mute);background:rgba(255,255,255,.05)}
+
+/* 连续天数卡下方的近 14 日微刻度 */
+.ticks{display:flex;gap:3px;align-items:flex-end;height:18px;margin-top:9px}
+.ticks i{width:5px;height:5px;border-radius:1px;background:var(--heat-0);display:block}
+.ticks i[data-l="1"]{background:var(--heat-1);height:8px}
+.ticks i[data-l="2"]{background:var(--heat-2);height:12px}
+.ticks i[data-l="3"]{background:var(--heat-3);height:16px}
+.ticks i[data-l="4"]{background:var(--heat-4);height:18px;box-shadow:0 0 8px rgba(245,165,36,.5)}
+.ticks i.today{outline:1px solid var(--accent-2);outline-offset:1px}
+
+/* 近 6 个月迷你柱状：涨跌看柱形，细节看 hover。当月 = 半透明 + 虚底 */
+.mbars{display:flex;align-items:flex-end;gap:6px;height:34px;margin-top:10px}
+.mbar{flex:1 1 0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;position:relative}
+.mbar i{display:block;width:100%;min-height:4px;border-radius:2px 2px 0 0;background:var(--heat-3);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+        transition:filter var(--dur) var(--ease),opacity var(--dur) var(--ease)}
+.mbar:hover i{filter:brightness(1.3)}
+.mbar b{display:block;height:2px;background:var(--heat-1);margin-top:2px}
+.mbar--partial i{background:var(--accent);opacity:.42}
+.mbar--partial b{height:0;background:none;border-top:2px dashed var(--accent)}
+
+/* ---------- 6. ActivityGrid ---------- */
+.agrid-body{display:flex;gap:var(--sp-2);align-items:center;padding:12px var(--sp-3) 0}
+.agrid-scroll{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;padding-bottom:2px}
+.agrid{
+  display:grid;
+  grid-template-columns:30px repeat(53,var(--cell));
+  grid-template-rows:14px repeat(7,var(--cell));
+  column-gap:var(--cell-gap);row-gap:var(--cell-gap);
+  width:max-content;
+}
+.amonth{font-family:var(--font-num);font-size:10px;color:var(--text-mute);letter-spacing:.02em;align-self:end;line-height:1;white-space:nowrap}
+.awd{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:var(--cell);align-self:center;text-align:right;padding-right:7px}
+.acell{
+  width:var(--cell);height:var(--cell);border-radius:2px;background:var(--heat-0);
+  opacity:0;animation:cellin var(--dur) var(--ease) forwards;
+  transition:outline-color var(--dur) var(--ease);
+  outline:1px solid transparent;outline-offset:1px;
+}
+@keyframes cellin{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+.acell[data-l="1"]{background:var(--heat-1)}
+.acell[data-l="2"]{background:var(--heat-2)}
+.acell[data-l="3"]{background:var(--heat-3)}
+.acell[data-l="4"]{background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.30)}
+.acell--future{background:transparent;animation:none;pointer-events:none}
+.acell:hover{outline-color:var(--text)}
+.acell--today{outline:1px solid var(--accent-2)}
+.legend{display:flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
+.legend i{width:var(--cell);height:var(--cell);border-radius:2px;display:block}
+
+/* 格子图右侧读数（同源派生，不是新模块）：一行一条，压得住高度 */
+.readout{flex:0 0 140px;border-left:1px solid var(--line-soft);padding-left:var(--sp-2);display:flex;flex-direction:column;justify-content:center;gap:11px}
+.ro{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;line-height:1.3}
+.ro__k{font-family:var(--font-num);font-size:9.5px;letter-spacing:.08em;color:var(--text-mute);text-transform:uppercase}
+.ro__v{font-family:var(--font-num);font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
+.ro__n{font-family:var(--font-num);font-size:10px;color:var(--text-mute);flex:0 0 100%;margin-top:-4px}
+.afoot{display:flex;align-items:center;gap:var(--sp-2);padding:10px var(--sp-3) 14px;flex-wrap:wrap}
+
+/* Tooltip */
+.tip{
+  position:fixed;z-index:50;pointer-events:none;
+  transform:translate(-50%,-100%);
+  background:#05070A;border:1px solid #2C3746;border-radius:var(--r-s);
+  padding:7px 10px;min-width:118px;
+  box-shadow:0 8px 22px rgba(0,0,0,.55);
+  font-size:12px;line-height:1.45;color:var(--text);
+}
+.tip__d{font-family:var(--font-num);font-size:11px;color:var(--text-dim);letter-spacing:.02em}
+.tip__v{font-family:var(--font-num);font-size:13px;color:var(--accent);margin-top:2px;font-variant-numeric:tabular-nums}
+.tip__v.is-zero{color:var(--text-mute)}
+.tip::after{
+  content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
+  transform:translateX(-50%) rotate(45deg);
+  background:#05070A;border-right:1px solid #2C3746;border-bottom:1px solid #2C3746;
+}
+
+/* ---------- 7. Rating 曲线 ---------- */
+.chart{position:relative;padding:8px 0 0}
+.chart svg{display:block;width:100%;height:auto}
+.chart__x{display:flex;justify-content:space-between;padding:4px 0 0;font-family:var(--font-num);font-size:10px;color:var(--text-mute)}
+.chart__peak{position:absolute;transform:translate(-50%,-100%);font-family:var(--font-num);font-size:10px;color:var(--text-dim);white-space:nowrap;padding-bottom:11px}
+.chart__now{position:absolute;transform:translate(6px,-50%);font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:15px;color:var(--accent);white-space:nowrap;letter-spacing:-.01em}
+.hit{fill:transparent}
+
+/* ---------- 8. Locked 模块 ---------- */
+.locked{
+  display:flex;gap:14px;align-items:flex-start;
+  background:var(--panel);border:1px dashed #2A3441;border-radius:var(--r);
+  padding:16px var(--sp-2);
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.locked:hover{border-color:#3B4757;background:var(--panel-2)}
+.locked>svg{width:20px;height:20px;color:var(--text-mute);flex:0 0 auto;margin-top:2px}
+.locked__t{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.locked__t .tag{font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;color:var(--text-mute);border:1px solid var(--line);border-radius:3px;padding:1px 5px;text-transform:uppercase}
+.locked__p{margin-top:6px;font-size:12.5px;color:var(--text-dim);line-height:1.6}
+.locked__p em{font-style:normal;color:var(--accent)}
+.locked__p b{color:var(--text);font-weight:600}
+.locked__go{margin-top:8px;font-family:var(--font-num);font-size:11px;color:var(--accent-2);letter-spacing:.04em}
+
+/* ---------- 9. 按钮 ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:34px;padding:0 14px;border-radius:var(--r-s);
+  font-size:13px;font-weight:600;letter-spacing:.01em;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),
+             box-shadow var(--dur) var(--ease),transform var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.btn svg{width:14px;height:14px}
+.btn:hover{background:#1E252F;border-color:#39465A}
+.btn:active{transform:translateY(1px);background:#1A2028}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none}
+.btn--primary{background:var(--accent);color:var(--accent-ink);border-color:#FFC356}
+.btn--primary:hover{background:#FFB63C;border-color:#FFD180;box-shadow:0 0 0 3px rgba(245,165,36,.16)}
+.btn--primary:active{background:#DE9417}
+.btn--ghost{background:transparent;border-color:transparent;color:var(--text-dim)}
+.btn--ghost:hover{background:rgba(255,255,255,.05);border-color:var(--line);color:var(--text)}
+.btn--danger{background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.35);color:#FF8A84}
+.btn--danger:hover{background:rgba(248,81,73,.2);border-color:var(--bad)}
+.btn--sm{height:28px;padding:0 10px;font-size:12px}
+.btn--lg{height:40px;padding:0 20px;font-size:14px}
+.btn-sync{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
+.btn-sync:hover{background:rgba(245,165,36,.17);border-color:rgba(245,165,36,.5);box-shadow:0 0 18px rgba(245,165,36,.10)}
+.btn-sync.is-busy svg{animation:spin 900ms linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- 10. 表单 / 进度 ---------- */
+.field{display:flex;flex-direction:column;gap:8px}
+.field__row{display:flex;gap:var(--sp-1)}
+.input{
+  flex:1 1 auto;height:40px;padding:0 12px;min-width:0;
+  background:#0B0E13;border:1px solid var(--line);border-radius:var(--r-s);
+  color:var(--text);font-family:var(--font-num);font-size:14px;letter-spacing:.02em;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.input::placeholder{color:#5B687A;font-family:var(--font-ui);letter-spacing:0}
+.input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,165,36,.14)}
+.input--err{border-color:var(--bad)}
+.steps{display:flex;align-items:center;margin-bottom:var(--sp-3)}
+.step{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-mute);white-space:nowrap}
+.step b{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-family:var(--font-num);font-size:11px;font-weight:600}
+.step.is-on{color:var(--text)}
+.step.is-on b{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.step.is-done{color:var(--text-dim)}
+.step.is-done b{border-color:var(--ok);color:var(--ok)}
+.step__bar{width:40px;height:1px;background:var(--line);margin:0 12px;flex:0 0 auto}
+.bar{height:6px;border-radius:999px;background:var(--heat-0);overflow:hidden;border:1px solid var(--line-soft)}
+.bar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--heat-3),var(--accent));transition:width var(--dur) var(--ease)}
+.prow{display:flex;align-items:baseline;gap:var(--sp-1);font-family:var(--font-num);font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.plog{margin-top:var(--sp-2);border-top:1px solid var(--line-soft);padding-top:var(--sp-2);font-family:var(--font-num);font-size:11.5px;line-height:2.05;color:var(--text-mute);min-height:92px}
+.plog .ok{color:var(--ok)}
+.plog .run{color:var(--accent)}
+.plog .blue{color:var(--accent-2)}
+.plog b{color:var(--text-dim);font-weight:600}
+.alert{display:flex;gap:12px;padding:12px 14px;border-radius:var(--r-s);border:1px solid;font-size:12.5px;line-height:1.65}
+.alert svg{width:16px;height:16px;flex:0 0 auto;margin-top:2px}
+.alert--err{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.32);color:#FFC9C5}
+.alert--err svg{color:var(--bad)}
+.alert--ok{background:rgba(63,185,80,.07);border-color:rgba(63,185,80,.3);color:#BCE7C4}
+.alert--ok svg{color:var(--ok)}
+.alert code{font-size:11.5px;color:var(--text);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px}
+.alert b{color:var(--text)}
+
+/* ---------- 11. 空态 ---------- */
+.empty-hero{display:flex;flex-direction:column;gap:var(--sp-3)}
+.hero-title{font-size:26px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.hero-title em{font-style:normal;color:var(--accent)}
+.onb{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}
+.onb__i{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:14px var(--sp-2)}
+.onb__n{font-family:var(--font-num);font-size:11px;color:var(--accent);letter-spacing:.1em}
+.onb__t{font-size:13.5px;font-weight:600;margin-top:8px}
+.onb__p{font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.65}
+.ghostgrid{position:relative;padding:var(--sp-3);display:flex;justify-content:center}
+.ghostgrid__veil{
+  position:absolute;inset:var(--sp-3) 0;display:grid;place-items:center;text-align:center;
+  background:radial-gradient(58% 100% at 50% 50%, rgba(10,12,16,.9), rgba(10,12,16,.35));
+}
+.ghostgrid__veil p{font-size:13px;color:var(--text-dim)}
+.ghostgrid__veil b{color:var(--text)}
+
+/* ---------- 12. Token 表 ---------- */
+.tk{display:flex;flex-direction:column;gap:var(--sp-3)}
+.tk section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-3)}
+.tk h3{font-family:var(--font-num);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:var(--sp-2)}
+.tk h3 span{color:var(--text-mute);letter-spacing:.04em;text-transform:none;font-size:11px;margin-left:8px}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.sw__i{border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden;background:var(--panel-2)}
+.sw__c{height:44px;border-bottom:1px solid var(--line)}
+.sw__m{padding:8px 10px;font-family:var(--font-num);font-size:10.5px;line-height:1.7;color:var(--text-dim)}
+.sw__m b{color:var(--text);font-weight:600}
+.sw__u{color:var(--text-mute);font-family:var(--font-ui);font-size:11px}
+.type-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--sp-4)}
+.type-i{border-bottom:1px solid var(--line-soft);padding:10px 0;display:flex;align-items:baseline;gap:14px}
+.type-i .spec{margin-left:auto;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);white-space:nowrap}
+.spacer-row{display:flex;align-items:flex-end;gap:var(--sp-3);margin-bottom:34px}
+.spacer-i{display:flex;flex-direction:column;align-items:center;gap:8px}
+.spacer-i b{width:40px;background:rgba(245,165,36,.16);border:1px solid rgba(245,165,36,.35);border-radius:2px}
+.spacer-i span{font-family:var(--font-num);font-size:10.5px;color:var(--text-dim)}
+.radii{display:flex;gap:var(--sp-4);align-items:flex-start;margin-bottom:30px}
+.radii b{width:72px;height:56px;background:var(--panel-2);border:1px solid #33404F;display:block;position:relative}
+.radii span{position:absolute;bottom:-22px;left:-14px;right:-14px;text-align:center;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
+.states{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.state{border:1px solid var(--line-soft);border-radius:var(--r-s);padding:12px 10px;background:#0E1218;display:flex;flex-direction:column;gap:10px;align-items:center}
+.state__n{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.06em;text-transform:uppercase}
+.state .btn{width:100%}
+.tk-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-3)}
+.dec{display:flex;flex-direction:column;gap:16px}
+.dec__i{display:flex;gap:14px;border-left:2px solid var(--accent);padding-left:14px}
+.dec__i--blue{border-left-color:var(--accent-2)}
+.dec__i--line{border-left-color:#2E3846}
+.dec__t{font-size:13.5px;font-weight:600}
+.dec__p{font-size:12.5px;color:var(--text-dim);line-height:1.75;margin-top:5px}
+.dec__p b{color:var(--text)}
+.dec__p code{font-size:11.5px;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;color:var(--text-dim)}
+.demo-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line);border-radius:var(--r-s);background:#0E1218}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.switch input{accent-color:var(--accent);width:14px;height:14px}
+/* 数据槽位表 */
+.sl{width:100%;border-collapse:collapse;font-size:12px}
+.sl th{text-align:left;font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);padding:0 12px 8px 0;border-bottom:1px solid var(--line)}
+.sl td{padding:7px 12px 7px 0;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--text-dim);line-height:1.55}
+.sl td:first-child{color:var(--accent);font-family:var(--font-num);font-size:11.5px;white-space:nowrap}
+.sl .t{font-family:var(--font-num);font-size:11px;color:var(--text-mute);white-space:nowrap}
+.sl tr.grp td{border-bottom:none;padding:18px 0 6px;color:var(--accent-2);font-family:var(--font-num);font-size:11px;letter-spacing:.05em}
+.sl tr.grp:first-child td{padding-top:0}
+
+.rise{animation:rise 200ms var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* 系统偏好 + 演示开关，两者等效：连 stagger 的延迟一起取消，直接落终值 */
+body.rm-on *,body.rm-on *::before,body.rm-on *::after{
+  animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;
+  transition-duration:1ms !important;scroll-behavior:auto !important;
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 内联图标：几何线条，零外部依赖 ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- 铁砧：炉面带 horn / 腰 / 底座，另加两点火星 -->
+    <symbol id="i-anvil" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M1.4 5.2h12.4l5.4 3.5H1.4z"/>
+      <path fill="currentColor" opacity=".72" d="M8.2 8.7h3.9l-.9 4.5H9.1z"/>
+      <path fill="currentColor" d="M4.9 13.2h10.3l2.9 5.6H2z"/>
+      <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".5" d="M18.4 2.6l2.6-1.2M20.6 6.1h3.2"/>
+    </symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="3" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="3" width="7.4" height="7.4" rx="1.4"/>
+      <rect x="3" y="13.6" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="13.6" width="7.4" height="7.4" rx="1.4"/>
+    </symbol>
+    <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="5.5" cy="5.8" r="2.3"/><circle cx="18.5" cy="5.2" r="2.3"/><circle cx="12" cy="13" r="2.3"/><circle cx="5.5" cy="19.2" r="2.3"/><circle cx="18.5" cy="18.8" r="2.3"/>
+      <path d="M7.4 7.1 10.2 11.4M16.6 6.7 13.8 11.4M11.2 15.1 6.9 17.8M12.9 15.1l4 2.8"/>
+    </symbol>
+    <symbol id="i-vp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M4.5 4.5h10.2l-1.2 4.2h6.1l-1.9 11.3H6.4z"/><path d="M4.5 4.5V20.6"/>
+    </symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="12" cy="12" r="3.1"/>
+      <path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9M12 14.3v2.5"/>
+    </symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.4 11.2A8.4 8.4 0 0 0 6 6.2L3.8 8.4"/><path d="M3.6 12.8a8.4 8.4 0 0 0 14.4 5l2.2-2.2"/><path d="M3.6 4.6v3.9h3.9M20.4 19.4v-3.9h-3.9"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.6 4.8 4.8L19.5 6.8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h14M13 6.5 18.5 12 13 17.5"/></symbol>
+  </defs>
+</svg>
+
+<!-- ================= 视觉稿导航条 ================= -->
+<header class="mockbar">
+  <span class="mockbar__tag"><i></i>ANVIL · 视觉稿 v2</span>
+  <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
+    <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / 仪表盘</button>
+    <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / 设置向导</button>
+    <button class="mocktab" role="tab" id="t3" aria-controls="s3" aria-selected="false" data-screen="s3" tabindex="-1">03 / 空态与未解锁</button>
+    <button class="mocktab" role="tab" id="t4" aria-controls="s4" aria-selected="false" data-screen="s4" tabindex="-1">04 / 组件与 Token</button>
+  </nav>
+  <span class="mockbar__spec">基准 1440×900 · 兼容 1280×800 · 桌面优先</span>
+</header>
+
+<main style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0">
+
+<!-- ============================================================
+     屏 1 · 仪表盘（有数据）
+     ============================================================ -->
+<section class="screen" id="s1" role="tabpanel" aria-labelledby="t1">
+<div class="app">
+
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked" data-goto="s3"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked" data-goto="s3"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem" data-goto="s2"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">
+      <b data-bind="status.counts.submissions">8540</b> 条提交 · <b data-bind="status.counts.problems">912</b> 题<br>
+      本地 <code>vault/anvil.db</code><br>
+      端口 <code>7788</code> · 不出网
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>仪表盘</h2>
+      <span class="chip"><i></i>@<span data-bind="status.handle">chenyu</span></span>
+      <span class="topbar__meta">
+        <svg id="syncIcon" style="width:13px;height:13px;color:var(--text-mute)" aria-hidden="true"><use href="#i-check"/></svg>
+        <span id="syncDelta" hidden>增量 <b class="num" style="color:var(--text-dim);font-weight:600">0 条新提交</b> ·</span>
+        上次同步 <b class="num" id="lastSync" style="color:var(--text-dim);font-weight:600" data-bind="status.lastSyncText">12 分钟前</b>
+      </span>
+      <span class="topbar__spacer"></span>
+      <button class="btn btn-sync" id="syncBtn"><svg aria-hidden="true"><use href="#i-sync"/></svg>同步</button>
+    </div>
+
+    <div class="content" id="dashContent">
+
+      <!-- a. 统计卡 ×4 -->
+      <div class="grid-4">
+        <div class="stat" style="--sc:var(--heat-3)">
+          <div class="label stat__label">总过题数 · 去重</div>
+          <div class="stat__num"><span class="cu" data-bind="stats.totalSolved" data-to="912">912</span><span class="stat__unit">题</span></div>
+        </div>
+        <div class="stat" style="--sc:var(--accent-2)">
+          <div class="label label--blue stat__label">当月过题</div>
+          <div class="stat__num stat__num--blue"><span class="cu" data-bind="stats.months.-1.solved" data-to="9">9</span><span class="stat__unit">题</span></div>
+          <div class="mbars" id="mbars" role="img" aria-label="近 6 个月过题柱状图"></div>
+        </div>
+        <div class="stat" style="--sc:var(--accent-2)">
+          <div class="label label--blue stat__label">CF Rating</div>
+          <div class="stat__num stat__num--blue"><span class="cu" data-bind="rating.current" data-to="1683">1683</span><span class="stat__unit" data-bind="rating.rankLabel">Expert</span></div>
+          <div class="stat__sub">最高 <b class="num" style="color:var(--text-dim)" data-bind="rating.max">1731</b><span class="delta" data-tone="rating.lastDeltaTone" data-bind="rating.lastDeltaText">—</span><span class="mute" data-bind="rating.lastContestShort" title="上一场">—</span></div>
+        </div>
+        <div class="stat" style="--sc:var(--accent)">
+          <div class="label label--accent stat__label">连续训练</div>
+          <div class="stat__num stat__num--hot"><span class="cu" data-bind="stats.streak.days" data-to="12">12</span><span class="stat__unit">天</span></div>
+          <div class="stat__sub" data-bind="stats.streak.sub">—</div>
+          <div class="ticks" id="streakTicks" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- b. 活跃格子图（主角） -->
+      <div class="card card--pad0 rise">
+        <div class="card__head">
+          <span class="label label--accent">Activity</span>
+          <h3 class="card__title">活跃格子图</h3>
+          <span class="spacer"></span>
+          <span class="card__note">近 53 周 <b data-bind="stats.activityTotal">—</b> 题次 · 生涯去重 <b data-bind="stats.totalSolved">—</b> 题</span>
+          <span class="legend" aria-hidden="true" style="margin-left:14px">
+            少
+            <i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></i>
+            多
+          </span>
+        </div>
+        <div class="agrid-body">
+          <div class="agrid-scroll">
+            <div class="agrid" id="agrid" role="img" aria-label="近 53 周活跃格子图"></div>
+          </div>
+          <div class="readout">
+            <div class="ro"><span class="ro__k">最长连续</span><b class="ro__v" data-bind="stats.longestRun.days">—</b><span class="ro__n" data-bind="stats.longestRun.range">—</span></div>
+            <div class="ro"><span class="ro__k">断档 ≥3 天</span><b class="ro__v" data-bind="stats.gaps3">—</b></div>
+            <div class="ro"><span class="ro__k">周末占比</span><b class="ro__v" data-bind="stats.weekendPct">—</b></div>
+          </div>
+        </div>
+        <div class="afoot">
+          <span class="card__note">日格 = 当日 AC 去重题数</span>
+        </div>
+      </div>
+
+      <!-- c + d. rating 曲线 与 未解锁卡 -->
+      <div class="row-split">
+        <div class="card rise" style="padding-bottom:18px">
+          <div class="card__head" style="padding:0 0 4px">
+            <span class="label label--blue">Rating</span>
+            <h3 class="card__title">近 <span data-bind="rating.count">30</span> 场</h3>
+            <span class="spacer"></span>
+            <span class="card__note"><b data-bind="rating.first" style="color:var(--text-dim);font-weight:400">1400</b> → <b data-bind="rating.current">1683</b> · <span class="delta" data-tone="rating.totalDeltaTone" data-bind="rating.totalDelta" style="font-size:10.5px">—</span></span>
+          </div>
+          <div class="chart" id="chart"></div>
+          <div class="chart__x" id="chartX"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:var(--sp-2)">
+          <div class="locked rise">
+            <svg aria-hidden="true"><use href="#i-map"/></svg>
+            <div>
+              <div class="locked__t">掌握图 <span class="tag">未解锁</span></div>
+              <p class="locked__p">把你做过的题铺成一张<em>技能图</em>。</p>
+              <div class="locked__go">切片 3</div>
+            </div>
+          </div>
+          <div class="locked rise">
+            <svg aria-hidden="true"><use href="#i-vp"/></svg>
+            <div>
+              <div class="locked__t">VP <span class="tag">未解锁</span></div>
+              <p class="locked__p">拿一份历年榜单，把当时的真实名次<em>叠回你这一场</em>。</p>
+              <div class="locked__go">切片 4</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 2 · 设置向导
+     ============================================================ -->
+<section class="screen" id="s2" role="tabpanel" aria-labelledby="t2" hidden>
+<div class="app">
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" data-goto="s1"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">数据只写在本地<br><code>vault/anvil.db</code></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>设置</h2>
+      <span class="topbar__spacer"></span>
+      <label class="switch" title="演示用：切到校验失败的分支">
+        <input type="checkbox" id="wErr"> 演示 handle 不存在
+      </label>
+    </div>
+
+    <div class="content" style="max-width:760px">
+      <div class="steps" id="wSteps">
+        <div class="step is-on" data-i="1"><b>1</b>输入 handle</div>
+        <div class="step__bar"></div>
+        <div class="step" data-i="2"><b>2</b>校验</div>
+        <div class="step__bar"></div>
+        <div class="step" data-i="3"><b>3</b>全量同步</div>
+        <div class="step__bar"></div>
+        <div class="step" data-i="4"><b>4</b>完成</div>
+      </div>
+
+      <div class="card rise" style="padding:var(--sp-3)">
+        <!-- Step 1 -->
+        <div id="w1">
+          <span class="label label--accent" style="margin-bottom:10px">Step 1</span>
+          <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em">接上你的 Codeforces</h3>
+          <p class="dim" style="font-size:13px;margin-top:8px;line-height:1.7">
+            只要 handle —— 不要密码、不要 token，数据不离开这台机器。
+          </p>
+          <div class="field" style="margin-top:var(--sp-3)">
+            <label class="label" for="handleIn">CF handle</label>
+            <div class="field__row">
+              <input class="input" id="handleIn" value="chenyu" spellcheck="false" autocomplete="off" aria-describedby="handleHint">
+              <button class="btn btn--primary" id="btnCheck" style="flex:0 0 auto">
+                <svg aria-hidden="true"><use href="#i-arrow"/></svg>校验 handle
+              </button>
+            </div>
+            <p class="hint" id="handleHint">区分大小写 · 与 CF 主页 URL 里 <code>/profile/</code> 后面那一段一致</p>
+          </div>
+          <div id="w1msg" style="margin-top:var(--sp-2)"></div>
+          <div class="plog" style="margin-top:var(--sp-3);min-height:auto;line-height:2.1">
+            预计约 8 秒 · 限速 <b>1 请求 / 2 秒</b><br>
+            断网也能打开：读本地缓存 + 明确提示，不崩。
+          </div>
+        </div>
+
+        <!-- Step 2/3 -->
+        <div id="w2" hidden>
+          <span class="label label--accent" style="margin-bottom:10px">Step 3</span>
+          <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em" id="w2title">正在拉取全量历史</h3>
+          <p class="dim" style="font-size:13px;margin-top:8px" id="w2sub"><code>chenyu</code> · 从第 1 条开始，一页 10 000 条</p>
+          <div style="margin-top:var(--sp-3)">
+            <div class="bar"><i id="wbar"></i></div>
+            <div class="prow" style="margin-top:10px;justify-content:space-between">
+              <span id="wpulled">已拉取 0 条</span><span id="wpct">0%</span>
+            </div>
+          </div>
+          <div class="plog" id="wlog" role="status" aria-live="polite"></div>
+          <div id="w2actions" style="margin-top:var(--sp-2);display:flex;gap:var(--sp-1)">
+            <button class="btn" id="btnStart"><svg aria-hidden="true"><use href="#i-sync"/></svg>开始全量同步</button>
+            <button class="btn btn--ghost" id="btnCancel">取消</button>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div id="w3" hidden>
+          <span class="label" style="color:var(--ok);margin-bottom:10px">Done</span>
+          <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em">炉子点着了</h3>
+          <div class="alert alert--ok" style="margin-top:14px">
+            <svg aria-hidden="true"><use href="#i-check"/></svg>
+            <div>
+              写入 <b>8540</b> 条提交 · <b>912</b> 道去重题 · <b>34</b> 场 rating 变化<br>
+              已存 <code>vault/anvil.db</code>（WAL）· 下次启动只拉增量
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--sp-1);margin-top:var(--sp-3)">
+            <button class="btn btn--primary btn--lg" data-goto="s1"><svg aria-hidden="true"><use href="#i-dash"/></svg>进入仪表盘</button>
+            <button class="btn btn--lg" id="btnAgain">重来一遍（演示）</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 3 · 空态与未解锁
+     ============================================================ -->
+<section class="screen" id="s3" role="tabpanel" aria-labelledby="t3" hidden>
+<div class="app">
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem" data-goto="s2"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">未配置 handle<br><code>vault/</code> 为空</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>仪表盘</h2>
+      <span class="chip" style="color:var(--text-mute)"><i style="background:var(--text-mute)"></i>未配置</span>
+      <span class="topbar__spacer"></span>
+      <button class="btn" disabled><svg aria-hidden="true"><use href="#i-sync"/></svg>同步</button>
+    </div>
+
+    <div class="content">
+      <div class="card rise" style="padding:var(--sp-3)">
+        <div class="empty-hero">
+          <div>
+            <span class="label label--accent" style="margin-bottom:12px">Cold start</span>
+            <h3 class="hero-title">铁砧还没热。<br>给我 <em>一个 handle</em>，剩下的我自己拉。</h3>
+          </div>
+          <div class="onb">
+            <div class="onb__i"><div class="onb__n">01</div><div class="onb__t">填 CF handle</div><div class="onb__p">不要密码、不要 token。10 秒。</div></div>
+            <div class="onb__i"><div class="onb__n">02</div><div class="onb__t">拉全量历史</div><div class="onb__p">公开接口分页拉取，进度实时可见。</div></div>
+            <div class="onb__i"><div class="onb__n">03</div><div class="onb__t">回来看图</div><div class="onb__p">第一天就有整张历史 —— 不用等它慢慢长。</div></div>
+          </div>
+          <div style="display:flex;gap:var(--sp-1);align-items:center">
+            <button class="btn btn--primary btn--lg" data-goto="s2"><svg aria-hidden="true"><use href="#i-arrow"/></svg>开始设置</button>
+            <button class="btn btn--lg btn--ghost">我暂时没有 CF 账号</button>
+          </div>
+          <p class="hint">之后可以再叠 AtCoder / XCPC 数据卡。</p>
+        </div>
+      </div>
+
+      <div class="card card--pad0 rise">
+        <div class="card__head">
+          <span class="label">Activity</span>
+          <h3 class="card__title">活跃格子图</h3>
+          <span class="spacer"></span>
+          <span class="card__note">0 题</span>
+        </div>
+        <div class="ghostgrid">
+          <div class="agrid" id="agrid-empty" aria-hidden="true"></div>
+          <div class="ghostgrid__veil">
+            <div>
+              <p><b>跑一次同步，这里会亮起来。</b></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-4" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="locked rise" style="padding:var(--sp-3)">
+          <svg aria-hidden="true" style="width:24px;height:24px"><use href="#i-lock"/></svg>
+          <div>
+            <div class="locked__t" style="font-size:15px">掌握图 <span class="tag">切片 3</span></div>
+            <p class="locked__p">把你做过的题铺成一张<em>技能图</em>：颜色 = 你在这个节点上<b>稳定做得出来</b>的难度，不是玄学总分。</p>
+          </div>
+        </div>
+        <div class="locked rise" style="padding:var(--sp-3)">
+          <svg aria-hidden="true" style="width:24px;height:24px"><use href="#i-lock"/></svg>
+          <div>
+            <div class="locked__t" style="font-size:15px">VP <span class="tag">切片 4</span></div>
+            <p class="locked__p">拿一份历年榜单，把<b>当时真实的名次</b>叠回你这一场 —— 幽灵队伍、自动罚时、含打星排名。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 4 · 组件与 Token 表
+     ============================================================ -->
+<section class="screen" id="s4" role="tabpanel" aria-labelledby="t4" hidden>
+<div class="app">
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" data-goto="s1"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked" data-goto="s3"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked" data-goto="s3"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem" data-goto="s2"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">Design tokens<br><code>:root</code> 变量一一对应</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>组件与 Token</h2>
+      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/04</code> §5 一致</span>
+      <span class="topbar__spacer"></span>
+      <div class="demo-tools" style="border:none;padding:0;background:none">
+        <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
+        <label class="switch"><input type="checkbox" id="rmToggle"> 模拟 reduced-motion</label>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="tk">
+
+        <section>
+          <h3>Palette <span>色板 · 语义 token</span></h3>
+          <div class="sw">
+            <div class="sw__i"><div class="sw__c" style="background:var(--bg)"></div><div class="sw__m"><b>--bg</b> #0A0C10<br><span class="sw__u">全局底 · 机房夜色</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--panel)"></div><div class="sw__m"><b>--panel</b> #12161D<br><span class="sw__u">卡片底</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--panel-2)"></div><div class="sw__m"><b>--panel-2</b> #171C25<br><span class="sw__u">卡内分层 / 输入框</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--line)"></div><div class="sw__m"><b>--line</b> #222A36<br><span class="sw__u">描边 · 分隔</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--text)"></div><div class="sw__m"><b>--text</b> #E8ECF3<br><span class="sw__u">正文 · 对比 16.3:1</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--text-dim)"></div><div class="sw__m"><b>--text-dim</b> #94A0B4<br><span class="sw__u">次级 · 6.9:1（≥4.5）</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--accent)"></div><div class="sw__m"><b>--accent</b> #F5A524<br><span class="sw__u">炉火琥珀 · 唯一主强调</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--accent-2)"></div><div class="sw__m"><b>--accent-2</b> #4CC9F0<br><span class="sw__u">数据蓝 · 只给数字与曲线</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--ok)"></div><div class="sw__m"><b>--ok</b> #3FB950<br><span class="sw__u">AC / 校验通过</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--warn)"></div><div class="sw__m"><b>--warn</b> #D29922<br><span class="sw__u">限速 / 低于均值</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--bad)"></div><div class="sw__m"><b>--bad</b> #F85149<br><span class="sw__u">WA / 同步失败</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:linear-gradient(90deg,var(--gold),var(--silver) 55%,var(--bronze))"></div><div class="sw__m"><b>--gold / --silver / --bronze</b><br><span class="sw__u">奖牌色 · 切片 4 预留</span></div></div>
+          </div>
+
+          <h3 style="margin-top:var(--sp-3)">Heat scale <span>格子图 5 档：冷铁 → 炉火</span></h3>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="sw__i" style="flex:1 1 118px"><div class="sw__c" style="background:var(--heat-0);height:52px"></div><div class="sw__m"><b>--heat-0</b> #1A1F29 · 0<br><span class="sw__u">冷铁，带一丝蓝</span></div></div>
+            <div class="sw__i" style="flex:1 1 118px"><div class="sw__c" style="background:var(--heat-1);height:52px"></div><div class="sw__m"><b>--heat-1</b> #4A3520 · 1–2<br><span class="sw__u">余温</span></div></div>
+            <div class="sw__i" style="flex:1 1 118px"><div class="sw__c" style="background:var(--heat-2);height:52px"></div><div class="sw__m"><b>--heat-2</b> #7A5426 · 3–5<br><span class="sw__u">回炉</span></div></div>
+            <div class="sw__i" style="flex:1 1 118px"><div class="sw__c" style="background:var(--heat-3);height:52px"></div><div class="sw__m"><b>--heat-3</b> #B27B2E · 6–9<br><span class="sw__u">橙红</span></div></div>
+            <div class="sw__i" style="flex:1 1 118px"><div class="sw__c" style="background:var(--heat-4);height:52px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></div><div class="sw__m"><b>--heat-4</b> #F5A524 · 10+<br><span class="sw__u">火头 · 唯一带内高光</span></div></div>
+          </div>
+        </section>
+
+        <section>
+          <h3>Type scale <span>界面 Segoe UI / 雅黑 · 数字等宽 tabular-nums</span></h3>
+          <div class="type-row">
+            <div class="type-i"><span style="font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:32px;font-weight:600;letter-spacing:-.02em">912</span><span class="spec">Display 32 / mono · 统计主数字</span></div>
+            <div class="type-i"><span style="font-size:26px;font-weight:600;letter-spacing:-.01em">铁砧还没热</span><span class="spec">H1 26 / 600 · 空态大标题</span></div>
+            <div class="type-i"><span style="font-size:19px;font-weight:600">接上你的 Codeforces</span><span class="spec">H2 19 / 600 · 向导标题</span></div>
+            <div class="type-i"><span style="font-size:15px;font-weight:600">仪表盘 · 活跃格子图</span><span class="spec">Title 15 / 600 · 页面与卡片标题</span></div>
+            <div class="type-i"><span style="font-size:13.5px">正文 13.5 · 卡片说明与副行</span><span class="spec">Body 13.5 / 1.55</span></div>
+            <div class="type-i"><span class="dim" style="font-size:12px">次级 12 · 释义与时间</span><span class="spec">Secondary 12 · --text-dim</span></div>
+            <div class="type-i"><span class="label label--accent">Activity</span><span class="spec">Label 10 / mono / .14em / upper · 刻印标签</span></div>
+            <div class="type-i"><span style="font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12px;color:var(--accent-2)">8540 · 1683 · −19</span><span class="spec">Num 12 / mono · 计数、增量、日志</span></div>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            数字一律走 <code>--font-num</code>（Cascadia Code → Cascadia Mono → Consolas 回退链）并开 <code>tabular-nums</code>：
+            同一列数字上下对齐不跳动，是"仪表"而不是"海报"的底线。千分位只在 ≥10 000 时用，rating 不加（1683）。
+          </p>
+        </section>
+
+        <section>
+          <div class="tk-grid2">
+            <div>
+              <h3>Spacing <span>8 的倍数</span></h3>
+              <div class="spacer-row">
+                <div class="spacer-i"><b style="height:8px"></b><span>8</span></div>
+                <div class="spacer-i"><b style="height:16px"></b><span>16</span></div>
+                <div class="spacer-i"><b style="height:24px"></b><span>24</span></div>
+                <div class="spacer-i"><b style="height:32px"></b><span>32</span></div>
+                <div class="spacer-i"><b style="height:40px"></b><span>40</span></div>
+                <div class="spacer-i"><b style="height:48px"></b><span>48</span></div>
+              </div>
+              <p class="hint">卡内 <b>16 / 24</b>；卡间 <b>16</b>；内容区左右 <b>32</b>；导航 <b>220px</b> 固定；顶栏 <b>56px</b>。</p>
+            </div>
+            <div>
+              <h3>Radius <span>基准 10px</span></h3>
+              <div class="radii">
+                <b style="border-radius:4px"><span>4 · 控件</span></b>
+                <b style="border-radius:10px"><span>10 · 卡片</span></b>
+                <b style="border-radius:14px"><span>14 · 大壳</span></b>
+                <b style="border-radius:2px"><span>2 · 格子</span></b>
+              </div>
+              <p class="hint">格子 2px 是唯一例外：11px 的方块用 10px 圆角会糊成一团豆子。</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>Buttons <span>主 / 次 / 幽灵 / 危险 · 五态</span></h3>
+          <div class="states">
+            <div class="state"><span class="state__n">默认</span>
+              <button class="btn btn--primary">同步</button><button class="btn">取消</button><button class="btn btn--ghost">更多</button><button class="btn btn--danger">清空数据</button></div>
+            <div class="state"><span class="state__n">Hover</span>
+              <button class="btn btn--primary" style="background:#FFB63C;border-color:#FFD180;box-shadow:0 0 0 3px rgba(245,165,36,.16)">同步</button>
+              <button class="btn" style="background:#1E252F;border-color:#39465A">取消</button>
+              <button class="btn btn--ghost" style="background:rgba(255,255,255,.05);border-color:var(--line);color:var(--text)">更多</button>
+              <button class="btn btn--danger" style="background:rgba(248,81,73,.2);border-color:var(--bad)">清空数据</button></div>
+            <div class="state"><span class="state__n">Active</span>
+              <button class="btn btn--primary" style="background:#DE9417;transform:translateY(1px)">同步</button>
+              <button class="btn" style="background:#1A2028;transform:translateY(1px)">取消</button>
+              <button class="btn btn--ghost" style="background:rgba(255,255,255,.02);transform:translateY(1px);border-color:transparent">更多</button>
+              <button class="btn btn--danger" style="background:rgba(248,81,73,.26);transform:translateY(1px)">清空数据</button></div>
+            <div class="state"><span class="state__n">Focus</span>
+              <button class="btn btn--primary" style="outline:2px solid var(--accent);outline-offset:2px">同步</button>
+              <button class="btn" style="outline:2px solid var(--accent);outline-offset:2px">取消</button>
+              <button class="btn btn--ghost" style="outline:2px solid var(--accent);outline-offset:2px;border-color:transparent">更多</button>
+              <button class="btn btn--danger" style="outline:2px solid var(--accent);outline-offset:2px">清空数据</button></div>
+            <div class="state"><span class="state__n">Disabled</span>
+              <button class="btn btn--primary" disabled>同步</button><button class="btn" disabled>取消</button><button class="btn btn--ghost" disabled>更多</button><button class="btn btn--danger" disabled>清空数据</button></div>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            一屏只允许<b>一个实心琥珀按钮</b>。琥珀 = "现在就点它"；出现第二个，指针就没了指向。
+            顶栏同步用半透琥珀底 <code>.btn-sync</code> —— 它是常驻工具，不是主 CTA。
+          </p>
+        </section>
+
+        <section>
+          <h3>Live demo <span>格子 tooltip · 动效重播</span></h3>
+          <div>
+            <div class="agrid" id="agrid-demo" role="group" aria-label="格子图 hover 演示"></div>
+          </div>
+          <div class="demo-tools" style="margin-top:var(--sp-2)">
+            <span class="label">悬停上方小格</span>
+            <button class="btn btn--sm" id="replay2"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播 stagger + count-up</button>
+            <label class="switch"><input type="checkbox" id="rmToggle2"> 模拟 reduced-motion</label>
+            <span class="hint" id="rmState">当前：动效开启（371 格 stagger 1.2ms · 淡入 180ms · 数字 count-up 560ms）</span>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            tooltip 两行：<b>日期 + 星期</b> / <b style="color:var(--accent)">过 N 题</b>；0 题写"没有训练"并转灰。
+            定位用 <code>position:fixed</code> + <code>getBoundingClientRect()</code>，不受内容区滚动裁剪。
+            <code>prefers-reduced-motion: reduce</code> 下：stagger 与 count-up 直接落终值，hover 只留描边不留位移。
+          </p>
+        </section>
+
+        <section>
+          <h3>Data slots <span>数据槽位 · 界面上每个具体数字都是一个 data-bind</span></h3>
+          <p class="hint" style="margin-bottom:var(--sp-2)">
+            屏 1 的 markup 里每个值都挂着一个与接口字段同名的槽，渲染层只读 <code>API</code> 这一个对象；换成 <code>fetch</code> 的结果，组件一行都不用改。
+            <b>取不到值的槽一律渲染 “—”，不渲染 0</b> —— 后端还没算这个数的时候，界面不会拿假数填空。
+          </p>
+          <table class="sl">
+            <thead><tr><th style="width:210px">data-bind</th><th style="width:190px">界面上的位置</th><th style="width:150px">类型</th><th>口径 / 备注</th></tr></thead>
+            <tbody>
+              <tr class="grp"><td colspan="4">GET /api/status</td></tr>
+              <tr><td>status.configured</td><td>整屏分流</td><td class="t">boolean</td><td>false → 走屏 3 空态，不渲染任何统计</td></tr>
+              <tr><td>status.handle</td><td>顶栏 chip</td><td class="t">string</td><td>只给裸 handle；<b>@ 是样式，不是数据</b></td></tr>
+              <tr><td>status.lastSyncText</td><td>顶栏「上次同步…」</td><td class="t">string</td><td>由 <code>lastSyncAt</code> 在前端格式化相对时间，接口别给成品串（会过期）</td></tr>
+              <tr><td>status.counts.submissions</td><td>左下导航脚注</td><td class="t">int</td><td>落库提交条数</td></tr>
+              <tr><td>status.counts.problems</td><td>左下导航脚注</td><td class="t">int</td><td>去重题数，与 <code>stats.totalSolved</code> 同一个数</td></tr>
+
+              <tr class="grp"><td colspan="4">GET /api/dashboard</td></tr>
+              <tr><td>activity[]</td><td>格子图 · 14 日刻度</td><td class="t">{day,solved}[]</td><td><code>day</code> 为 <code>"YYYY-MM-DD"</code> 本地日。<b>缺项 = 那天还没到</b>（渲染成不可见），与 solved:0 是两件事</td></tr>
+              <tr><td>stats.totalSolved</td><td>卡 1 主数字</td><td class="t">int</td><td>首次 AC 计一道</td></tr>
+              <tr><td>stats.activityTotal</td><td>格子图右上注</td><td class="t">int</td><td>单位是「题次」，与 totalSolved 无加法关系</td></tr>
+              <tr><td>stats.months[]</td><td>卡 2 主数字 + 迷你柱状</td><td class="t">{month,solved,partial}[]</td><td>近 6 个本地日历月，末项 = 当月。<b>主数字绑 <code>stats.months.-1.solved</code></b>（<code>-1</code> = 末项）。柱高按这 6 项的最大值归一</td></tr>
+              <tr><td>stats.months[].partial</td><td>末根柱的"进行中"样式</td><td class="t">boolean</td><td>true → 半透明柱 + 虚底，hover 出「2026-10 · 9 题 · 进行中」。<b>不做任何高于 / 低于判断</b>，涨跌看柱形、细节看 hover</td></tr>
+              <tr><td>stats.streak.days</td><td>卡 4 主数字</td><td class="t">int</td><td>今天无 AC 时从昨天起算（docs/04 §4.3）</td></tr>
+              <tr><td>stats.streak.sub</td><td>卡 4 副行</td><td class="t">string</td><td>「今天还没开张」这类诚实文案由后端拼，前端不猜状态</td></tr>
+              <tr><td>stats.longestRun.days<br>stats.longestRun.range</td><td>格子图右侧读数</td><td class="t">string</td><td>已带单位的成品串</td></tr>
+              <tr><td>stats.gaps3 · stats.weekendPct</td><td>格子图右侧读数</td><td class="t">string</td><td>同源派生，整块可删，删了不动布局</td></tr>
+              <tr><td>rating.series[]</td><td>折线 + 逐点 tooltip</td><td class="t">{ts,newRating,contestName,delta}[]</td><td>峰值点由前端取 max，不占字段；y 轴域也按数据算</td></tr>
+              <tr><td>rating.current · .max · .first</td><td>卡 3 · 折线注</td><td class="t">int</td><td>—</td></tr>
+              <tr><td>rating.count</td><td>卡标题「近 N 场」</td><td class="t">int</td><td>标题也是数据，别写死 30</td></tr>
+              <tr><td>rating.rankLabel</td><td>卡 3 单位</td><td class="t">string</td><td>CF 原始英文段位名（Expert / Candidate Master …），不做中译</td></tr>
+              <tr><td>rating.lastDeltaText<br>rating.lastDeltaTone</td><td>卡 3 徽章</td><td class="t">string + int</td><td>串自带 +/−；tone 管颜色</td></tr>
+              <tr><td>rating.lastContestShort<br>rating.lastContest</td><td>卡 3 副行 / tooltip</td><td class="t">string</td><td>短名「CF 1081 (Div. 2)」上卡面，全名留给 tooltip</td></tr>
+
+              <tr class="grp"><td colspan="4">POST /api/sync + GET /api/sync/state（向导）</td></tr>
+              <tr><td>sync.total · .pages</td><td>进度条「已拉取 X 条 / 第 N 页」</td><td class="t">int</td><td>phase: idle｜fetching｜storing｜done｜error</td></tr>
+              <tr><td>sync.problems · .ratingContests · .offsite</td><td>完成态与日志</td><td class="t">int</td><td><code>offsite</code> = 哨兵值转 NULL 的场外提交数</td></tr>
+            </tbody>
+          </table>
+          <p class="hint" style="margin-top:var(--sp-2)">
+            分工规则：<b>主数字给 int</b>（要跑 count-up，前端必须拿到数）；<b>读数与副行给带单位的成品串</b>（口径复杂，后端拼一次胜过前端猜十次）。
+            所有派生量（近 6 月柱、周末占比、最长连续、断档次数）都归 <code>packages/shared</code> 的纯函数，接口出、界面收。
+          </p>
+        </section>
+
+        <section>
+          <h3>Decisions <span>最需要拍板的几件事</span></h3>
+          <div class="dec">
+            <div class="dec__i"><div>
+              <div class="dec__t">① 琥珀只干一件事：热 = 锻打发生过</div>
+              <p class="dec__p">琥珀同时是热力色阶顶端、主按钮、连续天数和顶栏余热线 —— 全部指向"你在这里花过时间"。数据蓝 <code>--accent-2</code> 单独承包一切数字与曲线，两色不混用，所以 <b>rating 卡是蓝的、连续卡是琥珀的</b>。若你认为 rating 才该是主角，就把两色分工对调。</p>
+            </div></div>
+            <div class="dec__i dec__i--blue"><div>
+              <div class="dec__t">② 连续天数走"诚实态"：12 天 + 今天还没开张</div>
+              <p class="dec__p">演示画像今天（10-03）没有 AC，主数字仍显示 12（从昨天倒推），副行明写"今天还没开张"，最后一格只留蓝色描边、不填色。宁可得罪人也不造假 streak。另一条路是<b>今天没打就把数字转灰显示 0</b>，更狠也更诚实，需要你定。</p>
+            </div></div>
+            <div class="dec__i dec__i--line"><div>
+              <div class="dec__t">③ 周一开头 + 格子求和与生涯数不做强行对齐</div>
+              <p class="dec__p">按国内习惯周一为第一行（GitHub 是周日），行标签只留 一 / 三 / 五。格子求和 <b>1024 题次</b>、生涯去重 <b>912 题</b> —— 两者<b>没有加法关系</b>（同题隔天再 AC 会在两个日格各亮一次），所以卡片脚注写的是口径而不是换算，免得日后被当 bug 提。</p>
+            </div></div>
+            <div class="dec__i dec__i--line"><div>
+              <div class="dec__t">④ 密度换安静：一屏看完，不留欢迎语</div>
+              <p class="dec__p">1440×900 下 4 卡 + 格子图 + 曲线 + 2 张未解锁正好一屏不滚动；代价是 1280×800 开始纵向滚动，且没有留白给"今天也要加油"这类废话。格子图右侧那 3 行读数（最长连续 / 断档 / 周末占比）是同源派生，<b>觉得多余可以整块删掉</b>，不影响布局。</p>
+            </div></div>
+            <div class="dec__i"><div>
+              <div class="dec__t">⑤ 未解锁用虚线卡，不用灰蒙层 / 锁弹窗</div>
+              <p class="dec__p">虚线 = "这里以后有东西，现在还没浇铸"，预告文案直接写切片号，给进度一个刻度。实心锁、打码模糊那套是商业产品付费墙的语气，本地自留地不该有。</p>
+            </div></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v2 · 数据为演示假数据</footer>
+
+<div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
+
+<script>
+/* ==========================================================================
+   演示数据：全部确定性 —— 冻结日期 + 固定种子 PRNG，每次打开一模一样。
+   画像：中国大学生 ICPC 选手 @chenyu · 生涯 912 题 · rating 1400→1683。
+   实现 agent 注意：这一段在真实产品里由 /api/dashboard 提供，不要搬进 React。
+   ========================================================================== */
+(function(){
+"use strict";
+
+/* ---------- 固定种子随机 ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var rnd = mulberry32(0x4E564C);   /* "NVIL" */
+
+/* ---------- 时间骨架：冻结今天，免得每次打开图都往后滑 ---------- */
+var MS = 86400000;
+var TODAY = new Date(2026, 9, 3);                                   /* 2026-10-03 周六 */
+var WEEKS = 53;
+function dowMon(d){return (d.getDay()+6)%7}                         /* 周一=0 … 周日=6 */
+function mondayOf(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate()-dowMon(d))}
+var GRID_START = new Date(mondayOf(TODAY).getTime() - (WEEKS-1)*7*MS);   /* 2025-09-29 周一 */
+var CELLS = WEEKS*7;
+var N_REAL = Math.round((TODAY - GRID_START)/MS) + 1;               /* 370 个真实日 */
+var WD = ["一","二","三","四","五","六","日"];
+function p2(n){return String(n).padStart(2,"0")}
+function key(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())}
+
+/* ---------- 赛季权重：学期中稳定 · 寒暑假集训拉满 · 期末与春节断档 ---------- */
+function band(y,m,d){
+  var t = y*10000 + m*100 + d;
+  if(t < 20251001) return 1.00;
+  if(t < 20251101) return 1.25;
+  if(t < 20251201) return 1.35;
+  if(t < 20251221) return 1.25;
+  if(t < 20260105) return 0.30;   /* 期末考试周 */
+  if(t < 20260119) return 0.90;   /* 寒假松期 */
+  if(t < 20260209) return 7.50;   /* 冬训营 */
+  if(t < 20260215) return 1.20;
+  if(t < 20260222) return 0.10;   /* 春节 2026-02-17 */
+  if(t < 20260401) return 1.55;
+  if(t < 20260501) return 1.70;
+  if(t < 20260506) return 8.00;   /* 五一集训 */
+  if(t < 20260615) return 1.45;
+  if(t < 20260622) return 0.25;   /* 期末 */
+  if(t < 20260824) return 7.50;   /* 暑假集训 · 全年最热 */
+  if(t < 20260901) return 1.90;   /* 返校 */
+  return 1.20;                    /* 开学季 */
+}
+var ZEROS = [["2025-12-24","2025-12-31"],["2026-01-28","2026-01-30"],
+             ["2026-02-15","2026-02-21"],["2026-06-15","2026-06-20"]];
+function isZero(k){
+  for(var i=0;i<ZEROS.length;i++) if(k>=ZEROS[i][0] && k<=ZEROS[i][1]) return true;
+  return false;
+}
+/* 网络赛 / 校赛：钉死为爆肝日，不参与缩放 */
+var SPIKES = {"2025-11-08":13,"2026-03-14":12,"2026-04-18":14,"2026-05-02":15,"2026-07-11":16,"2026-08-08":15};
+
+/* ---------- 尾部 30 天写死：保证 当月 9 题 / 连续 12 天 / 近两周断 2 天 ---------- */
+/* 2026-09-04 → 2026-10-03；国庆那两天猛打，今天还没开张 */
+var FIXED30 = [2,0,1,1,0,0,0,3,0,0,1,0,0,0,0,0, 0, 1,1,2,1,2,3,4,1,1,1,5,4, 0];
+var FIXED30_SUM = FIXED30.reduce(function(a,b){ return a+b }, 0);
+var GRID_TOTAL = 1024;  /* 53 周格子求和（单位：题·日）；生涯去重数在 API 里 */
+
+/* ---------- 生成日序列 ---------- */
+function buildDays(){
+  var days=[],i,d,k;
+  for(i=0;i<CELLS;i++){
+    d = new Date(GRID_START.getTime()+i*MS);
+    k = key(d);
+    days.push({i:i,d:d,k:k,future:i>=N_REAL,w:0,v:0,zero:isZero(k)});
+  }
+  for(i=0;i<30;i++){ days[N_REAL-30+i].v = FIXED30[i]; }
+
+  var lo=0, hi=N_REAL-31, pinned=0, pool=[];
+  for(i=lo;i<=hi;i++){
+    var day=days[i];
+    if(SPIKES[day.k]!==undefined && !day.zero){
+      day.v=SPIKES[day.k]; pinned+=day.v; continue;      /* 爆肝日钉死，不参与缩放 */
+    }
+    if(day.zero){ day.w=0; day.v=0; continue }
+    day.w = band(day.d.getFullYear(), day.d.getMonth()+1, day.d.getDate());
+    if(dowMon(day.d)>=5) day.w *= 1.75;            /* 周末偏多 */
+    day.w *= (0.45 + rnd()*1.25);                  /* 确定性噪声 */
+    pool.push(i);
+  }
+  /* 最大余数法：剩下的配额按权重分完，求和精确、形状不失真 */
+  var need = GRID_TOTAL - FIXED30_SUM - pinned, sumW=0, frac=[], rem=need;
+  pool.forEach(function(k){ sumW += days[k].w });
+  pool.forEach(function(k){
+    var raw = sumW>0 ? days[k].w/sumW*need : 0;
+    days[k].v = Math.min(16, Math.floor(raw));
+    rem -= days[k].v;
+    frac.push({i:k, f:raw-Math.floor(raw)});
+  });
+  frac.sort(function(a,b){ return b.f-a.f || a.i-b.i });
+  for(i=0; i<frac.length && rem>0; i++){ if(days[frac[i].i].v<16){ days[frac[i].i].v++; rem--; } }
+  return days;
+}
+var DAYS = buildDays();
+function lvl(v){return v<=0?0 : v<=2?1 : v<=5?2 : v<=9?3 : 4}
+function ymd(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())}
+function parseYMD(s){ var a=s.split("-"); return new Date(+a[0], +a[1]-1, +a[2]) }
+
+/* ---------- Rating 场次：30 场，名字按日期生成，保证 "Hello 2026" 真落在 1 月 ---------- */
+var RATING=[1400,1438,1372,1419,1461,1428,1483,1512,1466,1499,1548,1519,1571,1604,1562,1588,1629,1661,1618,1645,1688,1652,1671,1712,1731,1694,1719,1701,1663,1683];
+var CONTESTS=(function(){
+  var gaps=[18,21,17,22,19,18,20,17,19,21,18,17,20,19,18,17,19,18,20,17,18,19,17,18,20,17,19,18,17,14];
+  var out=[], t=TODAY.getTime()-6*MS, num=1081, edu=209, hello=false;
+  for(var i=29;i>=0;i--){
+    var d=new Date(t), m=d.getMonth(), y=d.getFullYear(), name;
+    if(m===0 && !hello){ hello=true; name="Hello "+y+" (Div. 1 + Div. 2)" }
+    else if(m===3 && d.getDate()<=12){ name="April Fools' Day Contest "+y }
+    else if(i%4===1){ name="Educational Codeforces Round "+(edu--)+" (Rated for Div. 2)" }
+    else if(i%7===3){ name="Codeforces Round "+(num--)+" (Div. 1 + Div. 2)" }
+    else { name="Codeforces Round "+(num--)+" (Div. 2)" }
+    out[i]={name:name, ts:d};
+    t -= gaps[i]*MS;
+  }
+  return out;
+})();
+/* 卡面上要短，tooltip 里要全。长模式先替，否则 "Educational Codeforces Round" 会被先截成 "Educational CF" */
+function shortContest(n){
+  return n.replace("Educational Codeforces Round ","Edu ")
+          .replace("Codeforces Round ","CF ")
+          .replace("April Fools' Day Contest ","Fools ")
+          .replace(" (Rated for Div. 2)","");
+}
+
+/* ==========================================================================
+   数据层 —— 界面上每一个具体数字都从这里来。
+   真实产品里这一整块由 GET /api/status + GET /api/dashboard 提供，
+   形状照 docs/04 §4.4；把它换成 fetch 的结果，下面的渲染一行都不用改。
+   ========================================================================== */
+var API = (function(){
+  var TOTAL_SUB = 8540, TOTAL_PROBLEM = 912;
+
+  var activity = DAYS.filter(function(x){return !x.future})
+                     .map(function(x){ return {day:x.k, solved:x.v} });   /* [{day:"2026-10-03", solved:0}] */
+  var n = activity.length;
+  function sum(a){ return a.reduce(function(t,x){ return t+x.solved },0) }
+  function wd(s){ return dowMon(parseYMD(s)) }
+
+  var gridSum=sum(activity);
+  var weekend=0;
+  activity.forEach(function(a){ if(wd(a.day)>=5) weekend+=a.solved });
+
+  var todaySolved=activity[n-1].solved, k=n-1;
+  if(todaySolved===0) k--;                          /* 今天没开张 → 从昨天起算 */
+  var streak=0; while(k>=0 && activity[k].solved>0){ streak++; k-- }
+
+  var best=0,cur=0,bestEnd=0,gaps=[],gap=0;
+  activity.forEach(function(a,idx){
+    if(a.solved>0){ cur++; if(cur>best){best=cur;bestEnd=idx} if(gap>=3) gaps.push(gap); gap=0 }
+    else { cur=0; gap++ }
+  });
+  if(gap>=3) gaps.push(gap);
+
+  var series = RATING.map(function(v,i){
+    return { ts:ymd(CONTESTS[i].ts), newRating:v, contestName:CONTESTS[i].name, delta: i ? v-RATING[i-1] : 0 };
+  });
+  var last = series[series.length-1];
+  var P_max = Math.max.apply(null, series.map(function(p){ return p.newRating }));
+  function signed(n){ return (n>0?"+":n<0?"−":"±")+Math.abs(n) }
+
+  /* 近 6 个日历月（含当月）。当月标 partial —— 不做任何"高于/低于"判断，涨跌看柱形、细节看 hover */
+  var months=[];
+  for(var back=5;back>=0;back--){
+    var st=new Date(TODAY.getFullYear(), TODAY.getMonth()-back, 1);
+    var en=new Date(st.getFullYear(), st.getMonth()+1, 1);
+    var total=0;
+    activity.forEach(function(a){ var d=parseYMD(a.day); if(d>=st && d<en) total+=a.solved });
+    months.push({month:st.getFullYear()+"-"+p2(st.getMonth()+1), solved:total,
+                 partial: st.getMonth()===TODAY.getMonth() && st.getFullYear()===TODAY.getFullYear()});
+  }
+
+  return {
+    /* GET /api/status */
+    status:{ configured:true, handle:"chenyu", lastSyncText:"12 分钟前",
+             counts:{ submissions:TOTAL_SUB, problems:TOTAL_PROBLEM } },
+    /* GET /api/dashboard.activity —— 一格一项，渲染层只认这个数组 */
+    activity: activity,
+    stats:{
+      totalSolved:   TOTAL_PROBLEM,
+      activityTotal: gridSum,
+      months: months,
+      streak:{ days:streak,
+               sub: todaySolved>0 ? "已连续 "+streak+" 天 · 今天已开张"
+                                  : "今天还没开张 · 昨日 "+activity[n-2].solved+" 题" },
+      longestRun:{ days:best+" 天",
+                   range: activity[bestEnd-best+1].day.slice(5)+" → "+activity[bestEnd].day.slice(5) },
+      gaps3:    gaps.length+" 次",
+      weekendPct: Math.round(weekend/gridSum*100)+"%"
+    },
+    rating:{
+      count: series.length,
+      current: last.newRating, first: series[0].newRating, max: P_max,
+      totalDelta: signed(last.newRating-series[0].newRating),
+      totalDeltaTone: last.newRating-series[0].newRating,
+      lastDeltaText: signed(last.delta),
+      lastDeltaTone: last.delta,
+      lastContestShort: shortContest(last.contestName),
+      lastContest: last.contestName,
+      rankLabel: "Expert",
+      series: series
+    },
+    /* GET /api/sync/state —— 向导用 */
+    sync:{ total:TOTAL_SUB, pages:3, problems:TOTAL_PROBLEM, ratingContests:34, offsite:1268 }
+  };
+})();
+
+/* ==========================================================================
+   渲染
+   ========================================================================== */
+var $ =function(s,r){return (r||document).querySelector(s)};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+function el(tag,cls,txt){var n=document.createElement(tag); if(cls)n.className=cls; if(txt!=null)n.textContent=txt; return n}
+var SVGNS="http://www.w3.org/2000/svg";
+function svgEl(t,attrs){var n=document.createElementNS(SVGNS,t); for(var k in attrs) n.setAttribute(k,attrs[k]); return n}
+
+/* ---------- Tooltip ---------- */
+var TIP=$("#tip");
+function showTip(cx,cy,dateStr,valLine,zero){
+  TIP.innerHTML="";
+  TIP.appendChild(el("div","tip__d",dateStr));
+  TIP.appendChild(el("div","tip__v"+(zero?" is-zero":""),valLine));
+  TIP.hidden=false;
+  var half=TIP.offsetWidth/2+6;
+  TIP.style.left=Math.max(half,Math.min(window.innerWidth-half,cx))+"px";
+  TIP.style.top=(cy-10)+"px";
+}
+function hideTip(){ TIP.hidden=true }
+
+/* ---------- 活跃格子图：只读 API.activity ---------- */
+function renderGrid(host, allCold){
+  host.innerHTML="";
+  var byDay={}; API.activity.forEach(function(a){ byDay[a.day]=a.solved });
+
+  /* 月份标签：该周含某月 1 号 → 标该月；距上一个不足 3 列就跳过（否则糊在一起） */
+  var last=-99;
+  for(var c=0;c<WEEKS;c++){
+    var ms=null;
+    for(var j=0;j<7;j++){
+      var d=new Date(GRID_START.getTime()+(c*7+j)*MS);
+      if(d.getDate()===1 && d<=TODAY){ ms=d; break }
+    }
+    if(!ms || (c-last<3 && c!==0)) continue;
+    var lab=el("div","amonth", ms.getMonth()===0 ? String(ms.getFullYear()) : (ms.getMonth()+1)+"月");
+    lab.style.gridRow="1"; lab.style.gridColumn=String(c+2);
+    host.appendChild(lab); last=c;
+  }
+  /* 星期标签：真实的第一列，不用绝对定位（免得被滚动容器裁掉） */
+  [0,2,4].forEach(function(r){
+    var t=el("div","awd",["周一","周三","周五"][ [0,2,4].indexOf(r) ]);
+    t.style.gridRow=String(r+2); t.style.gridColumn="1";
+    host.appendChild(t);
+  });
+  /* 格子：53 周 × 7 天；数组里没有的那一天 = 还没到 */
+  for(var i=0;i<CELLS;i++){
+    var date=new Date(GRID_START.getTime()+i*MS), iso=ymd(date);
+    var cell=el("div","acell");
+    cell.style.gridRow=String(dowMon(date)+2);
+    cell.style.gridColumn=String(Math.floor(i/7)+2);
+    if(date>TODAY || !(iso in byDay)){ cell.classList.add("acell--future"); host.appendChild(cell); continue }
+    var v = allCold ? 0 : byDay[iso];
+    cell.dataset.l=String(lvl(v));
+    if(allCold){ cell.style.animation="none"; cell.style.opacity="1" }
+    else{
+      cell.style.animationDelay=Math.min(470, i*1.2)+"ms";
+      (function(cell,date,iso,v){
+        cell.addEventListener("mouseenter",function(){
+          var r=cell.getBoundingClientRect();
+          showTip(r.left+r.width/2, r.top, iso+" · 周"+WD[dowMon(date)], v>0?("过 "+v+" 题"):"没有训练", v===0);
+        });
+        cell.addEventListener("mouseleave",hideTip);
+      })(cell,date,iso,v);
+    }
+    if(iso===ymd(TODAY)) cell.classList.add("acell--today");
+    host.appendChild(cell);
+  }
+  if(!allCold) host.setAttribute("aria-label","近 53 周活跃格子图：合计 "+API.stats.activityTotal+" 题次");
+}
+
+/* 屏 4 的 hover 演示：一小段 activity，形状与 API.activity 完全一致 */
+var DEMO_ACTIVITY=(function(){
+  var v=[1,0,3,2,0,16,9, 2,1,5,4,0,7,1, 0,2,9,6,2,1,11, 0,3,8,1,0,4,14], out=[], t0=new Date(2026,6,6).getTime();
+  for(var i=0;i<28;i++) out.push({day:ymd(new Date(t0+i*MS)), solved:v[i]});
+  return out;
+})();
+function renderMiniGrid(host){
+  host.innerHTML="";
+  host.style.gridTemplateColumns="30px repeat(4,var(--cell))";
+  DEMO_ACTIVITY.forEach(function(a,i){
+    var date=parseYMD(a.day), cell=el("div","acell");
+    cell.dataset.l=String(lvl(a.solved));
+    cell.style.gridRow=String(dowMon(date)+2); cell.style.gridColumn=String(Math.floor(i/7)+2);
+    cell.style.animationDelay=i*16+"ms";
+    cell.addEventListener("mouseenter",function(){
+      var r=cell.getBoundingClientRect();
+      showTip(r.left+r.width/2, r.top, a.day+" · 周"+WD[dowMon(date)], a.solved>0?("过 "+a.solved+" 题"):"没有训练", a.solved===0);
+    });
+    cell.addEventListener("mouseleave",hideTip);
+    host.appendChild(cell);
+  });
+  [0,2,4].forEach(function(r){
+    var t=el("div","awd",["周一","周三","周五"][ [0,2,4].indexOf(r) ]);
+    t.style.gridRow=String(r+2); t.style.gridColumn="1"; host.appendChild(t);
+  });
+}
+
+/* ---------- Rating 曲线：只读 API.rating.series ---------- */
+function renderChart(host){
+  var P=API.rating.series, n=P.length-1;
+  var W=660,H=168,PL=46,PR=56,PT=28,PB=16;
+  var lo=Math.min.apply(null,P.map(function(p){return p.newRating}));
+  var hi=Math.max.apply(null,P.map(function(p){return p.newRating}));
+  var min=Math.floor((lo-60)/50)*50, max=Math.ceil((hi+60)/50)*50;
+  function X(i){return PL + i*(W-PL-PR)/n}
+  function Y(v){return PT + (1-(v-min)/(max-min))*(H-PT-PB)}
+  var pi=0; P.forEach(function(p,i){ if(p.newRating>P[pi].newRating) pi=i });
+  var last=P[n], start=P[0];
+  var grid=[]; for(var g=min; g<=max; g+=100) if(g>min && g<max) grid.push(g);
+
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,role:"img",
+    "aria-label":"近 "+P.length+" 场 rating 折线："+start.newRating+" 到 "+last.newRating+"，最高 "+P[pi].newRating});
+
+  grid.forEach(function(v){
+    svg.appendChild(svgEl("line",{x1:PL,x2:W-PR,y1:Y(v),y2:Y(v),stroke:"#222A36","stroke-width":1,"vector-effect":"non-scaling-stroke"}));
+    var t=svgEl("text",{x:PL-9,y:Y(v)+3.4,"text-anchor":"end",fill:"#6C7A8C","font-size":10,"font-family":"Consolas, monospace"});
+    t.textContent=String(v); svg.appendChild(t);
+  });
+  /* 起点以下压暗：那是已经离开的地方 */
+  svg.appendChild(svgEl("rect",{x:PL,y:Y(start.newRating),width:W-PL-PR,height:H-PB-Y(start.newRating),fill:"rgba(76,201,240,.035)"}));
+
+  /* 分段着色：涨 = 数据蓝，跌 = 琥珀 */
+  for(var s=0;s<n;s++){
+    var up = P[s+1].newRating >= P[s].newRating;
+    svg.appendChild(svgEl("line",{x1:X(s),y1:Y(P[s].newRating),x2:X(s+1),y2:Y(P[s+1].newRating),
+      stroke: up?"#4CC9F0":"#F5A524","stroke-width":1.9,"stroke-linecap":"round","vector-effect":"non-scaling-stroke"}));
+  }
+
+  svg.appendChild(svgEl("line",{x1:X(pi),x2:X(pi),y1:Y(P[pi].newRating)+7,y2:H-PB,stroke:"rgba(245,165,36,.30)","stroke-dasharray":"2 3","vector-effect":"non-scaling-stroke"}));
+  svg.appendChild(svgEl("circle",{cx:X(pi),cy:Y(P[pi].newRating),r:4.4,fill:"#0A0C10",stroke:"#F5A524","stroke-width":1.6,"vector-effect":"non-scaling-stroke"}));
+
+  P.forEach(function(p,i){
+    if(i===pi||i===n) return;
+    svg.appendChild(svgEl("circle",{cx:X(i),cy:Y(p.newRating),r:2.1,fill:p.delta>=0?"#4CC9F0":"#F5A524",opacity:.75}));
+  });
+  svg.appendChild(svgEl("circle",{cx:X(n),cy:Y(last.newRating),r:9,fill:"rgba(245,165,36,.14)"}));
+  svg.appendChild(svgEl("circle",{cx:X(n),cy:Y(last.newRating),r:4,fill:"#F5A524",stroke:"#0A0C10","stroke-width":1.5,"vector-effect":"non-scaling-stroke"}));
+
+  /* 命中区：整列可悬停 */
+  P.forEach(function(p,i){
+    var r=svgEl("rect",{class:"hit",x:X(i)-(W-PL-PR)/n/2,y:0,width:(W-PL-PR)/n,height:H});
+    r.addEventListener("mouseenter",function(){
+      var box=r.getBoundingClientRect();
+      var txt = p.newRating + (i===0 ? " · 起点" : "  "+(p.delta>0?"+"+p.delta:p.delta<0?"−"+(-p.delta):"±0"));
+      if(i===pi) txt += " · 峰值";
+      showTip(box.left+box.width/2, box.top+(Y(p.newRating)/H)*box.height,
+              p.contestName+" · "+p.ts.slice(0,7), txt, false);
+    });
+    r.addEventListener("mouseleave",hideTip);
+    svg.appendChild(r);
+  });
+
+  host.innerHTML="";
+  host.appendChild(svg);
+  var pk=el("div","chart__peak","峰值 "+P[pi].newRating);
+  pk.style.left=(X(pi)/W*100)+"%"; pk.style.top=(Y(P[pi].newRating)/H*100)+"%";
+  host.appendChild(pk);
+  var nw=el("div","chart__now",String(last.newRating));
+  nw.style.left=(X(n)/W*100)+"%"; nw.style.top=(Y(last.newRating)/H*100)+"%";
+  host.appendChild(nw);
+
+  /* 横轴标签取自真实场次日期 */
+  var ax=$("#chartX"); if(ax){
+    ax.innerHTML="";
+    [0,Math.round(n/3),Math.round(2*n/3),n].forEach(function(i){ ax.appendChild(el("span",null,P[i].ts.slice(0,7))) });
+  }
+}
+
+/* ---------- 卡 2 底部：近 6 个月迷你柱状 ---------- */
+function renderMonths(host){
+  var M=API.stats.months, mx=Math.max.apply(null, M.map(function(m){ return m.solved }));
+  host.innerHTML="";
+  M.forEach(function(m){
+    var col=el("div","mbar"+(m.partial?" mbar--partial":""));
+    var bar=el("i"); bar.style.height=(mx>0 ? m.solved/mx*100 : 0)+"%";
+    col.appendChild(bar);
+    col.appendChild(el("b"));
+    col.setAttribute("aria-label", m.month+" "+m.solved+" 题"+(m.partial?" 进行中":""));
+    col.addEventListener("mouseenter",function(){
+      var r=col.getBoundingClientRect();
+      showTip(r.left+r.width/2, r.top, m.month, m.solved+" 题"+(m.partial?" · 进行中":""), m.solved===0);
+    });
+    col.addEventListener("mouseleave",hideTip);
+    host.appendChild(col);
+  });
+}
+
+/* ---------- 连续天数卡下方的近 14 日微刻度 ---------- */
+function renderTicks(host){
+  host.innerHTML="";
+  API.activity.slice(-14).forEach(function(a,i,arr){
+    var t=el("i"); t.dataset.l=String(lvl(a.solved));
+    if(i===arr.length-1) t.className="today";
+    host.appendChild(t);
+  });
+}
+
+/* ---------- count-up ---------- */
+function reduced(){
+  return document.body.classList.contains("rm-on") ||
+        (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+function countUp(scope){
+  var skip = reduced() || document.hidden;
+  $$(".cu",scope).forEach(function(n){
+    var to=parseInt(n.dataset.to,10)||0;
+    if(skip){ n.textContent=String(to); return }
+    var t0=performance.now(), D=560;
+    (function step(t){
+      var p=Math.min(1,(t-t0)/D), e=1-Math.pow(1-p,3);
+      n.textContent=String(Math.round(to*e));
+      if(p<1) requestAnimationFrame(step);
+    })(t0);
+  });
+}
+
+/* ==========================================================================
+   数据绑定 —— markup 里每一个 data-bind 就是一个槽，路径与接口字段同名。
+   取不到值就显示 "—"，所以后端少实现一个字段，界面也不会崩、也不会拿假数填空。
+   两个修饰属性：class="cu" → 值写进 data-to 交给 countUp；
+                data-tone → 数值符号决定 delta 徽章绿/琥珀（颜色不靠文案猜）。
+   ========================================================================== */
+/* -1 表示数组末项：卡 2 主数字就绑 stats.months.-1.solved */
+function pathOf(obj,p){
+  return p.split(".").reduce(function(o,k){
+    if(o==null) return undefined;
+    return k==="-1" ? o[o.length-1] : o[k];
+  }, obj);
+}
+function bindAll(root, data){
+  $$("[data-bind]",root).forEach(function(n){
+    var v = pathOf(data, n.dataset.bind);
+    if(n.classList.contains("cu")) n.dataset.to = (v==null ? 0 : v);
+    else n.textContent = (v===null||v===undefined||v==="") ? "—" : String(v);
+    if(n.dataset.tone!==undefined){
+      var t = Number(pathOf(data, n.dataset.tone)) || 0;
+      n.classList.toggle("delta--up", t>0);
+      n.classList.toggle("delta--down", t<0);
+    }
+  });
+}
+
+/* ==========================================================================
+   屏切换
+   ========================================================================== */
+function go(id){
+  hideTip();
+  $$(".screen").forEach(function(s){ s.hidden=(s.id!==id) });
+  $$(".mocktab").forEach(function(t){
+    var on=t.dataset.screen===id;
+    t.setAttribute("aria-selected",on?"true":"false");
+    t.tabIndex=on?0:-1;
+  });
+  if(id==="s1") countUp($("#s1"));
+}
+$$(".mocktab").forEach(function(t){ t.addEventListener("click",function(){go(t.dataset.screen)}) });
+$(".mocktabs").addEventListener("keydown",function(e){
+  var tabs=$$(".mocktab"), i=tabs.findIndex(function(t){return t.getAttribute("aria-selected")==="true"});
+  var j = e.key==="ArrowRight" ? (i+1)%tabs.length : e.key==="ArrowLeft" ? (i-1+tabs.length)%tabs.length : -1;
+  if(j>=0){ e.preventDefault(); tabs[j].focus(); go(tabs[j].dataset.screen) }
+});
+document.addEventListener("click",function(e){
+  var g=e.target.closest && e.target.closest("[data-goto]");
+  if(g) go(g.dataset.goto);
+});
+
+/* ==========================================================================
+   装配：先填数据槽，再画三个自绘组件
+   ========================================================================== */
+bindAll(document, API);
+renderGrid($("#agrid"));
+renderGrid($("#agrid-empty"), true);
+renderMiniGrid($("#agrid-demo"));
+renderChart($("#chart"));
+renderTicks($("#streakTicks"));
+renderMonths($("#mbars"));
+
+/* 顶栏同步按钮：演示一次增量。只写槽、不重画 DOM —— 真实产品里这一步等于重新 GET /api/status */
+$("#syncBtn").addEventListener("click",function(){
+  var b=this; if(b.classList.contains("is-busy")) return;
+  var old=b.innerHTML;
+  b.classList.add("is-busy");
+  b.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>拉取增量…';
+  setTimeout(function(){
+    b.classList.remove("is-busy"); b.innerHTML=old;
+    $("#lastSync").textContent="刚刚";
+    $("#syncDelta").hidden=false;
+    $("#syncIcon").style.color="var(--ok)";
+  },1600);
+});
+
+/* ==========================================================================
+   屏 2 · 向导（可以真点完的演示）
+   ========================================================================== */
+(function(){
+  var w1=$("#w1"), w2=$("#w2"), w3=$("#w3"), msg=$("#w1msg"),
+      steps=$$("#wSteps .step"), bar=$("#wbar"), pulled=$("#wpulled"), pct=$("#wpct"),
+      log=$("#wlog"), startBtn=$("#btnStart"), cancelBtn=$("#btnCancel"),
+      errMode=$("#wErr"), timer=null, phase="input";
+
+  function setStep(n){
+    steps.forEach(function(s){
+      var i=+s.dataset.i;
+      s.classList.toggle("is-on",i===n);
+      s.classList.toggle("is-done",i<n);
+      s.querySelector("b").textContent = i<n ? "✓" : i;
+    });
+  }
+  function line(html){ var d=el("div","prow"); d.innerHTML=html; log.appendChild(d); }
+  function reset(){
+    clearTimeout(timer); timer=null; phase="input";
+    w1.hidden=false; w2.hidden=true; w3.hidden=true;
+    msg.innerHTML=""; bar.style.width="0%"; pct.textContent="0%";
+    pulled.textContent="已拉取 0 条"; log.innerHTML=""; setStep(1);
+    startBtn.hidden=false; cancelBtn.hidden=false; startBtn.disabled=false;
+    startBtn.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>开始全量同步';
+    $("#btnCheck").disabled=false;
+    $$("#w2actions .btn--primary").forEach(function(b){ b.remove() });
+    $("#w2title").textContent="正在拉取全量历史";
+    $("#w2sub").innerHTML="<code>"+API.status.handle+"</code> · 从第 1 条开始，一页 10 000 条";
+  }
+  $("#btnCheck").addEventListener("click",function(){
+    var h=($("#handleIn").value||"").trim()||API.status.handle;
+    var btn=this; btn.disabled=true;
+    msg.innerHTML='<div class="prow" style="color:var(--text-mute)"><span class="run">正在校验</span>…</div>';
+    setTimeout(function(){
+      if(errMode.checked){
+        setStep(1);
+        $("#handleIn").classList.add("input--err");
+        msg.innerHTML='<div class="alert alert--err"><svg aria-hidden="true"><use href="#i-x"/></svg><div>'
+          +'<b>未找到 handle “'+h+'”</b><br>Codeforces 返回：<code>handle not found of type [user]</code><br>'
+          +'下一步：核对 CF 主页 <code>/profile/</code> 后那一段；<b>大小写敏感</b>，不要带空格。'
+          +'</div></div>';
+        btn.disabled=false;
+        return;
+      }
+      $("#handleIn").classList.remove("input--err");
+      setStep(2);
+      msg.innerHTML='<div class="alert alert--ok"><svg aria-hidden="true"><use href="#i-check"/></svg><div>'
+        +'<b>'+h+'</b> · rating <b>'+API.rating.current+'</b>（最高 '+API.rating.max+'）· '+API.rating.rankLabel+'<br>'
+        +'公开提交约 <b>'+API.sync.total+'</b> 条 · 分 <b>'+API.sync.pages+'</b> 页拉完（单页上限 10 000 条）'
+        +'</div></div>';
+      setStep(3);
+      w1.hidden=true; w2.hidden=false; phase="ready";
+      bar.style.width="0%"; pct.textContent="0%";
+      pulled.textContent="待开始"; log.innerHTML="";
+      line('<span class="blue">✓</span> 校验通过 · user.status?count=1');
+      line('限速 <span style="color:var(--warn)">1 请求 / 2 秒</span> · 全量约 8 秒 · 写入 vault/anvil.db');
+    },520);
+  });
+  function run(){
+    if(phase==="running") return;
+    phase="running"; startBtn.disabled=true;
+    var target=API.sync.total, pages=API.sync.pages, t0=performance.now(), DUR=2600;
+    $("#w2title").textContent="正在拉取全量历史";
+    line('<span class="run">→</span> GET user.status?handle='+API.status.handle+'&amp;from=1&amp;count=10000');
+    setTimeout(function(){ line('<span class="run">→</span> GET user.status?handle='+API.status.handle+'&amp;from=10001&amp;count=10000') },900);
+    setTimeout(function(){ line('<span class="run">→</span> GET user.rating?handle='+API.status.handle) },1750);
+    (function tick(){
+      var p=Math.min(1,(performance.now()-t0)/DUR), e=1-Math.pow(1-p,2.2);
+      bar.style.width=(p*100).toFixed(1)+"%";
+      pct.textContent=Math.round(p*100)+"%";
+      pulled.innerHTML='已拉取 <b style="color:var(--accent)">'+Math.round(target*e)+'</b> 条 / 约 '+target+' 条 · 第 '+Math.min(pages,Math.floor(p*pages)+1)+' 页';
+      if(p===1){ store(); return }
+      timer=setTimeout(tick,90);
+    })();
+  }
+  function store(){
+    phase="storing";
+    $("#w2title").textContent="正在写入本地";
+    $("#w2sub").innerHTML="去重 · 建索引 <code>idx_sub_time</code> <code>idx_sub_problem</code>";
+    line('<span class="blue">✓</span> '+API.sync.total+' 条已返回 · 解析 problem_key / verdict / participantType');
+    line('<span class="run">→</span> 哨兵值 relativeTimeSeconds=2147483647 → <b>NULL</b>（场外提交 '+API.sync.offsite+' 条）');
+    setTimeout(function(){
+      line('<span class="ok">✓</span> 落库 '+API.sync.total+' 条 · '+API.sync.problems+' 道去重题 · '+API.sync.ratingContests+' 场 rating 变化');
+      bar.style.width="100%"; pct.textContent="100%";
+      pulled.innerHTML='已拉取 <b style="color:var(--ok)">'+API.sync.total+'</b> 条 · 完成';
+      phase="done"; startBtn.hidden=true; cancelBtn.hidden=true;
+      var b=el("button","btn btn--primary"); b.textContent="进入仪表盘"; b.onclick=function(){go("s1")};
+      $("#w2actions").appendChild(b);
+      setStep(4);
+      setTimeout(function(){ w2.hidden=true; w3.hidden=false },700);
+    },820);
+  }
+  startBtn.addEventListener("click",run);
+  cancelBtn.addEventListener("click",function(){
+    clearTimeout(timer); phase="idle";
+    line('<span style="color:var(--bad)">■ 已取消</span> · 已写入部分保留，下次从断点续拉');
+    startBtn.disabled=false;
+    startBtn.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>继续同步';
+  });
+  $("#btnAgain").addEventListener("click",reset);
+  errMode.addEventListener("change",reset);
+  $("#handleIn").addEventListener("keydown",function(e){ if(e.key==="Enter"){e.preventDefault();$("#btnCheck").click()} });
+  reset();
+})();
+
+/* ==========================================================================
+   reduced-motion 演示开关 + 动效重播
+   ========================================================================== */
+function bindRM(a,b){
+  function apply(on){
+    document.body.classList.toggle("rm-on",on);
+    if(a) a.checked=on; if(b) b.checked=on;
+    var s=$("#rmState");
+    if(s) s.textContent = on
+      ? "当前：已模拟 prefers-reduced-motion —— stagger / count-up / hover 位移全部直落终值"
+      : "当前：动效开启（371 格 stagger 1.2ms · 淡入 180ms · 数字 count-up 560ms）";
+  }
+  [a,b].forEach(function(t){ if(t) t.addEventListener("change",function(){apply(t.checked)}) });
+  if(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) apply(true);
+}
+bindRM($("#rmToggle"), $("#rmToggle2"));
+
+function replayAll(){
+  renderGrid($("#agrid"));
+  renderMiniGrid($("#agrid-demo"));
+  renderTicks($("#streakTicks"));
+  countUp($("#s1"));
+  $$(".rise").forEach(function(n){ n.style.animation="none"; void n.offsetWidth; n.style.animation="" });
+}
+$("#replay").addEventListener("click",replayAll);
+$("#replay2").addEventListener("click",replayAll);
+
+window.addEventListener("scroll",hideTip,true);
+$$(".content").forEach(function(c){ c.addEventListener("scroll",hideTip) });
+
+countUp($("#s1"));
+
+/* 支持 #s2 / #s3 / #s4 直达某一屏（方便单独分享某一屏） */
+var _h=(location.hash||"").replace(/^#/,"");
+if(/^s[1-4]$/.test(_h)) go(_h);
+})();
+</script>
+</body>
+</html>
