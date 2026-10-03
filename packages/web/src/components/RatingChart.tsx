@@ -154,6 +154,7 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
                   date: `${p.contestName} · ${p.ts}`,
                   value: `${p.newRating}${suffix}${i === g.pi ? ' · 峰值' : ''}`,
                   zero: false,
+                  up: p.delta >= 0,
                 });
               }}
               onMouseLeave={hide}

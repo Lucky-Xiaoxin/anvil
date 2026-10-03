@@ -247,6 +247,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .tip__d{font-family:var(--font-num);font-size:11px;color:var(--text-dim);letter-spacing:.02em}
 .tip__v{font-family:var(--font-num);font-size:13px;color:var(--accent);margin-top:2px;font-variant-numeric:tabular-nums}
 .tip__v.is-zero{color:var(--text-mute)}
+.tip__v.is-up{color:var(--accent-2)}
 .tip::after{
   content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
   transform:translateX(-50%) rotate(45deg);

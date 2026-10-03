@@ -16,6 +16,8 @@ export interface TipData {
   date: string;
   value: string;
   zero: boolean;
+  /** 有方向的读数（rating 涨跌）：涨走数据蓝，与折线分段同色 */
+  up?: boolean;
 }
 
 interface TipApi {
@@ -53,7 +55,7 @@ export function TipProvider({ children }: { children: ReactNode }) {
       {tip && (
         <div className="tip" ref={ref} role="tooltip" aria-hidden="false" style={{ left: tip.x, top: tip.y - 10 }}>
           <div className="tip__d">{tip.date}</div>
-          <div className={`tip__v${tip.zero ? ' is-zero' : ''}`}>{tip.value}</div>
+          <div className={`tip__v${tip.zero ? ' is-zero' : ''}${tip.up ? ' is-up' : ''}`}>{tip.value}</div>
         </div>
       )}
     </TipCtx.Provider>
