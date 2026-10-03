@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { CfClient, CfError, PAGE_SIZE, parseSubmission } from '../src/sync/cf.ts';
-import { syncOnce } from '../src/sync/job.ts';
-import { countOffsite, countRatingContests, countSubmissions, initSchema } from '../src/db.ts';
+import { META_HANDLE, syncOnce } from '../src/sync/job.ts';
+import { countOffsite, countRatingContests, countSubmissions, getMeta, initSchema } from '../src/db.ts';
 
 const TS = Math.floor(new Date(2026, 8, 1, 12).getTime() / 1000);
 
@@ -184,6 +184,23 @@ describe('本地库只归属一个 handle', () => {
     // 同一 contest_id 不再被两个人的 rating 互相覆盖
     expect(countRatingContests(db)).toBe(1);
     expect(db.prepare('SELECT new_rating FROM rating_history WHERE contest_id = 2262').get()).toEqual({ new_rating: 1278 });
+    db.close();
+  });
+
+  it('换 handle 但第一页没拉到：旧缓存原样留着，不空库', async () => {
+    const db = mem();
+    const first = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
+    await syncOnce(db, 'Benq', first.client);
+
+    const offline = makeClient(() => {
+      throw new TypeError('fetch failed');
+    });
+    const state = await syncOnce(db, 'jywlq', offline.client);
+
+    expect(state.phase).toBe('error');
+    expect(state.resetNote).toContain('Benq');
+    expect(countSubmissions(db)).toBe(2);
+    expect(getMeta(db, META_HANDLE)).toBe('Benq');
     db.close();
   });
 

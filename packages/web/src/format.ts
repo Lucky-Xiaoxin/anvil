@@ -4,6 +4,11 @@ export function prefersReduced(): boolean {
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** 接口层与网络层抛上来的东西统一成一句能给人看的话 */
+export function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** 千分位只在 ≥10 000 时用；rating 不加 */
 export function fmtInt(n: number): string {
   return n >= 10000 ? n.toLocaleString('zh-CN') : String(n);

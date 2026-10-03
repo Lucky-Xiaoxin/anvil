@@ -6,3 +6,6 @@ Thumbs.db
 
 # 运行时数据（本地库 + 配置），模板见 vault.example/
 vault/
+
+# 测试跑出来的临时 fixture 目录
+packages/server/test/.tmp-dist/

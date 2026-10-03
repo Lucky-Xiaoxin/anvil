@@ -153,7 +153,7 @@ export function loadRatingRows(db: DatabaseSync): RatingRow[] {
     .prepare(
       `SELECT contest_id AS contestId, contest_name AS contestName, rank AS rank,
               old_rating AS oldRating, new_rating AS newRating, updated_ts AS updatedTs
-         FROM rating_history ORDER BY updated_ts ASC`,
+         FROM rating_history ORDER BY updated_ts ASC, contest_id ASC`,
     )
     .all();
   const out: RatingRow[] = [];

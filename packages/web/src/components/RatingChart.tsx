@@ -9,6 +9,18 @@ const PR = 56;
 const PT = 28;
 const PB = 16;
 
+/** 横轴取 4 个均匀点、按月份去重；下标一律钳在数组内（只打过 1 场的新号会走到这里） */
+export function axisIndexes(series: readonly RatingPointDto[]): number[] {
+  const last = series.length - 1;
+  if (last < 1) return last === 0 ? [0] : [];
+  const step = last / 3;
+  const out: number[] = [];
+  for (const i of [0, Math.round(step), Math.round(2 * step), last]) {
+    if (!out.some((j) => series[j]!.ts === series[i]!.ts)) out.push(i);
+  }
+  return out;
+}
+
 export function RatingChart({ series }: { series: RatingPointDto[] }) {
   const { show, hide } = useTip();
 
@@ -29,9 +41,7 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
     const grid: number[] = [];
     const step = 100 * Math.max(1, Math.ceil((max - min) / 600));
     for (let v = min; v <= max; v += step) if (v > min && v < max) grid.push(v);
-    const candidates = [0, Math.round(n / 3), Math.round((2 * n) / 3), last];
-    const axis: number[] = [];
-    for (const i of candidates) if (!axis.some((j) => series[j]!.ts === series[i]!.ts)) axis.push(i);
+    const axis = axisIndexes(series);
     return { X, Y, pi, grid, span, last, axis };
   }, [series]);
 

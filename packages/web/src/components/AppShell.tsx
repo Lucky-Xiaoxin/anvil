@@ -52,11 +52,11 @@ export function AppShell({ view, onNavigate, status, busy, delta, onSync, childr
           </button>
         </div>
         <div className="navfoot">
-          <b className="num">{fmtInt(status?.counts.submissions ?? 0)}</b> 条提交 ·{' '}
-          <b className="num">{fmtInt(status?.counts.problems ?? 0)}</b> 题<br />
+          <b className="num">{status ? fmtInt(status.counts.submissions) : '—'}</b> 条提交 ·{' '}
+          <b className="num">{status ? fmtInt(status.counts.problems) : '—'}</b> 题<br />
           本地 <code>vault/anvil.db</code>
           <br />
-          端口 <code>7788</code> · 不出网
+          端口 <code>{window.location.port || '7788'}</code> · 不出网
         </div>
       </aside>
 

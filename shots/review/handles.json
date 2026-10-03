@@ -1,0 +1,172 @@
+[
+  {
+    "handle": "tourist",
+    "state": {
+      "phase": "done",
+      "fetched": 5491,
+      "stored": 5491,
+      "total": 5491,
+      "pages": 1,
+      "problems": 3039,
+      "ratingContests": 308,
+      "offsite": 683,
+      "resetNote": "换 handle：清掉 jywlq 的 245 条数据，为 tourist 全量重建"
+    },
+    "status": {
+      "configured": true,
+      "handle": "tourist",
+      "lastSyncAt": 1791042955,
+      "counts": {
+        "submissions": 5491,
+        "problems": 3039
+      }
+    },
+    "stats": {
+      "totalSolved": 3039,
+      "activityTotal": 167,
+      "months": [
+        {
+          "month": "2026-05",
+          "solved": 8,
+          "partial": false
+        },
+        {
+          "month": "2026-06",
+          "solved": 11,
+          "partial": false
+        },
+        {
+          "month": "2026-07",
+          "solved": 8,
+          "partial": false
+        },
+        {
+          "month": "2026-08",
+          "solved": 0,
+          "partial": false
+        },
+        {
+          "month": "2026-09",
+          "solved": 13,
+          "partial": false
+        },
+        {
+          "month": "2026-10",
+          "solved": 0,
+          "partial": true
+        }
+      ],
+      "streak": {
+        "days": 0,
+        "sub": "今天还没开张"
+      },
+      "longestRun": {
+        "days": "2 天",
+        "range": "10-03 → 10-04"
+      },
+      "gaps3": "23 次",
+      "weekendPct": "46%",
+      "emptyCells": "325 天空格"
+    },
+    "rating": {
+      "count": 308,
+      "current": 3384,
+      "first": 1602,
+      "max": 4009,
+      "rankLabel": "Legendary Grandmaster",
+      "totalDelta": "+1782",
+      "totalDeltaTone": 1782,
+      "lastDeltaText": "+77",
+      "lastDeltaTone": 77,
+      "lastContestShort": "CF 1124 (Div. 1)",
+      "lastContest": "Codeforces Round 1124 (Div. 1)",
+      "series": "308 场"
+    },
+    "activityDays": 370
+  },
+  {
+    "handle": "phoniextree",
+    "state": {
+      "phase": "done",
+      "fetched": 85,
+      "stored": 85,
+      "total": 85,
+      "pages": 1,
+      "problems": 32,
+      "ratingContests": 3,
+      "offsite": 45,
+      "resetNote": "换 handle：清掉 tourist 的 5491 条数据，为 phoniextree 全量重建"
+    },
+    "status": {
+      "configured": true,
+      "handle": "phoniextree",
+      "lastSyncAt": 1791042963,
+      "counts": {
+        "submissions": 85,
+        "problems": 32
+      }
+    },
+    "stats": {
+      "totalSolved": 32,
+      "activityTotal": 32,
+      "months": [
+        {
+          "month": "2026-05",
+          "solved": 13,
+          "partial": false
+        },
+        {
+          "month": "2026-06",
+          "solved": 2,
+          "partial": false
+        },
+        {
+          "month": "2026-07",
+          "solved": 11,
+          "partial": false
+        },
+        {
+          "month": "2026-08",
+          "solved": 1,
+          "partial": false
+        },
+        {
+          "month": "2026-09",
+          "solved": 0,
+          "partial": false
+        },
+        {
+          "month": "2026-10",
+          "solved": 0,
+          "partial": true
+        }
+      ],
+      "streak": {
+        "days": 0,
+        "sub": "今天还没开张"
+      },
+      "longestRun": {
+        "days": "2 天",
+        "range": "05-09 → 05-10"
+      },
+      "gaps3": "9 次",
+      "weekendPct": "41%",
+      "emptyCells": "351 天空格"
+    },
+    "rating": {
+      "count": 3,
+      "current": 801,
+      "first": 379,
+      "max": 801,
+      "rankLabel": "Newbie",
+      "totalDelta": "+422",
+      "totalDeltaTone": 422,
+      "lastDeltaText": "+167",
+      "lastDeltaTone": 167,
+      "lastContestShort": "CF 1112 (Div. 2)",
+      "lastContest": "Codeforces Round 1112 (Div. 2)",
+      "series": "3 场"
+    },
+    "activityDays": 370
+  }
+]

@@ -19,15 +19,24 @@ function writeConfig(cfg: VaultConfig): void {
   writeFileSync(configFile, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
 }
 
+/** 配置文件是用户会手改的东西：读不懂就退回默认值，别让整个服务起不来 */
+export function parseConfig(raw: string): VaultConfig {
+  try {
+    return vaultConfigSchema.parse(JSON.parse(raw));
+  } catch (err) {
+    console.error(`[anvil] 配置读不了（${(err as Error).message}）：退回默认值`);
+    return vaultConfigSchema.parse({});
+  }
+}
+
 export function loadConfig(): VaultConfig {
   if (!existsSync(configFile)) {
     const seed = existsSync(exampleConfigFile) ? exampleConfigFile : null;
-    const raw = seed ? readFileSync(seed, 'utf8') : '{}';
-    const cfg = vaultConfigSchema.parse(JSON.parse(raw));
+    const cfg = parseConfig(seed ? readFileSync(seed, 'utf8') : '{}');
     writeConfig(cfg);
     return cfg;
   }
-  return vaultConfigSchema.parse(JSON.parse(readFileSync(configFile, 'utf8')));
+  return parseConfig(readFileSync(configFile, 'utf8'));
 }
 
 export function saveHandle(handle: string): VaultConfig {

@@ -1,25 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { DashboardDto, StatusDto } from '@anvil/shared';
-import { ApiError, getDashboard, getSyncState, getStatus, startSync } from './api.ts';
-import { sleep } from './format.ts';
+import { useCallback, useEffect, useState } from 'react';
+import type { DashboardDto, StatusDto, SyncStateDto } from '@anvil/shared';
+import { getDashboard, getSyncState, getStatus, startSync } from './api.ts';
+import { messageOf, sleep } from './format.ts';
 import { AppShell, type View } from './components/AppShell.tsx';
 import { ColdStart, Dashboard, LockedMaster, LockedVp, NoticeBar, type Notice } from './components/Dashboard.tsx';
 import { Wizard } from './components/Wizard.tsx';
-
-function messageOf(err: unknown): string {
-  return err instanceof ApiError ? err.message : String(err);
-}
 
 function viewFromHash(): View {
   const h = window.location.hash.replace(/^#\/?/, '');
   return h === 'settings' || h === 'master' || h === 'vp' ? h : 'dashboard';
 }
 
+/** 服务端把任务丢了（进程重启）时，别把进度条永远挂在那儿 */
+const IDLE_BEATS_BEFORE_GIVEUP = 3;
+
 export function App() {
-  const today = useMemo(() => new Date(), []);
   const [status, setStatus] = useState<StatusDto | null>(null);
   const [dash, setDash] = useState<DashboardDto | null>(null);
+  const [today, setToday] = useState(() => new Date());
   const [view, setView] = useState<View>(viewFromHash);
+  const [sync, setSync] = useState<SyncStateDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [delta, setDelta] = useState<number | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -32,13 +32,13 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await getStatus());
-      setDash(await getDashboard());
+      const [s, d] = [await getStatus(), await getDashboard()];
+      setStatus(s);
+      setDash(d);
+      setToday(new Date());
       setNotice(null);
-      return true;
     } catch (err) {
       setNotice({ kind: 'err', text: `${messageOf(err)} · 只读本地缓存，不会再出网` });
-      return false;
     }
   }, []);
 
@@ -46,30 +46,53 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  const onSync = useCallback(async () => {
-    if (busy) return;
+  /** 同步由 App 拥有：谁起跑都一样——顶栏按钮同步进入忙态，切页也不丢跟踪 */
+  const runSync = useCallback(async (): Promise<SyncStateDto> => {
     setBusy(true);
     setDelta(null);
     setNotice(null);
-    let failure: string | null = null;
+    let state: SyncStateDto;
     try {
-      let state = await startSync();
+      state = await startSync();
+      setSync(state);
+      let idleBeats = 0;
       while (state.phase !== 'done' && state.phase !== 'error') {
         await sleep(1000);
         state = await getSyncState();
+        if (state.phase === 'idle' && ++idleBeats >= IDLE_BEATS_BEFORE_GIVEUP) {
+          state = { ...state, phase: 'error', error: '同步中断：本地服务重启过，再点一次同步' };
+        }
+        setSync(state);
+        if (state.phase !== 'idle') idleBeats = 0;
       }
-      setDelta(state.stored);
-      if (state.phase === 'error') failure = state.error ?? '同步失败';
-    } catch (err) {
-      failure = messageOf(err);
+    } finally {
+      await refresh();
+      setBusy(false);
     }
-    await refresh();
-    if (failure) setNotice({ kind: 'err', text: `${failure} · 本地缓存的数据照旧显示` });
-    setBusy(false);
-  }, [busy, refresh]);
+    setDelta(state.stored);
+    if (state.phase === 'error') {
+      setNotice({ kind: 'err', text: `${state.error ?? '同步失败'} · 本地缓存的数据照旧显示` });
+    }
+    return state;
+  }, [refresh]);
+
+  const syncNow = useCallback(async () => {
+    if (busy) return;
+    try {
+      await runSync();
+    } catch (err) {
+      setNotice({ kind: 'err', text: `${messageOf(err)} · 本地缓存的数据照旧显示` });
+    }
+  }, [busy, runSync]);
 
   const navigate = useCallback((next: View) => {
     window.location.hash = `/${next}`;
+  }, []);
+
+  /** 换 handle 之后上一轮的进度就不相干了 */
+  const changeHandle = useCallback((next: StatusDto) => {
+    setStatus(next);
+    setSync(null);
   }, []);
 
   const content = () => {
@@ -93,8 +116,9 @@ export function App() {
       return (
         <Wizard
           status={status}
-          onStatus={setStatus}
-          onSynced={() => void refresh()}
+          sync={sync}
+          onStatus={changeHandle}
+          onRun={runSync}
           onEnterDashboard={() => {
             navigate('dashboard');
             void refresh();
@@ -108,11 +132,11 @@ export function App() {
       );
     }
     if (dash) return <Dashboard dash={dash} today={today} notice={notice} />;
-    return <div className="content" />;
+    return <div className="content">{notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}</div>;
   };
 
   return (
-    <AppShell view={view} onNavigate={navigate} status={status} busy={busy} delta={delta} onSync={() => void onSync()}>
+    <AppShell view={view} onNavigate={navigate} status={status} busy={busy} delta={delta} onSync={() => void syncNow()}>
       {content()}
     </AppShell>
   );

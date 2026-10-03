@@ -41,23 +41,14 @@ export type SyncPatch = Partial<Omit<SyncStateDto, 'error'>> & { error?: string 
 export const META_HANDLE = 'cf_handle';
 
 /**
- * 库只属于一个 handle：换了人就先清空重建。
+ * 库只属于一个 handle：换了人就清空重建。
  * submissions 会把两个人的提交叠在一起，rating_history 更狠——它以 contest_id 为主键，
  * 两人打过的同一场会互相覆盖，曲线变成两个 rating 的拼图。
  */
-function claimDatabase(db: DatabaseSync, handle: string): string | null {
-  const owner = getMeta(db, META_HANDLE);
+function switchNote(owner: string | null, handle: string, stale: number): string | null {
   if (owner === handle) return null;
-  const stale = countSubmissions(db);
-  const note =
-    owner === null
-      ? stale > 0
-        ? `本地数据无法归属 handle → 清空 ${stale} 条，为 ${handle} 重建`
-        : null
-      : `换 handle：清掉 ${owner} 的 ${stale} 条数据，为 ${handle} 全量重建`;
-  resetUserData(db);
-  setMeta(db, META_HANDLE, handle);
-  return note;
+  if (owner === null) return stale > 0 ? `本地数据无法归属 handle → 清空 ${stale} 条，为 ${handle} 重建` : null;
+  return `换 handle：清掉 ${owner} 的 ${stale} 条数据，为 ${handle} 全量重建`;
 }
 
 /**
@@ -70,8 +61,11 @@ export async function syncOnce(
   client: CfClient,
   onChange?: (state: SyncStateDto) => void,
 ): Promise<SyncStateDto> {
-  const resetNote = claimDatabase(db, handle);
-  const startCount = countSubmissions(db);
+  const owner = getMeta(db, META_HANDLE);
+  const stale = countSubmissions(db);
+  const switching = owner !== handle;
+  const resetNote = switchNote(owner, handle, stale);
+  const startCount = switching ? 0 : stale;
   const full = startCount === 0;
   let state: SyncStateDto = { ...IDLE_STATE, ...deriveState(db), phase: 'fetching', resetNote };
   const publish = (patch: SyncPatch) => {
@@ -83,10 +77,17 @@ export async function syncOnce(
   let fetched = 0;
   let stored = 0;
   let pages = 0;
+  // 清空推迟到第一页真的拉到手：换完 handle 正好断网时，本地还留着上一次的缓存可看
+  let pendingWipe = switching;
 
   try {
     for (;;) {
       const page = await client.call<CfSubmissionRaw[]>('user.status', { handle, from, count: PAGE_SIZE });
+      if (pendingWipe) {
+        resetUserData(db);
+        setMeta(db, META_HANDLE, handle);
+        pendingWipe = false;
+      }
       pages++;
       fetched += page.length;
       stored += insertSubmissions(db, page.map(parseSubmission));

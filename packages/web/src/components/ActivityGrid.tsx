@@ -51,11 +51,12 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Pro
       const date = addDays(start, i);
       const iso = formatDay(date);
       const solved = byDay.get(iso) ?? 0;
-      const future = date.getTime() > today.getTime() || !byDay.has(iso);
+      // 空态网格要的是"铺满 0 档"，只有真·未来日才留空
+      const future = date.getTime() > today.getTime() || (!ghost && !byDay.has(iso));
       cells.push({ iso, row: dowMon(date), col: Math.floor(i / 7), i, solved, future, weekday: dowMon(date) });
     }
     return { cells, months, todayKey };
-  }, [activity, today]);
+  }, [activity, today, ghost]);
 
   return (
     <div

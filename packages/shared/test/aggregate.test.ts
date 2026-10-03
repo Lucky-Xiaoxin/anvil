@@ -147,7 +147,7 @@ describe('同源派生读数', () => {
     const events = [ev('2026-09-21'), ev('2026-09-22', 'cf:1:B'), ev('2026-09-23', 'cf:1:C')];
     const { stats } = aggregateDashboard(events, today);
     expect(stats.longestRun.days).toBe('3 天');
-    expect(stats.longestRun.range).toBe('09-21 → 09-23');
+    expect(stats.longestRun.range).toBe('26-09-21 → 26-09-23');
   });
 
   it('断档 ≥3 天：只数训练之间的空档与收尾空档', () => {

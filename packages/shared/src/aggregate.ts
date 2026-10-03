@@ -122,8 +122,9 @@ export function buildStats(events: readonly AcEvent[], cells: readonly ActivityC
   if (best === 0) {
     longestRun = { days: '0 天', range: '—' };
   } else {
-    const from = cells[bestEnd - best + 1]!.day.slice(5);
-    const to = cells[bestEnd]!.day.slice(5);
+    // 窗口跨年，只留 MM-DD 会把 2025-10 读成"这个 10 月"
+    const from = cells[bestEnd - best + 1]!.day.slice(2);
+    const to = cells[bestEnd]!.day.slice(2);
     longestRun = { days: `${best} 天`, range: `${from} → ${to}` };
   }
 

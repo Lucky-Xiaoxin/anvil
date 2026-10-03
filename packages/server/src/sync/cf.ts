@@ -9,7 +9,7 @@ export const REQUEST_TIMEOUT_MS = 30000;
 /** 练习 / 场外提交的哨兵值 */
 export const OFFSITE_SENTINEL = 2147483647;
 
-export type CfErrorKind = 'not-found' | 'rate-limited' | 'network' | 'failed';
+export type CfErrorKind = 'not-found' | 'network' | 'failed';
 
 export class CfError extends Error {
   readonly kind: CfErrorKind;
