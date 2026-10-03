@@ -147,14 +147,14 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
               height={H}
               onMouseEnter={(e) => {
                 const box = e.currentTarget.getBoundingClientRect();
-                const suffix = i === 0 ? ' · 起点' : `  ${signedDelta(p.delta)}`;
                 show({
                   x: box.left + box.width / 2,
                   y: box.top + (g.Y(p.newRating) / H) * box.height,
                   date: `${p.contestName} · ${p.ts}`,
-                  value: `${p.newRating}${suffix}${i === g.pi ? ' · 峰值' : ''}`,
+                  value: `${p.newRating}${i === 0 ? ' · 起点' : ''}${i === g.pi ? ' · 峰值' : ''}`,
                   zero: false,
-                  up: p.delta >= 0,
+                  delta: i === 0 ? undefined : signedDelta(p.delta),
+                  deltaUp: p.delta >= 0,
                 });
               }}
               onMouseLeave={hide}

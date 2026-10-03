@@ -1,21 +1,34 @@
 import { formatMonth } from './days.ts';
 import type { RatingDto, RatingRow } from './types.ts';
 
-const RANKS: readonly [number, string][] = [
-  [2600, 'Legendary Grandmaster'],
-  [2400, 'International Grandmaster'],
-  [2300, 'Grandmaster'],
-  [2100, 'International Master'],
-  [1900, 'Master'],
-  [1600, 'Candidate Master'],
-  [1400, 'Expert'],
-  [1200, 'Specialist'],
-  [0, 'Newbie'],
+/**
+ * CF 段位：下限 / 官方英文段位名（API user.info 的 rank 字段那套：pupil、specialist…）/ 名字颜色。
+ * 边界与颜色取自 CF 自己的渲染：gray→green→cyan→blue→violet→orange→red→legendary。
+ */
+const RANKS: readonly [number, string, string][] = [
+  [3000, 'Legendary Grandmaster', '#FF0000'],
+  [2600, 'International Grandmaster', '#FF0000'],
+  [2400, 'Grandmaster', '#FF0000'],
+  [2300, 'International Master', '#FF8C00'],
+  [2100, 'Master', '#FF8C00'],
+  [1900, 'Candidate Master', '#AA00AA'],
+  [1600, 'Expert', '#0000FF'],
+  [1400, 'Specialist', '#03A89E'],
+  [1200, 'Pupil', '#008000'],
+  [0, 'Newbie', '#808080'],
 ];
 
+function rankOf(rating: number): [number, string, string] {
+  return RANKS.find(([min]) => rating >= min) ?? RANKS[RANKS.length - 1]!;
+}
+
 export function rankLabelFor(rating: number): string {
-  for (const [min, label] of RANKS) if (rating >= min) return label;
-  return 'Newbie';
+  return rankOf(rating)[1];
+}
+
+/** 与 CF 名字同色；深色底上仍用 CF 原值，不自行提亮 */
+export function rankColorFor(rating: number): string {
+  return rankOf(rating)[2];
 }
 
 /** 长模式先替，否则 "Educational Codeforces Round" 会被先截成 "Educational CF" */

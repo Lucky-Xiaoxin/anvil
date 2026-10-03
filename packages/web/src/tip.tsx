@@ -16,8 +16,9 @@ export interface TipData {
   date: string;
   value: string;
   zero: boolean;
-  /** 有方向的读数（rating 涨跌）：涨走数据蓝，与折线分段同色 */
-  up?: boolean;
+  /** 方向读数（rating 涨跌）：单独上色，主读数保持琥珀 */
+  delta?: string;
+  deltaUp?: boolean;
 }
 
 interface TipApi {
@@ -55,7 +56,10 @@ export function TipProvider({ children }: { children: ReactNode }) {
       {tip && (
         <div className="tip" ref={ref} role="tooltip" aria-hidden="false" style={{ left: tip.x, top: tip.y - 10 }}>
           <div className="tip__d">{tip.date}</div>
-          <div className={`tip__v${tip.zero ? ' is-zero' : ''}${tip.up ? ' is-up' : ''}`}>{tip.value}</div>
+          <div className={`tip__v${tip.zero ? ' is-zero' : ''}`}>
+            {tip.value}
+            {tip.delta ? <b className={tip.deltaUp ? 'is-up' : undefined}>{tip.delta}</b> : null}
+          </div>
         </div>
       )}
     </TipCtx.Provider>

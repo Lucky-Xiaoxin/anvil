@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { DashboardDto, StatusDto } from '@anvil/shared';
+import { rankColorFor, type DashboardDto, type StatusDto } from '@anvil/shared';
 import { fmtInt } from '../format.ts';
 import { ActivityGrid } from './ActivityGrid.tsx';
 import { RatingChart } from './RatingChart.tsx';
@@ -103,7 +103,9 @@ export function Dashboard({ dash, today, notice }: Props) {
           <div className="label label--blue stat__label">CF Rating</div>
           <div className="stat__num stat__num--blue">
             <Num to={rating ? rating.current : null} />
-            <span className="stat__unit">{rating ? rating.rankLabel : '—'}</span>
+            <span className="stat__unit" style={rating ? { color: rankColorFor(rating.current) } : undefined}>
+              {rating ? rating.rankLabel : '—'}
+            </span>
           </div>
           <div className="stat__sub">
             最高 <b className="num" style={{ color: 'var(--text-dim)' }}>{rating ? fmtInt(rating.max) : '—'}</b>

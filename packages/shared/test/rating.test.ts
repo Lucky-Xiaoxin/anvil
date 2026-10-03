@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildRating, localDayKey, rankLabelFor, shortContestName, signedDelta, type RatingRow } from '@anvil/shared';
+import {
+  buildRating,
+  localDayKey,
+  rankColorFor,
+  rankLabelFor,
+  shortContestName,
+  signedDelta,
+  type RatingRow,
+} from '@anvil/shared';
 
 const at = (y: number, m: number, d: number) => Math.floor(new Date(y, m - 1, d, 12).getTime() / 1000);
 const row = (contestId: number, name: string, newRating: number, ts: number): RatingRow => ({
@@ -11,18 +19,41 @@ const row = (contestId: number, name: string, newRating: number, ts: number): Ra
   updatedTs: ts,
 });
 
-describe('rating 段位名（CF 原始英文，不做中译）', () => {
-  it('按 CF 真实门槛', () => {
+describe('段位名与颜色（CF API 的 rank 字段那套别名 + CF 名字色）', () => {
+  it('边界 1200 / 1400 / 1600 / 1900 / 2100 / 2300 / 2400 / 2600 / 3000', () => {
     expect(rankLabelFor(899)).toBe('Newbie');
-    expect(rankLabelFor(1200)).toBe('Specialist');
-    expect(rankLabelFor(1399)).toBe('Specialist');
-    expect(rankLabelFor(1400)).toBe('Expert');
-    expect(rankLabelFor(1683)).toBe('Candidate Master');
-    expect(rankLabelFor(1900)).toBe('Master');
-    expect(rankLabelFor(2100)).toBe('International Master');
-    expect(rankLabelFor(2350)).toBe('Grandmaster');
-    expect(rankLabelFor(2400)).toBe('International Grandmaster');
+    expect(rankLabelFor(1199)).toBe('Newbie');
+    expect(rankLabelFor(1200)).toBe('Pupil');
+    expect(rankLabelFor(1278)).toBe('Pupil');
+    expect(rankLabelFor(1399)).toBe('Pupil');
+    expect(rankLabelFor(1400)).toBe('Specialist');
+    expect(rankLabelFor(1599)).toBe('Specialist');
+    expect(rankLabelFor(1600)).toBe('Expert');
+    expect(rankLabelFor(1683)).toBe('Expert');
+    expect(rankLabelFor(1899)).toBe('Expert');
+    expect(rankLabelFor(1900)).toBe('Candidate Master');
+    expect(rankLabelFor(2099)).toBe('Candidate Master');
+    expect(rankLabelFor(2100)).toBe('Master');
+    expect(rankLabelFor(2299)).toBe('Master');
+    expect(rankLabelFor(2300)).toBe('International Master');
+    expect(rankLabelFor(2399)).toBe('International Master');
+    expect(rankLabelFor(2400)).toBe('Grandmaster');
+    expect(rankLabelFor(2599)).toBe('Grandmaster');
+    expect(rankLabelFor(2600)).toBe('International Grandmaster');
+    expect(rankLabelFor(2999)).toBe('International Grandmaster');
     expect(rankLabelFor(3000)).toBe('Legendary Grandmaster');
+  });
+
+  it('颜色与 CF 名字同色：gray green cyan blue violet orange red', () => {
+    expect(rankColorFor(1199)).toBe('#808080');
+    expect(rankColorFor(1278)).toBe('#008000');
+    expect(rankColorFor(1400)).toBe('#03A89E');
+    expect(rankColorFor(1683)).toBe('#0000FF');
+    expect(rankColorFor(1900)).toBe('#AA00AA');
+    expect(rankColorFor(2100)).toBe('#FF8C00');
+    expect(rankColorFor(2300)).toBe('#FF8C00');
+    expect(rankColorFor(2400)).toBe('#FF0000');
+    expect(rankColorFor(3676)).toBe('#FF0000');
   });
 });
 
@@ -56,7 +87,7 @@ describe('rating 折线数据', () => {
     expect(r!.totalDeltaTone).toBe(-66);
     expect(r!.lastDeltaText).toBe('−66');
     expect(r!.lastDeltaTone).toBe(-66);
-    expect(r!.rankLabel).toBe('Specialist');
+    expect(r!.rankLabel).toBe('Pupil');
     expect(r!.lastContestShort).toBe('CF 1100 (Div. 2)');
     expect(r!.lastContest).toBe('CF 1100 (Div. 2)');
   });
