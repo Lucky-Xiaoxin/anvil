@@ -29,7 +29,9 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
     const grid: number[] = [];
     const step = 100 * Math.max(1, Math.ceil((max - min) / 600));
     for (let v = min; v <= max; v += step) if (v > min && v < max) grid.push(v);
-    const axis = [...new Set([0, Math.round(n / 3), Math.round((2 * n) / 3), last])];
+    const candidates = [0, Math.round(n / 3), Math.round((2 * n) / 3), last];
+    const axis: number[] = [];
+    for (const i of candidates) if (!axis.some((j) => series[j]!.ts === series[i]!.ts)) axis.push(i);
     return { X, Y, pi, grid, span, last, axis };
   }, [series]);
 

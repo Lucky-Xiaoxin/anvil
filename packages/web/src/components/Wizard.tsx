@@ -89,6 +89,7 @@ export function Wizard({ status, onStatus, onSynced, onEnterDashboard }: Props) 
   if (phase === 'ready' && !sync) {
     log.push({ mark: '·', text: <>限速 <span style={{ color: 'var(--warn)' }}>1 请求 / 2 秒</span> · 写入 vault/anvil.db</> });
   }
+  if (sync?.resetNote) log.push({ mark: '!', cls: 'run', text: <>{sync.resetNote}</> });
   for (let p = 0; p < (sync?.pages ?? 0); p++) {
     log.push({
       mark: '→',

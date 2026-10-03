@@ -5,7 +5,10 @@ import {
   countOffsite,
   countRatingContests,
   countSubmissions,
+  getMeta,
   insertSubmissions,
+  resetUserData,
+  setMeta,
   setSyncState,
   upsertRatingHistory,
   type RatingInput,
@@ -34,6 +37,29 @@ export function deriveState(db: DatabaseSync): Pick<SyncStateDto, 'total' | 'pro
 
 export type SyncPatch = Partial<Omit<SyncStateDto, 'error'>> & { error?: string };
 
+/** 本地库归属于哪个 handle */
+export const META_HANDLE = 'cf_handle';
+
+/**
+ * 库只属于一个 handle：换了人就先清空重建。
+ * submissions 会把两个人的提交叠在一起，rating_history 更狠——它以 contest_id 为主键，
+ * 两人打过的同一场会互相覆盖，曲线变成两个 rating 的拼图。
+ */
+function claimDatabase(db: DatabaseSync, handle: string): string | null {
+  const owner = getMeta(db, META_HANDLE);
+  if (owner === handle) return null;
+  const stale = countSubmissions(db);
+  const note =
+    owner === null
+      ? stale > 0
+        ? `本地数据无法归属 handle → 清空 ${stale} 条，为 ${handle} 重建`
+        : null
+      : `换 handle：清掉 ${owner} 的 ${stale} 条数据，为 ${handle} 全量重建`;
+  resetUserData(db);
+  setMeta(db, META_HANDLE, handle);
+  return note;
+}
+
 /**
  * 全量：from=1 一页一页拉到底。
  * 增量：接口默认新→旧，一旦某页出现已存 id 就停（重拉不重复，幂等）。
@@ -44,9 +70,10 @@ export async function syncOnce(
   client: CfClient,
   onChange?: (state: SyncStateDto) => void,
 ): Promise<SyncStateDto> {
+  const resetNote = claimDatabase(db, handle);
   const startCount = countSubmissions(db);
   const full = startCount === 0;
-  let state: SyncStateDto = { ...IDLE_STATE, ...deriveState(db), phase: 'fetching' };
+  let state: SyncStateDto = { ...IDLE_STATE, ...deriveState(db), phase: 'fetching', resetNote };
   const publish = (patch: SyncPatch) => {
     state = { ...state, ...patch };
     onChange?.(state);

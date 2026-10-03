@@ -175,6 +175,20 @@ export function countRatingContests(db: DatabaseSync): number {
   return Number(db.prepare('SELECT COUNT(*) AS n FROM rating_history').get()!['n']);
 }
 
+export function getMeta(db: DatabaseSync, key: string): string | null {
+  const row = db.prepare('SELECT v FROM meta WHERE k = ?').get(key) as { v: string } | undefined;
+  return row?.v ?? null;
+}
+
+export function setMeta(db: DatabaseSync, key: string, value: string): void {
+  db.prepare('INSERT INTO meta(k, v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(key, value);
+}
+
+/** 本地库只属于一个 handle：换人时清空，绝不把两个人的提交与 rating 叠在一起 */
+export function resetUserData(db: DatabaseSync): void {
+  db.exec('DELETE FROM submissions; DELETE FROM rating_history; DELETE FROM sync_state;');
+}
+
 export function setSyncState(db: DatabaseSync, key: string, value: string): void {
   db.prepare('INSERT INTO sync_state(k, v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(key, value);
 }

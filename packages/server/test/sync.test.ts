@@ -18,14 +18,14 @@ const sub = (id: number, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const ratingRow = (contestId = 2268) => ({
+const ratingRow = (contestId = 2268, newRating = 1438) => ({
   contestId,
   contestName: 'Codeforces Round 1100 (Div. 2)',
   handle: 'tester',
   rank: 3,
   ratingUpdateTimeSeconds: TS,
   oldRating: 1400,
-  newRating: 1438,
+  newRating,
 });
 
 const ok = (result: unknown) => ({ status: 'OK', comment: '', result });
@@ -159,6 +159,65 @@ describe('实测坑位', () => {
     const state = await syncOnce(db, 'tester', f.client);
     expect(state.offsite).toBe(2);
     expect(countOffsite(db)).toBe(2);
+    db.close();
+  });
+});
+
+describe('本地库只归属一个 handle', () => {
+  it('换 handle：先清空重建，两个人的提交与同一场 rating 不叠加', async () => {
+    const db = mem();
+    const benq = makeClient((url) =>
+      url.includes('user.rating') ? ok([ratingRow(2262, 3857)]) : ok([sub(1, { verdict: 'OK' }), sub(2, { verdict: 'OK' })]),
+    );
+    await syncOnce(db, 'Benq', benq.client);
+    expect(countSubmissions(db)).toBe(2);
+
+    const me = makeClient((url) =>
+      url.includes('user.rating') ? ok([ratingRow(2262, 1278)]) : ok([sub(900), sub(901), sub(902)]),
+    );
+    const state = await syncOnce(db, 'jywlq', me.client);
+
+    expect(state.resetNote).toContain('Benq');
+    expect(state.stored).toBe(3);
+    const ids = (db.prepare('SELECT id FROM submissions ORDER BY id').all() as { id: number }[]).map((r) => Number(r.id));
+    expect(ids).toEqual([900, 901, 902]);
+    // 同一 contest_id 不再被两个人的 rating 互相覆盖
+    expect(countRatingContests(db)).toBe(1);
+    expect(db.prepare('SELECT new_rating FROM rating_history WHERE contest_id = 2262').get()).toEqual({ new_rating: 1278 });
+    db.close();
+  });
+
+  it('同一个 handle 重复同步不清空', async () => {
+    const db = mem();
+    const first = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
+    await syncOnce(db, 'jywlq', first.client);
+    const second = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
+    const state = await syncOnce(db, 'jywlq', second.client);
+    expect(state.resetNote).toBeNull();
+    expect(state.stored).toBe(0);
+    expect(countSubmissions(db)).toBe(2);
+    db.close();
+  });
+
+  it('空库首次同步不提清空', async () => {
+    const db = mem();
+    const f = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1)])));
+    const state = await syncOnce(db, 'jywlq', f.client);
+    expect(state.resetNote).toBeNull();
+    expect(countSubmissions(db)).toBe(1);
+    db.close();
+  });
+
+  it('老库没有归属标记：清掉并说明「无法归属」', async () => {
+    const db = mem();
+    const f = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
+    await syncOnce(db, 'Benq', f.client);
+    db.prepare("DELETE FROM meta WHERE k = 'cf_handle'").run();
+
+    const g = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow(2270)]) : ok([sub(500)])));
+    const state = await syncOnce(db, 'jywlq', g.client);
+    expect(state.resetNote).toContain('无法归属');
+    expect(countSubmissions(db)).toBe(1);
     db.close();
   });
 });

@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { countDistinctOkProblems, countSubmissions, getSyncState } from './db.ts';
 import { buildDashboard } from './dashboard.ts';
 import { CfError, type CfClient } from './sync/cf.ts';
-import { startSync, syncSnapshot } from './sync/runner.ts';
+import { isRunning, startSync, syncSnapshot } from './sync/runner.ts';
 
 export interface ApiContext {
   db: DatabaseSync;
@@ -32,6 +32,10 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
       return reply.code(400).send({ error: { kind: 'invalid', message: parsed.error.issues[0]?.message ?? 'handle 不合法' } });
     }
     const handle = parsed.data.handle;
+    // 换 handle 会清空重建本地库，绝不能跟正在跑的同步交错
+    if (handle !== ctx.getHandle() && isRunning()) {
+      return reply.code(409).send({ error: { kind: 'busy', message: '同步进行中，等它跑完再换 handle' } });
+    }
     try {
       await ctx.client.checkHandle(handle);
     } catch (err) {

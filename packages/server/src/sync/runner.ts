@@ -14,6 +14,10 @@ export function syncSnapshot(): SyncStateDto {
   return snapshot;
 }
 
+export function isRunning(): boolean {
+  return running !== null;
+}
+
 /** 后台起跑：接口立刻回 202，前端 1s 轮询 snapshot */
 export function startSync(db: DatabaseSync, handle: string, client: CfClient): SyncStateDto {
   if (running) return snapshot;

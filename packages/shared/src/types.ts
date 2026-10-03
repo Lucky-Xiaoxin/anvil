@@ -21,6 +21,8 @@ export interface SyncStateDto {
   ratingContests: number;
   /** 哨兵值转 NULL 的场外提交数 */
   offsite: number;
+  /** 换 handle 时清空重建的说明；没换人则为 null */
+  resetNote?: string | null;
 }
 
 export interface ActivityCellDto {
