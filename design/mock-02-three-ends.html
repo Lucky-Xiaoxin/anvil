@@ -385,8 +385,10 @@ body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{
 .acell--future{background:transparent;animation:none;pointer-events:none}
 .acell:hover{outline-color:var(--text)}
 .acell--today{outline:1px solid var(--accent-2)}
-/* AT 独立档位候选：色阶换向（青系），只给屏 4 的方案 B 用 */
-.agrid--alt .acell[data-l="1"]{background:#123C40}
+/* AT 独立档位主题：青系色阶。0 档必须仍看得见 —— 它比卡片底 #12161D 亮一档，
+   压到比卡片底还暗就等于把"打了但没做题"的空格省略掉了，读图会误判成缺数据 */
+.agrid--alt .acell:not(.acell--future){background:#17262B}
+.agrid--alt .acell[data-l="1"]{background:#1E4A50}
 .agrid--alt .acell[data-l="2"]{background:#0E6A6E}
 .agrid--alt .acell[data-l="3"]{background:#0E9EA4}
 .agrid--alt .acell[data-l="4"]{background:var(--pf-at)}
@@ -875,13 +877,13 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           <span class="card__note">近 53 周 <b data-bind="stats.activityTotal">—</b> 题次 · 生涯去重 <b data-bind="stats.totalSolved">—</b> 题</span>
           <span class="legend" aria-hidden="true" style="margin-left:14px">
             少
-            <i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></i>
+            <i style="background:#17262B"></i><i style="background:#1E4A50"></i><i style="background:#0E6A6E"></i><i style="background:#0E9EA4"></i><i style="background:var(--pf-at);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></i>
             多
           </span>
         </div>
         <div class="agrid-body">
           <div class="agrid-scroll">
-            <div class="agrid" id="agrid-at" role="img" aria-label="近 53 周 AtCoder 活跃格子图"></div>
+            <div class="agrid agrid--alt" id="agrid-at" role="img" aria-label="近 53 周 AtCoder 活跃格子图"></div>
           </div>
           <div class="readout">
             <div class="ro"><span class="ro__k">最长连续</span><b class="ro__v" data-bind="stats.longestRun.days">—</b><span class="ro__n" data-bind="stats.longestRun.range">—</span></div>
@@ -890,8 +892,8 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           </div>
         </div>
         <div class="afoot">
-          <span class="card__note">日格 = 当日 AC 去重题数 · 与 CF 同组件同档位阈值</span>
-          <span class="card__note mute">AT 单日最高 6 题 → 此图只用 0–3 档，heat-4 永不亮（档位方案见屏 4）</span>
+          <span class="card__note">日格 = 当日 AC 去重题数 · 阈值与 CF 共用 <code>0 / 1–2 / 3–5 / 6–9 / 10+</code></span>
+          <span class="card__note mute">只换色相不换标尺：AT 青阶 / CF 琥珀阶，两源可横向比深浅</span>
         </div>
       </div>
 
@@ -1238,26 +1240,34 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           </div>
         </section>
 
-        <!-- ---------- AT 格子档位 ---------- -->
+        <!-- ---------- AT 格子：档位 + 色相 ---------- -->
         <section>
-          <h3>AT grid thresholds <span>同一份 AT 数据 · 两套档位</span></h3>
+          <h3>AT grid scale <span>档位与色相是两个独立开关 · 定稿：共用档位 + AT 青阶</span></h3>
+          <p class="hint" style="margin-bottom:var(--sp-2)">
+            <b>档位跨源共用，不动</b>：<code>0 / 1–2 / 3–5 / 6–9 / 10+</code> —— 两源的格子必须同一把尺，否则横向对照读不出"谁更热"。
+            <b>色相按源分</b>：CF 琥珀阶、AT 青阶，明度阶梯一一对应，只换色相。
+          </p>
           <div class="tk-grid2">
             <div>
-              <h4>方案 A · 与 CF 共用阈值（本稿实装）</h4>
-              <div class="agrid agrid--demo" id="agrid-demoA" role="group" aria-label="AT 格子档位方案 A 示例"></div>
+              <h4>琥珀阶 · 不换色的对照</h4>
+              <div class="agrid agrid--demo" id="agrid-demoA" role="group" aria-label="AT 数据套 CF 琥珀阶"></div>
               <div class="legend" style="margin-top:10px">少<i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4)"></i>多</div>
-              <p class="hint" style="margin-top:10px">阈值 <code>0 / 1–2 / 3–5 / 6–9 / 10+</code>。AT 单日最高 6 题 → <b>heat-4 永不亮，heat-3 只在满贯日出现</b>，整张图偏灰。</p>
+              <p class="hint" style="margin-top:10px">同一份 AT 数据、同一套档位，只差色相 —— 这块是"不换色"的样子。</p>
             </div>
             <div>
-              <h4>方案 B · AT 独立阈值 + 青系色阶</h4>
-              <div class="agrid agrid--alt agrid--demo" id="agrid-demoB" role="group" aria-label="AT 格子档位方案 B 示例"></div>
-              <div class="legend" style="margin-top:10px">少<i style="background:var(--heat-0)"></i><i style="background:#123C40"></i><i style="background:#0E6A6E"></i><i style="background:#0E9EA4"></i><i style="background:var(--pf-at)"></i>多</div>
-              <p class="hint" style="margin-top:10px">阈值 <code>0 / 1 / 2 / 3 / 4+</code>，把 AT 的量纲摊开。<b>代价</b>：两源的"热"不再是同一个词，跨源对照会读反。</p>
+              <h4>青阶 · 定稿（屏 2 实装）</h4>
+              <div class="agrid agrid--alt agrid--demo" id="agrid-demoB" role="group" aria-label="AT 数据套 AT 青阶"></div>
+              <div class="legend" style="margin-top:10px">少<i style="background:#17262B"></i><i style="background:#1E4A50"></i><i style="background:#0E6A6E"></i><i style="background:#0E9EA4"></i><i style="background:var(--pf-at)"></i>多</div>
+              <p class="hint" style="margin-top:10px">五档明度与琥珀阶逐级对齐（0 档比卡片底亮一档，保证"打了没做题"的空格仍然看得见），深浅读法完全一致。</p>
             </div>
           </div>
           <p class="hint" style="margin-top:14px">
-            两块样本是同一份数据（屏 2 的 AT 尾部 6 周），只差分档函数。方案 A 保住"热力 = 琥珀 = 锻打"这条全局隐喻，方案 B 让 AT 侧看得出深浅。
-            <b>本稿按 <code>docs/09</code> §5 走 A</b>，B 只作对照。
+            <b>已否掉的方向：AT 独立阈值 <code>0/1/2/3/4+</code></b>。我原先拿"演示数据单日最高 6 题 → heat-4 永不亮"当论据，那是<b>错的</b>：
+            那个 6 是稿子里生成器给演示数据设的分配上限（<code>cap</code>），不是 AtCoder 的限制 —— 真实侧 ABC 8 题、ARC 6 题、AGC 6–8 题，练习 AC 同样计入日格，集训日 10 题以上很正常。
+            <b>某个人的数据形状不该反过来设计标尺</b>；档位一独立，两源的格子就再也不能横向比了。
+          </p>
+          <p class="hint" style="margin-top:10px">
+            <b>换色范围（定稿）：仅活跃格子</b> —— 日期矩阵是屏上面积最大的组件，"换了平台"靠它一眼可读；连续训练刻度与当月柱保持琥珀阶，它们是训练热度读数、与 CF 同语言。
           </p>
         </section>
 
@@ -1372,8 +1382,8 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
               <p class="dec__p">用户看了色卡这一版：<b>照这版走</b> —— 采用同色相提亮表（CF Pupil / Expert / Candidate Master 与 AT Brown / Green / Blue 这 6 档只提明度不改色相，其余档位连同 AT 的 Gray / Cyan / Yellow / Orange / Red 一律原生直用）。<b>这等于改掉切片 1 那句"深色底上仍用 CF 原值，不自行提亮"</b>：实现侧 <code>rankColorFor()</code> 要按 source + 深底两套返回，段位色名与档位边界都不动。原生值仍留在 <code>--rk-*</code> 里备查，曲线段色与上面的色卡对照用的就是它。</p>
             </div></div>
             <div class="dec__i dec__i--blue"><div>
-              <div class="dec__t">③ AT 格子用不用独立档位<span class="must">必答</span></div>
-              <p class="dec__p">共用 CF 阈值（方案 A）时 AT 全图只落 0–2 档，看着"永远很冷"，但它诚实：<b>AT 的日强度确实低一个量级</b>，同一把尺正好把差距摆出来。独立阈值（方案 B）读得清深浅，代价是两源不再同标尺。本稿按 <code>docs/09</code> §5 走 A，B 留在屏 4 当对照。</p>
+              <div class="dec__t">③ AT 格子档位<span class="must">已定 · 共用 CF 阈值</span></div>
+              <p class="dec__p">用户拍：<b>档位一律与 CF 共用 <code>0 / 1–2 / 3–5 / 6–9 / 10+</code>，不做独立阈值</b>。我原先主张独立阈值，论据是"AT 单日最高 6 题 → heat-4 永不亮、整图偏灰" —— <b>这条论据是错的</b>：那个 6 是演示数据生成器的分配上限（<code>cap</code>），不是 AtCoder 的限制（真实侧 ABC 8 题、ARC 6 题、AGC 6–8 题，练习 AC 也计日格，集训日 10+ 很正常）。<b>某个人的数据形状不能反过来设计标尺</b>，何况这份数据本身就是测试用的。色相则按源分（AT 青 / CF 琥珀），明度阶梯一一对应，深浅读法不变；换色范围定为"仅活跃格子"（刻度与月柱保持琥珀），见上面 AT grid scale 一节末段。</p>
             </div></div>
             <div class="dec__i dec__i--line"><div>
               <div class="dec__t">④ 顶栏同步按钮多写了源名</div>
@@ -1506,10 +1516,8 @@ function buildDays(seed,cfg){
   return days;
 }
 
-/* 与 CF 同档：0 / 1–2 / 3–5 / 6–9 / 10+（docs/09 §5 两源共用一把尺） */
+/* 与 CF 同档：0 / 1–2 / 3–5 / 6–9 / 10+（docs/09 §5 两源共用一把尺；独立档位方案已否） */
 function lvl(v){return v<=0?0 : v<=2?1 : v<=5?2 : v<=9?3 : 4}
-/* AT 独立档位候选（屏 4 方案 B）：0 / 1 / 2 / 3 / 4+ */
-function lvlAlt(v){return v<=0?0 : v<=1?1 : v<=2?2 : v<=3?3 : 4}
 
 /* ==========================================================================
    GET /api/status → sources：点只说"通不通"，日期与原因交给 tooltip
@@ -1661,6 +1669,7 @@ var DASH={
   }),
   at:buildSource({
     id:"at", seed:0x41544F4D, totalSolved:261,
+    /* cap = 演示数据生成器的分配上限，不是 AT 的限制（曾据此误推"heat-4 永不亮"，见屏 4） */
     days:{tail:AT_FIXED30, zeros:AT_ZEROS, spikes:{}, band:atBand, cap:6, weekend:1, gridTotal:236},
     history:AT_HISTORY,
     rankLabel:"Cyan", rankColor:"var(--rk-at-cyan)",
@@ -1810,8 +1819,8 @@ function renderGrid(host, data, name){
   host.setAttribute("aria-label","近 53 周 "+name+" 活跃格子图：合计 "+data.stats.activityTotal+" 题次");
 }
 
-/* 屏 4 的档位对照：同一份 AT 尾部 7 周，只换分档函数 */
-function renderDemoGrid(host, alt){
+/* 屏 4 的色相对照：同一份 AT 尾部 7 周、同一套档位；色相由容器上的 agrid--alt 决定 */
+function renderDemoGrid(host){
   host.innerHTML="";
   var A=DASH.at.activity.slice(-49), base=parseYMD(A[0].day);
   [0,2,4].forEach(function(r){
@@ -1820,7 +1829,7 @@ function renderDemoGrid(host, alt){
   });
   A.forEach(function(a,i){
     var d=parseYMD(a.day), cell=el("div","acell");
-    cell.dataset.l=String(alt?lvlAlt(a.solved):lvl(a.solved));
+    cell.dataset.l=String(lvl(a.solved));
     cell.style.gridRow=String(dowMon(d)+1); cell.style.gridColumn=String(Math.round((d-base)/MS/7)+2);
     cell.style.animationDelay=i*10+"ms";
     cell.addEventListener("mouseenter",function(){
@@ -2147,8 +2156,8 @@ renderMonths($("#mbars-cf"), DASH.cf);
 renderMonths($("#mbars-at"), DASH.at);
 renderTicks($("#streakTicks-cf"), DASH.cf);
 renderTicks($("#streakTicks-at"), DASH.at);
-renderDemoGrid($("#agrid-demoA"), false);
-renderDemoGrid($("#agrid-demoB"), true);
+renderDemoGrid($("#agrid-demoA"));
+renderDemoGrid($("#agrid-demoB"));
 
 /* 顶栏同步：只拉当前选中源（docs/09 §1.5）。AT 拉成功后降级条当场消失 */
 $$(".syncBtn").forEach(function(btn){
@@ -2191,8 +2200,8 @@ if(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) 
 $("#replay").addEventListener("click",function(){
   renderGrid($("#agrid-cf"), DASH.cf, "Codeforces");
   renderGrid($("#agrid-at"), DASH.at, "AtCoder");
-  renderDemoGrid($("#agrid-demoA"), false);
-  renderDemoGrid($("#agrid-demoB"), true);
+  renderDemoGrid($("#agrid-demoA"));
+  renderDemoGrid($("#agrid-demoB"));
   renderTicks($("#streakTicks-cf"), DASH.cf);
   renderTicks($("#streakTicks-at"), DASH.at);
   countUp($("#"+currentScreen()));
