@@ -316,23 +316,27 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 /* 克制版作用点 ③：读数线换平台色（四卡同色，卡内区分交给数字色与 label） */
 .dash .stat{--sc:var(--pf)}
 
-/* 加强版：极淡平台色晕（唯一与克制版的差别） */
+/* 加强版：极淡平台色晕。两种开法 —— 顶栏全局开关，或单屏定稿（.dash.is-strong，本稿给 XCPC） */
 body.pf-strong .dash .card,
+.dash.is-strong .card,
 .cmp--strong .card{
   background-image:radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.05), transparent 58%);
   border-color:rgba(var(--pf-rgb),.17);
 }
 body.pf-strong .dash .stat,
+.dash.is-strong .stat,
 .cmp--strong .stat{
   background-image:
     radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.055), transparent 58%),
     linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
   border-color:rgba(var(--pf-rgb),.17);
 }
-/* 对照屏里的"克制"样本必须压过上面的全局开关（多一层 .dash 抬高优先级） */
-body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card,
-.cmp--soft .stat,.cmp--soft .card{background-image:none;border-color:var(--line)}
-body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{background-image:none;border-color:var(--line)}
+/* 对照屏里的"克制"样本必须压过全局开关与单屏定稿 */
+.cmp--soft .stat,.cmp--soft .card,
+.dash.is-strong .cmp--soft .stat,.dash.is-strong .cmp--soft .card,
+body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{
+  background-image:none;border-color:var(--line);
+}
 
 /* 连续天数卡下方的近 14 日微刻度 */
 .ticks{display:flex;gap:3px;align-items:flex-end;height:18px;margin-top:9px}
@@ -568,6 +572,42 @@ body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{back
 .rk__s{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--line-soft);border-radius:var(--r-s);background:#0B0E13}
 .rk__s b{font-weight:600}
 .rk__s u{text-decoration:none;font-size:9.5px;letter-spacing:.08em;color:var(--text-mute);text-transform:uppercase}
+
+/* ---------- 14. 动效调参台（设计工具 · 非产品 UI） ---------- */
+.tuner{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:var(--sp-3);align-items:start}
+.tuner__stage{
+  position:relative;overflow:hidden;border:1px dashed var(--line);border-radius:var(--r-s);
+  background:#0B0E13;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:186px;
+}
+.tuner__stage .row4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.pcard{
+  position:relative;height:52px;border:1px solid var(--line);border-radius:var(--r-s);
+  background:linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
+}
+.pcard::after{content:"";position:absolute;left:0;bottom:0;height:2px;width:100%;
+  background:linear-gradient(90deg,var(--pf) 0%,transparent 78%);opacity:.85}
+.pcard--wide{height:44px}
+.tuner__ctl{display:flex;flex-direction:column;gap:9px}
+.sl-row{display:grid;grid-template-columns:112px minmax(0,1fr) 54px;align-items:center;gap:10px;
+  font-family:var(--font-num);font-size:11px;color:var(--text-dim)}
+.sl-row input[type=range]{width:100%;accent-color:var(--accent);height:16px;margin:0}
+.sl-row b{color:var(--accent);text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.sl-row--ease{grid-template-columns:112px minmax(0,1fr)}
+.sel{background:#0B0E13;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);
+  font:12px var(--font-num);padding:5px 8px;min-width:0;width:100%}
+.sel:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tuner__pre{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.gantt{display:flex;flex-direction:column;gap:3px;margin-top:12px}
+.gantt__row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;align-items:center}
+.gantt__k{font-family:var(--font-num);font-size:9.5px;color:var(--text-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt__t{position:relative;height:11px;background:rgba(255,255,255,.04);border-radius:2px}
+.gantt__b{position:absolute;top:2px;height:7px;border-radius:2px}
+.gantt__b--out{background:var(--accent);opacity:.9}
+.gantt__b--in{background:var(--pf-at);opacity:.9}
+.gantt__ax{display:flex;justify-content:space-between;padding-left:104px;
+  font-family:var(--font-num);font-size:9.5px;color:var(--text-mute)}
+.inv{font-family:var(--font-num);font-size:11px;color:var(--text-dim);line-height:1.8}
+.inv b{color:var(--ok)} .inv .no{color:var(--bad)}
 
 .rise{animation:rise 200ms var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -879,7 +919,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
      屏 3 · XCPC tab（占位态）
      ============================================================ -->
 <section class="screen" id="s3" role="tabpanel" aria-labelledby="t3" hidden>
-<div class="app dash pf-xcpc">
+<div class="app dash pf-xcpc is-strong">
 
   <aside class="nav">
     <div class="brand">
@@ -913,6 +953,9 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/09</code> §9 · 数据源 heimaom 静态导出 · 身份 key <code>姓名@学校</code>），待接入。
         </p>
         <p class="hint" style="margin-top:10px">本切片无此源的数据，顶栏同步按钮为灰态；tab 项的 rating 一律 <b>—</b>。</p>
+        <p class="hint" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft)">
+          本屏按<b>加强版</b>出稿（卡片带极淡平台色晕）：占位屏没有数据可辨，色晕是这一屏唯一的归属信号。CF / AT 两屏仍走克制版，见屏 4。
+        </p>
       </div>
     </div>
   </div>
@@ -1077,7 +1120,11 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
         <!-- ---------- 平台识别色：两档对比 ---------- -->
         <section>
-          <h3>Platform accent <span>平台识别色两档强度 · 需要你拍板</span></h3>
+          <h3>Platform accent <span>平台识别色两档强度 · 定稿：CF / AT 走克制，XCPC 走加强</span></h3>
+          <p class="hint" style="margin-bottom:var(--sp-2)">
+            分档理由：<b>CF / AT 两屏信息密度高</b>，归属已经由 tab 条、卡标题平台名、格子图标题三处交代，再加染色只会和热力色阶抢注意力；
+            <b>XCPC 屏只有一张占位卡</b>，几乎没有内容可辨，色晕是那一屏唯一的归属信号 —— 所以按加强版出稿（屏 3 即成品，不是演示态）。
+          </p>
           <div class="sw" style="margin-bottom:var(--sp-3)">
             <div class="sw__i"><div class="sw__c" style="background:var(--pf-cf)"></div><div class="sw__m"><b>--pf-cf</b> #4CC9F0<br><span class="sw__u">蓝 · = 现有 --accent-2，CF 是切片 1 的原生端</span></div></div>
             <div class="sw__i"><div class="sw__c" style="background:var(--pf-at)"></div><div class="sw__m"><b>--pf-at</b> #00C0C0<br><span class="sw__u">青 · AtCoder cyan 档原生色，也是本画像的段位色</span></div></div>
@@ -1224,8 +1271,9 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
               <tr><td>顺序</td><td>飞出：<b>外圈先、中部后</b>（按距中线远近降序）；飞入：<b>中部先、外圈后</b>（升序）。宽卡（格子图 / 曲线）算中部 —— 先出后入，压住节奏</td></tr>
               <tr><td>起点</td><td>飞出从原位起飞；飞入从<b>底部</b>升起 <code>40 + 距中线距离/6 px</code>，外侧卡多飞一段，收成扇形</td></tr>
               <tr><td>时序不变量</td><td>第 <code>i</code> 张（按各自段的顺序）：<code>delay = i×STEP</code>、<code>duration = DUR + i×DSTEP</code>。STEP 与 DSTEP 同为正 ⇒ 起步时间严格递增、完成时间 <code>i×(STEP+DSTEP)+DUR</code> 也严格递增 —— <b>任意两张卡不会同时起步，也不会同时完成</b></td></tr>
-              <tr><td>参数</td><td>飞出 <code>DUR 110 / STEP 14 / DSTEP 5</code>，缓动 <code>cubic-bezier(.5,0,.9,.35)</code>（越走越快，像被抽走）；飞入 <code>DUR 160 / STEP 16 / DSTEP 6</code>，缓动沿用 <code>--ease</code>（落位不弹）</td></tr>
-              <tr><td>总时长</td><td>7 张卡（AT 屏含降级条）：飞出 224ms → 空档 24ms → 飞入 292ms，合计 <b>≈540ms</b>。比渐隐渐出慢 2.7 倍，换到的是"这一屏的东西被 physically 换走了"的连续感。要压回 300ms 内：两组 DUR 各砍半、STEP 降到 8 / 10，不变量仍然成立</td></tr>
+              <tr><td>参数（定稿档 = 极缓）</td><td><b>用户选定</b>：飞出 <code>DUR 360 / STEP 51 / DSTEP 9</code> 缓动"对称 · 加速度明显"<code>cubic-bezier(.65,0,.35,1)</code>；飞入 <code>DUR 520 / STEP 40 / DSTEP 14</code> 缓动"柔和 · 两头收"<code>cubic-bezier(.4,0,.2,1)</code>；空档 80ms、底部升起 72px、起终点缩放 4%。数值仍是调参台的默认态，改回来一眼可见</td></tr>
+              <tr><td>总时长</td><td>6 张卡的预览拓扑 = <b>1530ms</b>（出 660 + 空档 80 + 入 790）；AT 屏实为 7 张（多一条降级条）≈ <b>1644ms</b>。四档预设：快 499 / 标准 ≈700 / 平滑 945 / <b>极缓 1530（定稿）</b></td></tr>
+              <tr><td>切换中再点别的源</td><td>本稿的做法是<b>忽略后续点击</b>（不叠两套动画）。1.6s 的窗口里连点会被吃掉 —— 实现侧建议改成"立刻让当前动画落位、直接开播目标档"，别做成排队等待。这条留给实现 agent 定夺，视觉稿不演示</td></tr>
               <tr><td>裁切</td><td>飞行途中给内容区加 <code>overflow-x:hidden</code>：既拿到"裁在侧边栏 / 屏幕边缘"的效果，又免得 transform 撑出横向滚动条把版面顶宽 11px</td></tr>
               <tr><td>不重播的</td><td>格子 stagger 与数字 count-up 只在某源第一次出现时跑；飞入时卡里的图已经是终态，动的是卡本身</td></tr>
               <tr><td>reduced-motion</td><td>整套编排跳过，直接换屏（<code>transition</code> 与 <code>transform</code> 都不出现）</td></tr>
@@ -1237,6 +1285,52 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
             屏 1 / 2 / 3 之间点 tab 条就是真实编排；按下「模拟 reduced-motion」后同一套切换应直落终值、没有任何位移。
             顶栏「重播动效」只重播格子 stagger 与 count-up，不重播切换 —— 切换要靠自己点 tab。
           </p>
+
+          <h4>调参台 <span>拖一下就是真实参数 · 预览按当前值重播 · 选定后把数字念给我</span></h4>
+          <div class="tuner">
+            <div>
+              <div class="tuner__stage pf-at" id="flyStage" aria-hidden="true">
+                <div class="row4"><div class="pcard"></div><div class="pcard"></div><div class="pcard"></div><div class="pcard"></div></div>
+                <div class="pcard pcard--wide"></div>
+                <div class="pcard pcard--wide"></div>
+              </div>
+              <div class="tuner__pre" style="margin-top:10px">
+                <button class="btn btn--sm" id="flyReplay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播预览</button>
+                <span class="hint" id="flyTotal"></span>
+              </div>
+              <div class="gantt" id="flyGantt"></div>
+              <div class="gantt__ax" id="flyAxis"></div>
+              <p class="hint" style="margin-top:8px">
+                甘特一行一张卡：<b style="color:var(--accent)">琥珀 = 飞出</b>、<b style="color:var(--pf-at)">青 = 飞入</b>，横轴是毫秒。
+                每行的起点和终点都错开 —— 这张图就是"任意两张卡不同时起步、不同时完成"的可视化证明。
+              </p>
+            </div>
+            <div class="tuner__ctl" id="flyCtl">
+              <div class="sl-row"><label for="fOd">飞出时长</label><input type="range" id="fOd" min="60" max="420" step="10"><b id="fOdv">—</b></div>
+              <div class="sl-row"><label for="fOs">飞出错峰</label><input type="range" id="fOs" min="0" max="70" step="1"><b id="fOsv">—</b></div>
+              <div class="sl-row"><label for="fOds">飞出递增</label><input type="range" id="fOds" min="0" max="30" step="1"><b id="fOdsv">—</b></div>
+              <div class="sl-row"><label for="fId">飞入时长</label><input type="range" id="fId" min="120" max="700" step="10"><b id="fIdv">—</b></div>
+              <div class="sl-row"><label for="fIs">飞入错峰</label><input type="range" id="fIs" min="0" max="80" step="1"><b id="fIsv">—</b></div>
+              <div class="sl-row"><label for="fIds">飞入递增</label><input type="range" id="fIds" min="0" max="40" step="1"><b id="fIdsv">—</b></div>
+              <div class="sl-row"><label for="fH">两段空档</label><input type="range" id="fH" min="0" max="160" step="2"><b id="fHv">—</b></div>
+              <div class="sl-row"><label for="fR">底部升起</label><input type="range" id="fR" min="0" max="160" step="2"><b id="fRv">—</b></div>
+              <div class="sl-row"><label for="fS">起终点缩放</label><input type="range" id="fS" min="0" max="8" step="1"><b id="fSv">—</b></div>
+              <div class="sl-row sl-row--ease"><label for="fOe">飞出缓动</label><select class="sel" id="fOe"></select></div>
+              <div class="sl-row sl-row--ease"><label for="fIe">飞入缓动</label><select class="sel" id="fIe"></select></div>
+              <div class="tuner__pre" style="margin-top:4px">
+                <span class="label">预设</span>
+                <button class="btn btn--sm" data-preset="fast">快</button>
+                <button class="btn btn--sm" data-preset="std">标准</button>
+                <button class="btn btn--sm" data-preset="soft">平滑</button>
+                <button class="btn btn--sm" data-preset="slow">极缓</button>
+              </div>
+              <p class="inv" id="flyInv"></p>
+              <p class="hint">
+                递增（DSTEP）必须为正：它和错峰（STEP）一起把完成时间拉开 —— 只调 STEP 而 DSTEP 归零时，
+                完成时间仍会两两不同，但差距全压在起步上；两者都为 0 就退化成"整屏一起动"，不变量当场失效。
+              </p>
+            </div>
+          </div>
         </section>
 
         <!-- ---------- 新增数据槽 ---------- -->
@@ -1265,13 +1359,17 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
         <section>
           <h3>Decisions <span>最需要拍板的几件事</span></h3>
           <div class="dec">
+            <div class="dec__i"><div>
+              <div class="dec__t">★ 切换动效档位<span class="must">已定</span></div>
+              <p class="dec__p">用户在调参台上选定并微调：<b>极缓档 = 出 360/51/9「对称」+ 空档 80 + 入 520/40/14「柔和」+ 升起 72px + 缩放 4%</b>，6 卡预览 1530ms、AT 屏 7 卡 ≈1644ms。上一版（纯加速 520ms）被判"太快、没有平滑动效的感觉"，这版把减速交给"对称"起势 + "两头收"落位，再加 4% 缩放补重量。数值已钉回 <code>docs/09</code> §7，调参台默认就是这一组，要再改拖一下即可。<b>唯一风险</b>：1.6s 窗口里连点会被吃掉，实现侧建议改成"当前动画立即落位、直接开播目标档"（见上面口径表最后一行）。</p>
+            </div></div>
             <div class="dec__i dec__i--pf"><div>
-              <div class="dec__t">① 平台识别色选哪档<span class="must">必答</span></div>
-              <p class="dec__p">A 克制 = 指示条 + 卡头 label + 读数线三处；B 加强 = 再加卡片极淡色晕与同色描边。<b>我推荐 A</b>：三端之间已经由 tab 条本身、卡片标题的平台名、格子图标题三处交代过"这是哪一家"，色晕再叠一层只是把深色底染脏，还和热力色阶的暖调抢注意力。要 B 建议加一条限制：色晕只上四张统计卡，格子图与曲线卡不上 —— 大卡面染色会盖掉格子图的冷铁底。</p>
+              <div class="dec__t">① 平台识别色分档已定<span class="must">复核</span></div>
+              <p class="dec__p">用户定：<b>CF / AT 克制版</b>（tab 指示条 + 卡头 label + 统计卡读数线三处），<b>XCPC 加强版</b>（再加卡片极淡色晕与同色描边）。实现落点：前两屏不加标记，XCPC 屏根节点带 <code>is-strong</code>；顶栏那个全局开关只是给你整站试穿用的，不代表定稿。理由与对照见上面 Platform accent 一节。若"三屏两档"看着不一致，退路是 XCPC 也回克制、把色晕换成占位卡整卡染绯描边 —— 一处作用，效果接近，且不引入第二套规则。</p>
             </div></div>
             <div class="dec__i"><div>
-              <div class="dec__t">② 段位色在深底提不提亮<span class="must">必答</span></div>
-              <p class="dec__p">CF Expert 原生 <code>#0000FF</code> 在 <code>#0A0C10</code> 上只有约 1.6:1，13px 的 tab rating 读不出；AT Brown / Green 同病。三条路：<b>A 同色相提亮表</b>（本稿采用，代价是数字色不再是站点原值）；B 数字用原生色，只在 <code>rankLabel</code> 文字旁补一个同色方块做辨识；C 硬扛原生色，"忠实站点"优先于可读性。切片 1 写的是"深色底上仍用 CF 原值，不自行提亮"，选 A 就是改这条，需要你点头。</p>
+              <div class="dec__t">② 段位色深底提亮表<span class="must">已定</span></div>
+              <p class="dec__p">用户看了色卡这一版：<b>照这版走</b> —— 采用同色相提亮表（CF Pupil / Expert / Candidate Master 与 AT Brown / Green / Blue 这 6 档只提明度不改色相，其余档位连同 AT 的 Gray / Cyan / Yellow / Orange / Red 一律原生直用）。<b>这等于改掉切片 1 那句"深色底上仍用 CF 原值，不自行提亮"</b>：实现侧 <code>rankColorFor()</code> 要按 source + 深底两套返回，段位色名与档位边界都不动。原生值仍留在 <code>--rk-*</code> 里备查，曲线段色与上面的色卡对照用的就是它。</p>
             </div></div>
             <div class="dec__i dec__i--blue"><div>
               <div class="dec__t">③ AT 格子用不用独立档位<span class="must">必答</span></div>
@@ -1878,7 +1976,7 @@ function bindAll(root, data){
 /* ==========================================================================
    屏切换 + 源切换（渐隐渐出 ≤200ms）
    ========================================================================== */
-var painted={};
+var painted={}, tunerShow=null;
 function contentOf(screen){ return $("#"+screen+" [data-content]") }
 function currentScreen(){
   var s=$$(".screen").filter(function(x){ return !x.hidden })[0];
@@ -1893,6 +1991,7 @@ function go(id){
     t.tabIndex=on?0:-1;
   });
   firstPaint(id);
+  if(id==="s4" && tunerShow) tunerShow();      /* 预览区要量真实尺寸，只在屏 4 露脸时画 */
 }
 function firstPaint(id){
   if(painted[id]) return;
@@ -1902,62 +2001,84 @@ function firstPaint(id){
 }
 /* ==========================================================================
    卡片飞入飞出 —— 源切换的编排（取代切片 2 初稿的渐隐渐出）
-   方向：卡片中心在内容中线左侧 → 向左飞进侧边栏底下并隐去；右侧 / 跨行宽卡 → 向右飞出屏幕外。
+   方向：卡片中心在内容中线左侧 → 向左飞、被内容区左边缘裁掉（钻进侧边栏底下）并在末段淡出；
+         右侧 / 跨行宽卡 → 向右飞出屏幕外。
    顺序：飞出 = 离中线远的先走（外圈先、中部后）；飞入 = 离中线近的先来（中部先、外圈后）。
    时序不变量：第 i 张 delay = i*STEP，duration = DUR + i*DSTEP（STEP、DSTEP 同为正）
      ⇒ 起步时间严格递增，完成时间 = i*(STEP+DSTEP) + DUR 也严格递增
-     ⇒ 任意两张卡不会同时起步，也不会同时完成；飞入段整体晚于飞出段一个 handoff，两段之间也不撞。
+     ⇒ 任意两张卡不会同时起步，也不会同时完成；飞入段整体晚于飞出段一个 handoff，跨段同样不撞。
+   参数全部挂在 FLY 上，屏 4 的调参台直接改它 —— 拖完滑杆，屏 1/2/3 的真实切换立刻按新值走。
    ========================================================================== */
-var FLY={
-  out:{dur:110, step:14, durStep:5,  ease:"cubic-bezier(.5,0,.9,.35)"},   /* ease-in：越走越快，像被抽走 */
-  in :{dur:160, step:16, durStep:6,  ease:"cubic-bezier(.22,.71,.3,1)"},  /* 与 --ease 同值：落位不弹 */
-  handoff:24,                                                              /* 两段之间的空档，避开"上一张刚落地、下一张同时起步" */
-  dead:0.03                                                                /* 只有跨行宽卡算"中部"：中线 ±3% 内不偏左右 */
+var EASE={
+  soft  :"cubic-bezier(.4,0,.2,1)",        /* 两头收：最通用的"平滑" */
+  glide :"cubic-bezier(.16,1,.3,1)",       /* expo-out：长尾减速，落位极软 */
+  sym   :"cubic-bezier(.65,0,.35,1)",      /* 对称：加速度感明显但不冲 */
+  emph  :"cubic-bezier(.05,.7,.1,1)",      /* emphasized decelerate */
+  pull  :"cubic-bezier(.5,0,.9,.35)",      /* 纯加速：上一版默认，"抽走"感，冲 */
+  settle:"cubic-bezier(.22,.71,.3,1)"      /* 切片 1 的 --ease */
 };
+var EASE_NAME={soft:"柔和 · 两头收（Material standard）", glide:"滑行 · 长尾减速（expo-out）",
+  sym:"对称 · 加速度明显", emph:"落位 · 强减速（emphasized）", pull:"抽走 · 纯加速（上一版默认）",
+  settle:"缓出 · 切片 1 的 --ease"};
+var PRESET={
+  fast:{out:{dur:110,step:14,durStep:5,ease:"pull"},  in:{dur:160,step:16,durStep:6,ease:"settle"}, handoff:24, rise:40, scale:0},
+  std :{out:{dur:160,step:18,durStep:6,ease:"soft"},  in:{dur:260,step:22,durStep:8,ease:"glide"},  handoff:40, rise:48, scale:2},
+  soft:{out:{dur:200,step:22,durStep:7,ease:"soft"},  in:{dur:360,step:28,durStep:10,ease:"glide"}, handoff:50, rise:56, scale:3},
+  /* 定稿档 = 用户在调参台上选定并微调过的这组：出 360/51/9「对称」+ 入 520/40/14「柔和」 */
+  slow:{out:{dur:360,step:51,durStep:9,ease:"sym"},   in:{dur:520,step:40,durStep:14,ease:"soft"}, handoff:80, rise:72, scale:4}
+};
+var FLY={ out:Object.assign({},PRESET.slow.out), in:Object.assign({},PRESET.slow.in),
+          handoff:PRESET.slow.handoff, rise:PRESET.slow.rise, scale:PRESET.slow.scale,
+          dead:0.03 };                                            /* dead：中线 ±3% 内算"中部"，只有跨行宽卡落在这里 */
+
 function flyNodes(content){
   return $$(":scope > .grid-4 > .stat, :scope > .card, :scope > .alert", content);
 }
-function plan(content){
-  var box=content.getBoundingClientRect(), mid=box.left+box.width/2;
-  var items=flyNodes(content).map(function(n){
+function planNodes(nodes, box){
+  var mid=box.left+box.width/2;
+  return nodes.map(function(n){
     var r=n.getBoundingClientRect(), dx=(r.left+r.width/2)-mid;
     return {n:n, left:r.left, right:r.right, dist:Math.abs(dx),
             side: Math.abs(dx)<box.width*FLY.dead ? 0 : (dx<0?-1:1)};
   });
-  return items;
 }
-function flyOut(content){
-  var items=plan(content);
-  items.sort(function(a,b){ return b.dist-a.dist });            /* 外圈先飞出 */
-  var total=0, anims=[];
+function flyOutNodes(nodes, box){
+  var items=planNodes(nodes,box);
+  items.sort(function(a,b){ return b.dist-a.dist });              /* 外圈先飞出 */
+  var s=FLY.scale/100, total=0, anims=[];
   items.forEach(function(it,i){
     var d=FLY.out.dur+i*FLY.out.durStep, delay=i*FLY.out.step;
+    var dl=Math.round(it.right-box.left)+48, dr=Math.round(box.right-it.left)+48;
     var kf = it.side<0
-      ? [{transform:"translateX(0)",opacity:1},
-         {transform:"translateX("+Math.round(-(it.right+48)*0.6)+"px)",opacity:1,offset:.6},
-         {transform:"translateX("+-(it.right+48)+"px)",opacity:0}]
-      : [{transform:"translateX(0)",opacity:1},
-         {transform:"translateX("+(window.innerWidth-it.left+48)+"px)",opacity:1}];
+      ? [{transform:"translateX(0px) scale(1)", opacity:1},
+         {transform:"translateX("+Math.round(-dl*.62)+"px) scale("+(1-s*.62).toFixed(3)+")", opacity:.85, offset:.62},
+         {transform:"translateX("+(-dl)+"px) scale("+(1-s).toFixed(3)+")", opacity:0}]
+      : [{transform:"translateX(0px) scale(1)", opacity:1},
+         {transform:"translateX("+dr+"px) scale("+(1-s).toFixed(3)+")", opacity:1}];
     /* fill:forwards —— 飞出去的卡必须停在屏外，否则它自己的动画先结束、换屏还没到，
        卡片会在原地"复活"一下（150ms 那一帧就是这个 bug） */
-    anims.push(it.n.animate(kf,{duration:d, delay:delay, easing:FLY.out.ease, fill:"forwards"}));
+    anims.push(it.n.animate(kf,{duration:d, delay:delay, easing:EASE[FLY.out.ease], fill:"forwards"}));
     total=Math.max(total, delay+d);
   });
   return {total:total, anims:anims};
 }
-function flyIn(content){
-  var items=plan(content);
-  items.sort(function(a,b){ return a.dist-b.dist });            /* 中部先飞入 */
-  var total=0;
+function flyInNodes(nodes, box){
+  var items=planNodes(nodes,box);
+  items.sort(function(a,b){ return a.dist-b.dist });              /* 中部先飞入 */
+  var s=FLY.scale/100, total=0, anims=[];
   items.forEach(function(it,i){
     var d=FLY.in.dur+i*FLY.in.durStep, delay=i*FLY.in.step;
-    var rise=Math.round(40 + it.dist/6);                        /* 外侧卡多飞一段，呈扇形展开 */
-    it.n.animate([{transform:"translateY("+rise+"px)",opacity:0},{transform:"translateY(0)",opacity:1}],
-                 {duration:d, delay:delay, easing:FLY.in.ease, fill:"backwards"});
+    var rise=Math.round(FLY.rise + it.dist/6);                    /* 外侧卡多飞一段，收成扇形 */
+    anims.push(it.n.animate(
+      [{transform:"translateY("+rise+"px) scale("+(1-s).toFixed(3)+")", opacity:0},
+       {transform:"translateY(0px) scale(1)", opacity:1}],
+      {duration:d, delay:delay, easing:EASE[FLY.in.ease], fill:"backwards"}));
     total=Math.max(total, delay+d);
   });
-  return total;
+  return {total:total, anims:anims};
 }
+function flyOut(content){ return flyOutNodes(flyNodes(content), content.getBoundingClientRect()) }
+function flyIn(content){ return flyInNodes(flyNodes(content), content.getBoundingClientRect()).total }
 
 var flying=false;
 function focusTab(screen, srcId){
@@ -2088,6 +2209,110 @@ window.addEventListener("resize",function(){
     renderChart($("#chart-at"), $("#chartX-at"), DASH.at.rating);
   },120);
 });
+
+/* ==========================================================================
+   屏 4 · 动效调参台（设计工具）：滑杆直接改 FLY，预览与屏 1/2/3 共用同一套参数
+   ========================================================================== */
+(function tuner(){
+  var stage=$("#flyStage"); if(!stage) return;
+  var cards=$$(".pcard",stage), names=(function(){
+    var w=0; return cards.map(function(n,i){
+      return n.classList.contains("pcard--wide") ? "宽卡 "+String.fromCharCode(65+w++) : "卡 "+(i+1);
+    });
+  })();
+  var SL=[["fOd","out.dur","ms"],["fOs","out.step","ms"],["fOds","out.durStep","ms"],
+          ["fId","in.dur","ms"],["fIs","in.step","ms"],["fIds","in.durStep","ms"],
+          ["fH","handoff","ms"],["fR","rise","px"],["fS","scale","%"]];
+  function get(path){ var p=path.split("."); return p.length>1 ? FLY[p[0]][p[1]] : FLY[path] }
+  function set(path,v){ var p=path.split("."); if(p.length>1) FLY[p[0]][p[1]]=v; else FLY[path]=v }
+  function dups(a){ var seen={}, out=[]; a.forEach(function(x){ if(seen[x]!==undefined) out.push(x); seen[x]=1 }); return out }
+
+  function sched(){
+    var box=stage.getBoundingClientRect(), items=planNodes(cards,box);
+    var byDist=items.map(function(it,i){ return {i:i, dist:it.dist, side:it.side} });
+    var outOrder=byDist.slice().sort(function(a,b){ return b.dist-a.dist });
+    var inOrder =byDist.slice().sort(function(a,b){ return a.dist-b.dist });
+    var rows={}, outEnd=0;
+    outOrder.forEach(function(o,i){
+      var s=i*FLY.out.step, d=FLY.out.dur+i*FLY.out.durStep;
+      rows[o.i]={out:[s,s+d], side:o.side}; outEnd=Math.max(outEnd,s+d);
+    });
+    var off=outEnd+FLY.handoff, inEnd=off;
+    inOrder.forEach(function(o,i){
+      var s=off+i*FLY.in.step, d=FLY.in.dur+i*FLY.in.durStep;
+      rows[o.i]["in"]=[s,s+d]; inEnd=Math.max(inEnd,s+d);
+    });
+    return {rows:rows, outEnd:outEnd, off:off, total:inEnd};
+  }
+  function draw(){
+    var s=sched(), total=s.total||1, html="";
+    cards.forEach(function(n,i){
+      var r=s.rows[i];
+      html+='<div class="gantt__row"><span class="gantt__k">'+names[i]+(r.side<0?" ←":" →")+'</span><span class="gantt__t">'
+        +'<i class="gantt__b gantt__b--out" style="left:'+(r.out[0]/total*100).toFixed(2)+'%;width:'+((r.out[1]-r.out[0])/total*100).toFixed(2)+'%"></i>'
+        +'<i class="gantt__b gantt__b--in" style="left:'+((r["in"][0])/total*100).toFixed(2)+'%;width:'+((r["in"][1]-r["in"][0])/total*100).toFixed(2)+'%"></i>'
+        +'</span></div>';
+    });
+    $("#flyGantt").innerHTML=html;
+    $("#flyAxis").innerHTML="<span>0</span><span>"+Math.round(total/2)+"ms</span><span>"+Math.round(total)+"ms</span>";
+    $("#flyTotal").textContent="总时长 ≈ "+Math.round(total)+"ms ＝ 出 "+Math.round(s.outEnd)
+      +" + 空档 "+FLY.handoff+" + 入 "+Math.round(total-s.off);
+    var starts=[], ends=[];
+    cards.forEach(function(n,i){ starts.push(s.rows[i].out[0], s.rows[i]["in"][0]); ends.push(s.rows[i].out[1], s.rows[i]["in"][1]) });
+    var ds=dups(starts), de=dups(ends);
+    $("#flyInv").innerHTML="不变量（"+cards.length+" 张卡 × 出/入两段 = "+starts.length+" 个时刻）："
+      +(ds.length? '<span class="no">起步撞 '+ds.length+' 处</span>' : "<b>起步两两不同</b>")+" · "
+      +(de.length? '<span class="no">完成撞 '+de.length+' 处</span>' : "<b>完成两两不同</b>")
+      +" · 缓动 出「"+EASE_NAME[FLY.out.ease]+"」/ 入「"+EASE_NAME[FLY.in.ease]+"」";
+  }
+  var live=[], rt=null;
+  function replay(){
+    live.forEach(function(a){ a.cancel() }); live=[];
+    cards.forEach(function(n){ n.style.transform="" });
+    if(reduced()) return;
+    var o=flyOutNodes(cards, stage.getBoundingClientRect());
+    live=o.anims;
+    setTimeout(function(){
+      o.anims.forEach(function(a){ a.cancel() });
+      live=flyInNodes(cards, stage.getBoundingClientRect()).anims;
+      setTimeout(function(){ live=[] }, FLY.in.dur+(cards.length-1)*(FLY.in.step+FLY.in.durStep)+80);
+    }, o.total+FLY.handoff);
+  }
+  function syncUI(){
+    SL.forEach(function(c){
+      var i=$("#"+c[0]); i.value=get(c[1]); $("#"+c[0]+"v").textContent=i.value+c[2];
+    });
+    $("#fOe").value=FLY.out.ease; $("#fIe").value=FLY.in.ease;
+  }
+  SL.forEach(function(c){
+    var i=$("#"+c[0]);
+    i.addEventListener("input",function(){
+      set(c[1], +i.value); $("#"+c[0]+"v").textContent=i.value+c[2];
+      draw(); clearTimeout(rt); rt=setTimeout(replay,220);
+    });
+  });
+  [["fOe","out"],["fIe","in"]].forEach(function(p){
+    var sel=$("#"+p[0]);
+    Object.keys(EASE).forEach(function(k){
+      var o=document.createElement("option"); o.value=k; o.textContent=EASE_NAME[k]; sel.appendChild(o);
+    });
+    sel.value=FLY[p[1]].ease;
+    sel.addEventListener("change",function(){ FLY[p[1]].ease=sel.value; draw(); replay() });
+  });
+  $$("[data-preset]").forEach(function(b){
+    b.addEventListener("click",function(){
+      var p=PRESET[b.dataset.preset];
+      FLY.out=Object.assign({},p.out); FLY.in=Object.assign({},p.in);
+      FLY.handoff=p.handoff; FLY.rise=p.rise; FLY.scale=p.scale;
+      $$(".tuner__pre [data-preset]").forEach(function(x){ x.classList.toggle("btn--primary", x===b) });
+      syncUI(); draw(); replay();
+    });
+  });
+  $("#flyReplay").addEventListener("click",replay);
+  var def=$$("[data-preset]").filter(function(b){ return b.dataset.preset==="slow" })[0];
+  if(def) def.classList.add("btn--primary");
+  tunerShow=function(){ syncUI(); draw(); replay() };
+})();
 
 /* 直达某一屏 / 预置某一态：#s2 · #s4,strong · #s2,rm（strong=平台色加强版，rm=reduced-motion）
    必须在 firstPaint 之前解析 —— 否则 count-up 已经按动画模式起跑。 */
