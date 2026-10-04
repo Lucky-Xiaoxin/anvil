@@ -69,8 +69,8 @@
 
   /* 动效 */
   --dur:180ms;
-  --ease:cubic-bezier(.22,.71,.3,1);   /* ease-out 家族 */
-  --fade-out:90ms; --fade-in:110ms;    /* 源切换：合计 200ms 上限 */
+  --ease:cubic-bezier(.22,.71,.3,1);   /* ease-out 家族 · 卡片飞入用 */
+  --ease-away:cubic-bezier(.5,0,.9,.35); /* ease-in 家族 · 卡片飞出用（源里 JS 与 CSS 共用同一组值） */
 
   --bar-h:40px; --foot-h:26px;
 }
@@ -213,19 +213,19 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 /* 同步按钮带源名：一屏两个源之后，光写"同步"就不知道点下去拉的是哪家 */
 .btn-src{font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
 
-/* 内容区：源切换的渐隐渐出落在这里 */
+/* 内容区：源切换时卡片从这里飞出两侧，新卡片从底部飞入 */
 .content{
   flex:1 1 auto;min-height:0;overflow-y:auto;
   padding:var(--sp-2) var(--sp-4) var(--sp-4);
   display:flex;flex-direction:column;gap:var(--sp-2);
-  transition:opacity var(--fade-in) var(--ease);
 }
 .content::-webkit-scrollbar{width:11px}
 .content::-webkit-scrollbar-track{background:transparent}
 .content::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--bg);border-radius:999px}
 .content::-webkit-scrollbar-thumb:hover{background:#31404F}
-.content.is-leaving{opacity:0;transition-duration:var(--fade-out)}
-.content.is-entering{opacity:0;transition:none}
+/* 飞行途中锁掉横向溢出：卡片被内容区左边缘裁掉 = "飞进侧边栏底下"，右边缘裁掉 = "飞出屏幕"，
+   同时避免 transform 撑出横向滚动条把版面顶宽 11px */
+.content.is-flying{overflow-x:hidden}
 
 /* ---------- 5. 源 tab 条（切片 2 核心新组件） ---------- */
 .srctabs{
@@ -579,7 +579,6 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:1ms !important}
-  .content{transition:none}
 }
 </style>
 </head>
@@ -1217,20 +1216,27 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
         <!-- ---------- 切换动画 ---------- -->
         <section>
-          <h3>Switch animation <span>源切换动效口径</span></h3>
+          <h3>Switch animation <span>源切换 · 卡片飞出 / 飞入编排（替代初稿的渐隐渐出）</span></h3>
           <table class="sl">
             <thead><tr><th style="width:210px">项</th><th>口径</th></tr></thead>
             <tbody>
-              <tr><td>时长</td><td>淡出 <b>90ms</b> → 换 DOM → 淡入 <b>110ms</b>，合计 200ms 上限；缓动沿用 <code>--ease</code></td></tr>
-              <tr><td>动的是什么</td><td>只有 <code>.content</code> 的 opacity。tab 条、顶栏、左导航不淡 —— 它们是外壳，跟着闪会显得整屏在重载</td></tr>
-              <tr><td>不重播的</td><td>格子 stagger 与数字 count-up 只在首载跑一次；切回来直接落终值，否则每切一次都要等 470ms 看它重画</td></tr>
-              <tr><td>reduced-motion</td><td>无淡入淡出，直接替换（<code>transition:none</code>），stagger 与 count-up 一起落终值</td></tr>
-              <tr><td>焦点</td><td>切换后焦点留在被选中的 tab 项上，不把焦点甩进内容区；滚动位置按源各记一份</td></tr>
-              <tr><td>高度</td><td>不锁高度：CF 与 AT 的卡面行数不同，淡入期间容器已就位，不会"先跳一下再淡"</td></tr>
-              <tr><td>键盘</td><td><code>←/→</code> 切源并跟随焦点；<code>Home/End</code> 到首末项</td></tr>
+              <tr><td>方向</td><td>卡片中心在内容中线<b>左侧</b> → 向左飞，被内容区左边缘裁掉（视觉上就是钻进侧边栏底下）并在末段淡出；<b>右侧</b> → 向右飞出屏幕外；<b>跨行宽卡</b>（格子图 / 曲线 / 降级条，中线 ±3% 内）算中部，走右侧</td></tr>
+              <tr><td>顺序</td><td>飞出：<b>外圈先、中部后</b>（按距中线远近降序）；飞入：<b>中部先、外圈后</b>（升序）。宽卡（格子图 / 曲线）算中部 —— 先出后入，压住节奏</td></tr>
+              <tr><td>起点</td><td>飞出从原位起飞；飞入从<b>底部</b>升起 <code>40 + 距中线距离/6 px</code>，外侧卡多飞一段，收成扇形</td></tr>
+              <tr><td>时序不变量</td><td>第 <code>i</code> 张（按各自段的顺序）：<code>delay = i×STEP</code>、<code>duration = DUR + i×DSTEP</code>。STEP 与 DSTEP 同为正 ⇒ 起步时间严格递增、完成时间 <code>i×(STEP+DSTEP)+DUR</code> 也严格递增 —— <b>任意两张卡不会同时起步，也不会同时完成</b></td></tr>
+              <tr><td>参数</td><td>飞出 <code>DUR 110 / STEP 14 / DSTEP 5</code>，缓动 <code>cubic-bezier(.5,0,.9,.35)</code>（越走越快，像被抽走）；飞入 <code>DUR 160 / STEP 16 / DSTEP 6</code>，缓动沿用 <code>--ease</code>（落位不弹）</td></tr>
+              <tr><td>总时长</td><td>7 张卡（AT 屏含降级条）：飞出 224ms → 空档 24ms → 飞入 292ms，合计 <b>≈540ms</b>。比渐隐渐出慢 2.7 倍，换到的是"这一屏的东西被 physically 换走了"的连续感。要压回 300ms 内：两组 DUR 各砍半、STEP 降到 8 / 10，不变量仍然成立</td></tr>
+              <tr><td>裁切</td><td>飞行途中给内容区加 <code>overflow-x:hidden</code>：既拿到"裁在侧边栏 / 屏幕边缘"的效果，又免得 transform 撑出横向滚动条把版面顶宽 11px</td></tr>
+              <tr><td>不重播的</td><td>格子 stagger 与数字 count-up 只在某源第一次出现时跑；飞入时卡里的图已经是终态，动的是卡本身</td></tr>
+              <tr><td>reduced-motion</td><td>整套编排跳过，直接换屏（<code>transition</code> 与 <code>transform</code> 都不出现）</td></tr>
+              <tr><td>焦点</td><td>换屏瞬间把焦点交给目标屏的 tab 项，不甩进内容区；滚动位置按源各记一份</td></tr>
+              <tr><td>键盘</td><td><code>←/→</code> 切源并跟随焦点；<code>Home/End</code> 到首末项。编排进行中忽略后续点击，不叠两套动画</td></tr>
             </tbody>
           </table>
-          <p class="hint" style="margin-top:14px">在屏 1 / 2 / 3 之间点 tab 条就是真实动效；按下「模拟 reduced-motion」后同一套切换应直落终值、无淡入淡出。</p>
+          <p class="hint" style="margin-top:14px">
+            屏 1 / 2 / 3 之间点 tab 条就是真实编排；按下「模拟 reduced-motion」后同一套切换应直落终值、没有任何位移。
+            顶栏「重播动效」只重播格子 stagger 与 count-up，不重播切换 —— 切换要靠自己点 tab。
+          </p>
         </section>
 
         <!-- ---------- 新增数据槽 ---------- -->
@@ -1894,23 +1900,88 @@ function firstPaint(id){
   var c=$("#"+id); if(!c) return;
   countUp(c);
 }
-function revealAfter(sourceScreen, srcId){
-  var c=contentOf(sourceScreen);
-  if(!c || reduced()) return;
-  c.classList.add("is-entering");
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){ c.classList.remove("is-entering") }) });
-  var t=$('#'+sourceScreen+' .srctab[data-src="'+srcId+'"]');
+/* ==========================================================================
+   卡片飞入飞出 —— 源切换的编排（取代切片 2 初稿的渐隐渐出）
+   方向：卡片中心在内容中线左侧 → 向左飞进侧边栏底下并隐去；右侧 / 跨行宽卡 → 向右飞出屏幕外。
+   顺序：飞出 = 离中线远的先走（外圈先、中部后）；飞入 = 离中线近的先来（中部先、外圈后）。
+   时序不变量：第 i 张 delay = i*STEP，duration = DUR + i*DSTEP（STEP、DSTEP 同为正）
+     ⇒ 起步时间严格递增，完成时间 = i*(STEP+DSTEP) + DUR 也严格递增
+     ⇒ 任意两张卡不会同时起步，也不会同时完成；飞入段整体晚于飞出段一个 handoff，两段之间也不撞。
+   ========================================================================== */
+var FLY={
+  out:{dur:110, step:14, durStep:5,  ease:"cubic-bezier(.5,0,.9,.35)"},   /* ease-in：越走越快，像被抽走 */
+  in :{dur:160, step:16, durStep:6,  ease:"cubic-bezier(.22,.71,.3,1)"},  /* 与 --ease 同值：落位不弹 */
+  handoff:24,                                                              /* 两段之间的空档，避开"上一张刚落地、下一张同时起步" */
+  dead:0.03                                                                /* 只有跨行宽卡算"中部"：中线 ±3% 内不偏左右 */
+};
+function flyNodes(content){
+  return $$(":scope > .grid-4 > .stat, :scope > .card, :scope > .alert", content);
+}
+function plan(content){
+  var box=content.getBoundingClientRect(), mid=box.left+box.width/2;
+  var items=flyNodes(content).map(function(n){
+    var r=n.getBoundingClientRect(), dx=(r.left+r.width/2)-mid;
+    return {n:n, left:r.left, right:r.right, dist:Math.abs(dx),
+            side: Math.abs(dx)<box.width*FLY.dead ? 0 : (dx<0?-1:1)};
+  });
+  return items;
+}
+function flyOut(content){
+  var items=plan(content);
+  items.sort(function(a,b){ return b.dist-a.dist });            /* 外圈先飞出 */
+  var total=0, anims=[];
+  items.forEach(function(it,i){
+    var d=FLY.out.dur+i*FLY.out.durStep, delay=i*FLY.out.step;
+    var kf = it.side<0
+      ? [{transform:"translateX(0)",opacity:1},
+         {transform:"translateX("+Math.round(-(it.right+48)*0.6)+"px)",opacity:1,offset:.6},
+         {transform:"translateX("+-(it.right+48)+"px)",opacity:0}]
+      : [{transform:"translateX(0)",opacity:1},
+         {transform:"translateX("+(window.innerWidth-it.left+48)+"px)",opacity:1}];
+    /* fill:forwards —— 飞出去的卡必须停在屏外，否则它自己的动画先结束、换屏还没到，
+       卡片会在原地"复活"一下（150ms 那一帧就是这个 bug） */
+    anims.push(it.n.animate(kf,{duration:d, delay:delay, easing:FLY.out.ease, fill:"forwards"}));
+    total=Math.max(total, delay+d);
+  });
+  return {total:total, anims:anims};
+}
+function flyIn(content){
+  var items=plan(content);
+  items.sort(function(a,b){ return a.dist-b.dist });            /* 中部先飞入 */
+  var total=0;
+  items.forEach(function(it,i){
+    var d=FLY.in.dur+i*FLY.in.durStep, delay=i*FLY.in.step;
+    var rise=Math.round(40 + it.dist/6);                        /* 外侧卡多飞一段，呈扇形展开 */
+    it.n.animate([{transform:"translateY("+rise+"px)",opacity:0},{transform:"translateY(0)",opacity:1}],
+                 {duration:d, delay:delay, easing:FLY.in.ease, fill:"backwards"});
+    total=Math.max(total, delay+d);
+  });
+  return total;
+}
+
+var flying=false;
+function focusTab(screen, srcId){
+  var t=$('#'+screen+' .srctab[data-src="'+srcId+'"]');
   if(t) t.focus();
 }
 function switchSource(id){
   var cur=currentScreen(), target=SOURCES[id].screen;
-  if(target===cur) return;
-  var old=contentOf(cur);
-  function land(){ go(target); revealAfter(target,id); }
-  if(old && !reduced()){
-    old.classList.add("is-leaving");
-    setTimeout(function(){ old.classList.remove("is-leaving"); land() },90);
-  } else land();
+  if(target===cur || flying) return;
+  var from=contentOf(cur), to=contentOf(target);
+  if(reduced() || !from || !to || !flyNodes(from).length || !flyNodes(to).length){
+    go(target); focusTab(target,id); return;
+  }
+  flying=true;
+  from.classList.add("is-flying"); to.classList.add("is-flying");
+  var out=flyOut(from);
+  setTimeout(function(){
+    out.anims.forEach(function(a){ a.cancel() });
+    from.classList.remove("is-flying");
+    go(target);
+    var inTotal=flyIn(to);
+    focusTab(target,id);
+    setTimeout(function(){ to.classList.remove("is-flying"); flying=false }, inTotal);
+  }, out.total + FLY.handoff);
 }
 
 $$(".mocktab").forEach(function(t){ t.addEventListener("click",function(){ go(t.dataset.screen) }) });
