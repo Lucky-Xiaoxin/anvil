@@ -11,7 +11,7 @@
 
 1. `AGENTS.md` —— 项目约定与技术锁，最高约束；
 2. `docs/04-骨架规格.md` —— **唯一实现契约**：交付物 §1 / 技术栈 §2 / 仓库结构 §3 / 数据层与 API §4 / UI 与视觉基线 §5 / 测试与验收 §6 / Out of Scope §7；
-3. `design/mock-01-dashboard.html` —— **视觉基线（已冻结）**：tokens、布局、动效、`data-bind` 槽位一律照抄，不自创风格（可双击打开预览；v2 截图在 `design/_shots/`）。
+3. `design/mock-01-dashboard.html` —— **视觉基线（已冻结）**：tokens、布局、动效、`data-bind` 槽位一律照抄，不自创风格（可双击打开预览；v2 截图已于 2026-10-04 清理）。
 
 ## 任务边界
 
