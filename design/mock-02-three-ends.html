@@ -609,25 +609,6 @@ body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{
 .inv{font-family:var(--font-num);font-size:11px;color:var(--text-dim);line-height:1.8}
 .inv b{color:var(--ok)} .inv .no{color:var(--bad)}
 
-/* ---------- 15. 色相取反实验（只作用在 AT 屏的三件套：当月柱 / 连续刻度 / 活跃格子）----------
-   规则很机械：组件子树内 琥珀 ↔ 青 整条对调 —— 热力色阶换成青系阶梯，
-   原本青的点缀（数据蓝数字、today 描边、卡头平台色 accent）换成琥珀。CF 屏完全不碰。 */
-:root{--hue-a:#F5A524; --hue-c:#00C0C0}
-body.hue-on .hue-target{
-  --accent:var(--hue-c);          /* 原琥珀 → 青 */
-  --accent-2:var(--hue-a);        /* 原青 / 数据蓝 → 琥珀 */
-  --pf:var(--hue-a); --pf-rgb:245,165,36;
-  --heat-0:#0C171D;               /* 冷铁改冷青，保持"没打 = 暗"的读法 */
-  --heat-1:#123C40;
-  --heat-2:#0E6A6E;
-  --heat-3:#0E9EA4;
-  --heat-4:#00C0C0;               /* 火头 → 青头 */
-}
-body.hue-on .hue-target .stat__num--hot{text-shadow:0 0 22px rgba(0,192,192,.28)}
-body.hue-on .hue-target .ticks i[data-l="4"]{box-shadow:0 0 8px rgba(0,192,192,.5)}
-body.hue-on .hue-target .mbar i{box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
-body.hue-on .hue-target .acell[data-l="4"]{box-shadow:inset 0 1px 0 rgba(255,255,255,.34)}
-
 .rise{animation:rise 200ms var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -641,7 +622,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 }
 </style>
 </head>
-<body class="hue-on">
+<body>
 
 <!-- ===== 内联图标：几何线条，零外部依赖 ===== -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -697,7 +678,6 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
     <button class="mocktab" role="tab" id="t4" aria-controls="s4" aria-selected="false" data-screen="s4" tabindex="-1">04 / 组件与状态</button>
   </nav>
   <label class="switch" title="整份稿子切到加强版：卡片再加一层极淡平台色晕"><input type="checkbox" id="pfToggle"> 平台色·加强版</label>
-  <label class="switch" title="AT 屏的当月柱 / 连续刻度 / 活跃格子三件套：琥珀与青整条对调（实验态，CF 屏不碰）"><input type="checkbox" id="hueToggle" checked> AT三件套·色相取反</label>
   <span class="mockbar__spec">基准 1440×900 · 兼容 1280×800 · 桌面优先</span>
 </header>
 
@@ -866,7 +846,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           <div class="stat__num"><span class="cu" data-bind="stats.totalSolved" data-to="261">261</span><span class="stat__unit">题</span></div>
           <div class="stat__sub2">首次 AC 计一道 · 来源 kenkoooo 提交明细</div>
         </div>
-        <div class="stat hue-target">
+        <div class="stat">
           <div class="label label--blue stat__label">当月过题</div>
           <div class="stat__num stat__num--blue"><span class="cu" data-bind="stats.months.-1.solved" data-to="6">6</span><span class="stat__unit">题</span></div>
           <div class="mbars" id="mbars-at" role="img" aria-label="近 6 个月过题柱状图"></div>
@@ -878,7 +858,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           <div class="stat__sub">最高 <b class="num" style="color:var(--text-dim)" data-bind="rating.max">1362</b><span class="delta" data-tone="rating.lastDeltaTone" data-bind="rating.lastDeltaText">—</span><span class="mute" data-bind="rating.lastContestShort" title="上一场">—</span></div>
           <div class="stat__sub2"><span data-bind="stats.entryCount">参赛 18 场</span> · <span data-bind="stats.nonRatedCount">非 rated 2 场</span></div>
         </div>
-        <div class="stat hue-target">
+        <div class="stat">
           <div class="label label--accent stat__label">连续训练</div>
           <div class="stat__num stat__num--hot"><span class="cu" data-bind="stats.streak.days" data-to="4">4</span><span class="stat__unit">天</span></div>
           <div class="stat__sub" data-bind="stats.streak.sub">—</div>
@@ -887,7 +867,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       </div>
 
       <!-- b. 活跃格子图（同组件，输入换成 AT 提交） -->
-      <div class="card card--pad0 rise hue-target">
+      <div class="card card--pad0 rise">
         <div class="card__head">
           <span class="label label--pf">Activity</span>
           <h3 class="card__title">活跃格子图 · AtCoder</h3>
@@ -1278,49 +1258,6 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           <p class="hint" style="margin-top:14px">
             两块样本是同一份数据（屏 2 的 AT 尾部 6 周），只差分档函数。方案 A 保住"热力 = 琥珀 = 锻打"这条全局隐喻，方案 B 让 AT 侧看得出深浅。
             <b>本稿按 <code>docs/09</code> §5 走 A</b>，B 只作对照。
-          </p>
-        </section>
-
-        <!-- ---------- 色相取反实验 ---------- -->
-        <section>
-          <h3>Hue inversion <span>色相取反实验 · 只作用在 AT 屏的三件套（当前 = 开着，顶栏可关）</span></h3>
-          <p class="hint" style="margin-bottom:var(--sp-2)">
-            规则很机械：在这三个组件的子树里把<b>琥珀与青整条对调</b> —— 不新增颜色、不改数值、不碰 CF 屏。
-            作用点：<code>当月过题</code> 卡、<code>连续训练</code> 卡、<code>活跃格子图</code> 卡。
-          </p>
-          <div class="tk-grid2">
-            <div>
-              <h4>原本（CF 与 AT 共用一把尺）</h4>
-              <div class="legend" style="margin-bottom:10px">少
-                <i style="background:#1A1F29"></i><i style="background:#4A3520"></i><i style="background:#7A5426"></i><i style="background:#B27B2E"></i><i style="background:#F5A524"></i>多
-              </div>
-              <h4>取反后（仅 AT 三件套）</h4>
-              <div class="legend" style="margin-bottom:10px">少
-                <i style="background:#0C171D"></i><i style="background:#123C40"></i><i style="background:#0E6A6E"></i><i style="background:#0E9EA4"></i><i style="background:#00C0C0"></i>多
-              </div>
-              <p class="hint">阶梯的明度跨度一一对应，只换色相 —— 所以"深浅 = 多少"这条读法不变，变的只是"热"这个字属于哪家。</p>
-            </div>
-            <div>
-              <table class="sl">
-                <thead><tr><th style="width:150px">位置</th><th style="width:120px">原本</th><th>取反后</th></tr></thead>
-                <tbody>
-                  <tr><td>格子 / 刻度 / 柱条</td><td>琥珀五档</td><td>青五档（冷青 → #00C0C0）</td></tr>
-                  <tr><td>连续训练主数字</td><td>琥珀 + 琥珀光</td><td>青 + 青光</td></tr>
-                  <tr><td>当月主数字与 label</td><td>数据蓝 #4CC9F0</td><td>琥珀 #F5A524</td></tr>
-                  <tr><td>当月"进行中"末根柱</td><td>琥珀半透 + 虚线</td><td>青半透 + 虚线</td></tr>
-                  <tr><td>今日描边（格子 / 刻度）</td><td>数据蓝</td><td>琥珀</td></tr>
-                  <tr><td>卡头 ACTIVITY accent</td><td>平台青 #00C0C0</td><td>琥珀</td></tr>
-                  <tr><td>读数 236 / 261</td><td>琥珀</td><td>青</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p class="hint" style="margin-top:14px">
-            <b>四条代价，审的时候一起看</b>：① 热力色阶"冷铁 → 炉火"是切片 1 的根隐喻（<code>docs/09</code> §7 明写"热力色阶不动"），AT 侧换青之后，两源的"热"不再是同一个字；
-            ② 卡头 accent 由平台青变琥珀，等于把 AT 屏的归属信号拆掉一处，与"平台识别色作用于卡头 accent"撞；
-            ③ 琥珀是"你在这里花过时间"的主角色，换掉之后一屏里只剩顶栏余热线和主按钮还带炉火味；
-            ④ tooltip 是挂在 body 上的全局浮层，不在这三个组件子树内，<b>仍是琥珀</b> —— 与卡内青柱有个小不一致，要一起换得给 tooltip 传源色上下文。
-            顶栏「AT三件套·色相取反」可即时开关对照；<code>#s2</code> 与 <code>#s2,nohue</code> 分别是开与关。
           </p>
         </section>
 
@@ -2247,10 +2184,6 @@ bindPair(pfA,pfB,function(on){
   document.body.classList.toggle("pf-strong",on);
   if(pfA) pfA.checked=on; if(pfB) pfB.checked=on;
 });
-/* AT 三件套色相取反：实验态，默认开着，顶栏可关（#s2,nohue 看对照） */
-var hue=$("#hueToggle");
-function setHue(on){ document.body.classList.toggle("hue-on",on); if(hue) hue.checked=on }
-if(hue) hue.addEventListener("change",function(){ setHue(hue.checked) });
 var rm=$("#rmToggle");
 function setRM(on){ document.body.classList.toggle("rm-on",on); if(rm) rm.checked=on }
 if(rm) rm.addEventListener("change",function(){ setRM(rm.checked) });
@@ -2388,8 +2321,6 @@ window.addEventListener("resize",function(){
   tokens.forEach(function(t){
     if(t==="strong"){ document.body.classList.add("pf-strong"); if(pfA) pfA.checked=true; if(pfB) pfB.checked=true }
     else if(t==="rm") setRM(true);
-    else if(t==="hue") setHue(true);
-    else if(t==="nohue") setHue(false);
   });
   tokens.forEach(function(t){ if(/^s[1-4]$/.test(t)) go(t) });
 })();
