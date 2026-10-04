@@ -1,0 +1,2036 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANVIL · 视觉稿 v3 · 多源 tab（CF / AT / XCPC）</title>
+<meta name="description" content="ANVIL（铁砧）切片 2 视觉增量：仪表盘多源化 + AtCoder 卡 + tab 条与源状态组件">
+<style>
+/* ==========================================================================
+   ANVIL 视觉稿 v3 · 切片 2（多源 + AtCoder）
+   底子 = mock-01（切片 1，已冻结）的 tokens 与组件视觉，逐条拷来，未改 mock-01。
+   增量 = 源 tab 条 / 源状态点三态 / 平台识别色两档 / 降级提示条 / AT 卡。
+   契约：docs/09-AT规格.md（实现）· docs/10-设计brief-mock02.md（本稿规格）。
+   ========================================================================== */
+
+/* ---------- 1. Tokens ---------- */
+:root{
+  /* 色板 */
+  --bg:#0A0C10;
+  --panel:#12161D;
+  --panel-2:#171C25;
+  --line:#222A36;
+  --line-soft:#1B222C;
+  --text:#E8ECF3;
+  --text-dim:#94A0B4;
+  --text-mute:#6C7A8C;
+  --accent:#F5A524;          /* 炉火琥珀 · 主角 · 平台色不动它 */
+  --accent-ink:#1A1206;
+  --accent-2:#4CC9F0;        /* 数据蓝 · 辅助 */
+  --ok:#3FB950;
+  --warn:#D29922;
+  --bad:#F85149;
+  --gold:#D9A441; --silver:#AEB8C6; --bronze:#B08968;   /* 奖牌色（切片 4 用） */
+
+  /* 平台识别色：三端三色，全部取自本仓库已有色族 */
+  --pf-cf:#4CC9F0;   --pf-cf-rgb:76,201,240;    /* 蓝 · = --accent-2，CF 是切片 1 的原生端 */
+  --pf-at:#00C0C0;   --pf-at-rgb:0,192,192;     /* 青 · = AtCoder cyan 档原生色 */
+  --pf-xcpc:#FF8A84; --pf-xcpc-rgb:255,138,132; /* 绯 · 取自 --bad 的亮一档，未接入前只在稿里 */
+
+  /* 段位色：站点原生值（左）→ 深底提亮值（右，同色相只提明度）
+     只有 4 档在 #0A0C10 上不足 4.5:1，其余原生直用。见屏 4 对照表。 */
+  --rk-gray:#808080;                                              /* 原生即可 */
+  --rk-at-brown:#804000;  --rk-at-brown-d:#C58A52;
+  --rk-green:#008000;     --rk-green-d:#41D06B;                  /* CF Pupil / AT Green */
+  --rk-at-cyan:#00C0C0;                                           /* 原生即可 */
+  --rk-cf-cyan:#03A89E;                                           /* 原生即可 */
+  --rk-blue:#0000FF;      --rk-blue-d:#5B7BFF;                    /* CF Expert / AT Blue */
+  --rk-violet:#AA00AA;    --rk-violet-d:#D473D4;
+  --rk-at-yellow:#C0C000;                                         /* 原生即可 */
+  --rk-cf-orange:#FF8C00; --rk-at-orange:#FF8000;                 /* 原生即可 */
+  --rk-red:#FF0000;                                                /* 原生即可 */
+
+  /* 热力色阶：冷铁 → 炉火（5 档 · 平台色不动它） */
+  --heat-0:#1A1F29;
+  --heat-1:#4A3520;
+  --heat-2:#7A5426;
+  --heat-3:#B27B2E;
+  --heat-4:#F5A524;
+
+  /* 字体：界面 = Segoe UI / 雅黑；数字 = 等宽 + tabular-nums */
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  --font-num:"Cascadia Code","Cascadia Mono",Consolas,"JetBrains Mono","Liberation Mono",monospace;
+
+  /* 尺度 */
+  --r-s:4px; --r:10px; --r-l:14px;
+  --sp-1:8px; --sp-2:16px; --sp-3:24px; --sp-4:32px; --sp-5:40px; --sp-6:48px;
+  --nav-w:220px;
+  --cell:11px; --cell-gap:3px;
+
+  /* 动效 */
+  --dur:180ms;
+  --ease:cubic-bezier(.22,.71,.3,1);   /* ease-out 家族 */
+  --fade-out:90ms; --fade-in:110ms;    /* 源切换：合计 200ms 上限 */
+
+  --bar-h:40px; --foot-h:26px;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
+
+html{min-width:1200px;background:var(--bg)}
+body{
+  margin:0;height:100vh;min-width:1200px;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  font:14px/1.55 var(--font-ui);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  /* 机房地面：极淡方格纹理 + 顶部一丝炉口反光 */
+  background:
+    radial-gradient(1200px 380px at 50% -220px, rgba(245,165,36,.055), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    var(--bg);
+}
+::selection{background:rgba(245,165,36,.28);color:#FFF6E4}
+h1,h2,h3,h4,p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-s)}
+
+/* ---------- 2. 排字 ---------- */
+/* 刻印式微标签：机器刻线 + 大字距，本稿识别性主要来自这里 */
+.label{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-num);font-size:10px;line-height:1;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--text-mute);
+}
+.label::before{content:"";width:8px;height:1px;background:currentColor;opacity:.6}
+.label--accent{color:var(--accent)}
+.label--blue{color:var(--accent-2)}
+.label--pf{color:var(--pf)}          /* 详情区标题 accent = 平台识别色（克制版作用点 ② ） */
+.dim{color:var(--text-dim)}
+.mute{color:var(--text-mute)}
+.hint{font-size:11.5px;color:var(--text-mute);line-height:1.7}
+.hint b{color:var(--text-dim)}
+
+/* ---------- 3. 视觉稿外壳（非产品 UI） ---------- */
+.mockbar{
+  flex:0 0 var(--bar-h);height:var(--bar-h);
+  display:flex;align-items:center;gap:var(--sp-2);
+  padding:0 var(--sp-3);
+  border-bottom:1px dashed var(--line);
+  background:#080A0E;
+}
+.mockbar__tag{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--font-num);font-size:10px;letter-spacing:.16em;
+  color:var(--accent);text-transform:uppercase;white-space:nowrap;
+}
+.mockbar__tag i{width:6px;height:6px;background:var(--accent);display:block;transform:rotate(45deg)}
+.mocktabs{display:flex;gap:2px;margin-left:auto}
+.mocktab{
+  font-family:var(--font-num);font-size:11.5px;letter-spacing:.06em;
+  color:var(--text-dim);padding:6px 12px;border-radius:var(--r-s);
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.mocktab:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.mocktab[aria-selected="true"]{color:var(--accent-ink);background:var(--accent)}
+.mockbar__spec{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.04em;white-space:nowrap}
+
+.mockfoot{
+  flex:0 0 var(--foot-h);height:var(--foot-h);
+  display:flex;align-items:center;gap:10px;padding:0 var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.06em;color:var(--text-mute);
+  background:#080A0E;
+}
+.mockfoot i{width:14px;height:2px;background:var(--accent);display:block;opacity:.8}
+
+/* ---------- 4. AppShell ---------- */
+.screen{flex:1 1 auto;min-height:0}
+.app{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);height:100%;min-height:0}
+
+.nav{
+  display:flex;flex-direction:column;min-height:0;
+  background:linear-gradient(180deg,#0E1218,#0A0D12);
+  border-right:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:11px;padding:var(--sp-3) var(--sp-2) var(--sp-3) 17px;border-bottom:1px solid var(--line-soft)}
+.brand svg{width:26px;height:26px;color:var(--accent);flex:0 0 auto}
+.brand__name{font-family:var(--font-num);font-size:15px;font-weight:600;letter-spacing:.20em;color:var(--text);line-height:1}
+.brand__sub{font-size:10px;letter-spacing:.26em;color:var(--text-mute);margin-top:5px;line-height:1}
+
+.navlist{padding:var(--sp-2) 10px;display:flex;flex-direction:column;gap:2px}
+.navitem{
+  position:relative;display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:var(--r-s);
+  color:var(--text-dim);font-size:13.5px;text-align:left;width:100%;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.navitem svg{width:16px;height:16px;flex:0 0 auto;opacity:.85}
+.navitem:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.navitem[aria-current="page"]{color:var(--text);background:rgba(245,165,36,.10)}
+.navitem[aria-current="page"]::before{
+  content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:2px;background:var(--accent);
+  box-shadow:0 0 10px rgba(245,165,36,.55);
+}
+.navitem--locked{color:var(--text-mute)}
+.navitem--locked:hover{color:var(--text-dim)}
+.navitem .lock{margin-left:auto;width:12px;height:12px;opacity:.7}
+
+.navfoot{
+  margin-top:auto;padding:var(--sp-2) 17px var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;line-height:1.95;color:var(--text-mute);
+}
+.navfoot b{color:var(--text-dim);font-weight:600}
+
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.topbar{
+  flex:0 0 56px;height:56px;position:relative;
+  display:flex;align-items:center;gap:var(--sp-2);padding:0 var(--sp-4);
+  background:rgba(18,22,29,.6);
+}
+/* 炉口余热线：顶栏底边，载入时一次 200ms 烧过去 */
+.topbar::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,var(--accent) 0%,rgba(245,165,36,.35) 22%,var(--line) 60%,var(--line) 100%);
+  transform-origin:left center;animation:railignite var(--dur) var(--ease) both;
+}
+@keyframes railignite{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.topbar h2{font-size:15px;font-weight:600;letter-spacing:.01em}
+.topbar__meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:4px 10px;border:1px solid var(--line);border-radius:999px;
+  font-family:var(--font-num);font-size:12px;color:var(--text);background:var(--panel-2);
+}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.topbar__spacer{flex:1 1 auto}
+/* 同步按钮带源名：一屏两个源之后，光写"同步"就不知道点下去拉的是哪家 */
+.btn-src{font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
+
+/* 内容区：源切换的渐隐渐出落在这里 */
+.content{
+  flex:1 1 auto;min-height:0;overflow-y:auto;
+  padding:var(--sp-2) var(--sp-4) var(--sp-4);
+  display:flex;flex-direction:column;gap:var(--sp-2);
+  transition:opacity var(--fade-in) var(--ease);
+}
+.content::-webkit-scrollbar{width:11px}
+.content::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--bg);border-radius:999px}
+.content::-webkit-scrollbar-thumb:hover{background:#31404F}
+.content.is-leaving{opacity:0;transition-duration:var(--fade-out)}
+.content.is-entering{opacity:0;transition:none}
+
+/* ---------- 5. 源 tab 条（切片 2 核心新组件） ---------- */
+.srctabs{
+  flex:0 0 48px;display:flex;align-items:stretch;gap:2px;
+  height:48px;padding:0 var(--sp-4);
+  border-bottom:1px solid var(--line);
+  background:rgba(14,18,24,.5);
+}
+.srctab{
+  position:relative;display:flex;align-items:center;gap:9px;
+  padding:0 14px;color:var(--text-dim);border-radius:var(--r-s) var(--r-s) 0 0;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.srctab__name{font-size:15px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.srctab__rating{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:13px;letter-spacing:-.01em;color:var(--text-mute)}
+.srctab__pending{
+  font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-mute);border:1px solid var(--line);border-radius:3px;padding:1.5px 5px;
+}
+.srctab:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.srctab.is-hover{color:var(--text);background:rgba(255,255,255,.035)}   /* 屏 4 的 hover 样本 */
+.srctab[aria-selected="true"]{color:var(--text);background:rgba(var(--pf-rgb),.07)}
+/* 克制版作用点 ① ：选中指示条 = 平台色 */
+.srctab[aria-selected="true"]::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  background:var(--pf);box-shadow:0 0 10px rgba(var(--pf-rgb),.5);
+  transform-origin:center;animation:railignite var(--dur) var(--ease) both;
+}
+.srctab.is-unset{color:var(--text-mute)}
+.srctab.is-unset .srctab__name{font-weight:600}
+.srctab.is-unset:hover{color:var(--text-dim)}
+.srctab[aria-disabled="true"]{cursor:default}
+
+/* 源状态点：6px · 三态 + 中性 */
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:0 0 auto;background:#39434F}
+.dot--ok{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.12)}
+.dot--stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,153,34,.13)}
+.dot--down{background:var(--bad);box-shadow:0 0 0 3px rgba(248,81,73,.14)}
+.dot--idle{background:#39434F}
+.dot--big{width:9px;height:9px}
+
+/* ---------- 6. 卡片 ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-2) var(--sp-3) var(--sp-3);min-width:0}
+.card--pad0{padding:0}
+.card__head{display:flex;align-items:baseline;gap:var(--sp-2);padding:14px var(--sp-3) 0;min-width:0;flex-wrap:wrap}
+.card__title{font-size:13.5px;font-weight:600;letter-spacing:.01em}
+.card__head .spacer{flex:1 1 auto;min-width:8px}
+.card__note{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.card__note b{color:var(--accent);font-weight:600}
+.card__foot{padding:10px var(--sp-3) 14px;font-size:11.5px;color:var(--text-mute);line-height:1.6}
+.card__foot b{color:var(--text-dim);font-weight:600}
+
+.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-2)}
+
+/* StatCard */
+.stat{
+  position:relative;overflow:hidden;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
+  border:1px solid var(--line);border-radius:var(--r);
+  padding:14px var(--sp-2) 16px;
+  transition:border-color var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.stat:hover{border-color:#2E3A49;transform:translateY(-1px)}
+.stat::after{ /* 每卡一条"读数线"：克制版作用点 ③ —— 换平台色 */
+  content:"";position:absolute;left:0;bottom:0;height:2px;width:100%;
+  background:linear-gradient(90deg,var(--sc,var(--accent)) 0%,transparent 78%);opacity:.85;
+}
+.stat__label{margin-bottom:10px}
+.stat__num{
+  font-family:var(--font-num);font-variant-numeric:tabular-nums;
+  font-size:32px;line-height:1;font-weight:600;letter-spacing:-.02em;color:var(--text);
+  display:flex;align-items:baseline;gap:6px;
+}
+.stat__num--hot{color:var(--accent);text-shadow:0 0 22px rgba(245,165,36,.28)}
+.stat__num--blue{color:var(--accent-2)}
+.stat__unit{font-size:11px;letter-spacing:.06em;color:var(--text-mute);font-weight:400}
+.stat__sub{margin-top:9px;font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;min-height:18px;flex-wrap:wrap}
+.stat__sub2{margin-top:3px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em}
+.delta{font-family:var(--font-num);font-size:10.5px;padding:1.5px 5px;border-radius:var(--r-s);white-space:nowrap}
+.delta--up{color:var(--ok);background:rgba(63,185,80,.10)}
+.delta--down{color:var(--warn);background:rgba(210,153,34,.11)}
+.delta--flat{color:var(--text-mute);background:rgba(255,255,255,.05)}
+
+/* 平台色作用域：--pf 是"本屏属于哪一家"的唯一入口 */
+.pf-cf{--pf:var(--pf-cf);--pf-rgb:var(--pf-cf-rgb)}
+.pf-at{--pf:var(--pf-at);--pf-rgb:var(--pf-at-rgb)}
+.pf-xcpc{--pf:var(--pf-xcpc);--pf-rgb:var(--pf-xcpc-rgb)}
+/* 克制版作用点 ③：读数线换平台色（四卡同色，卡内区分交给数字色与 label） */
+.dash .stat{--sc:var(--pf)}
+
+/* 加强版：极淡平台色晕（唯一与克制版的差别） */
+body.pf-strong .dash .card,
+.cmp--strong .card{
+  background-image:radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.05), transparent 58%);
+  border-color:rgba(var(--pf-rgb),.17);
+}
+body.pf-strong .dash .stat,
+.cmp--strong .stat{
+  background-image:
+    radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.055), transparent 58%),
+    linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
+  border-color:rgba(var(--pf-rgb),.17);
+}
+/* 对照屏里的"克制"样本必须压过上面的全局开关（多一层 .dash 抬高优先级） */
+body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card,
+.cmp--soft .stat,.cmp--soft .card{background-image:none;border-color:var(--line)}
+body.pf-strong .dash .cmp--soft .stat,body.pf-strong .dash .cmp--soft .card{background-image:none;border-color:var(--line)}
+
+/* 连续天数卡下方的近 14 日微刻度 */
+.ticks{display:flex;gap:3px;align-items:flex-end;height:18px;margin-top:9px}
+.ticks i{width:5px;height:5px;border-radius:1px;background:var(--heat-0);display:block}
+.ticks i[data-l="1"]{background:var(--heat-1);height:8px}
+.ticks i[data-l="2"]{background:var(--heat-2);height:12px}
+.ticks i[data-l="3"]{background:var(--heat-3);height:16px}
+.ticks i[data-l="4"]{background:var(--heat-4);height:18px;box-shadow:0 0 8px rgba(245,165,36,.5)}
+.ticks i.today{outline:1px solid var(--accent-2);outline-offset:1px}
+
+/* 近 6 个月迷你柱状：涨跌看柱形，细节看 hover。当月 = 半透明 + 虚底 */
+.mbars{display:flex;align-items:flex-end;gap:6px;height:34px;margin-top:10px}
+.mbar{flex:1 1 0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;position:relative}
+.mbar i{display:block;width:100%;min-height:4px;border-radius:2px 2px 0 0;background:var(--heat-3);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+        transition:filter var(--dur) var(--ease),opacity var(--dur) var(--ease)}
+.mbar:hover i{filter:brightness(1.3)}
+.mbar b{display:block;height:2px;background:var(--heat-1);margin-top:2px}
+.mbar--partial i{background:var(--accent);opacity:.42}
+.mbar--partial b{height:0;background:none;border-top:2px dashed var(--accent)}
+
+/* ---------- 7. ActivityGrid ---------- */
+.agrid-body{display:flex;gap:var(--sp-2);align-items:center;padding:12px var(--sp-3) 0}
+.agrid-scroll{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;padding-bottom:2px}
+.agrid{
+  display:grid;
+  grid-template-columns:30px repeat(53,var(--cell));
+  grid-template-rows:14px repeat(7,var(--cell));
+  column-gap:var(--cell-gap);row-gap:var(--cell-gap);
+  width:max-content;
+}
+.agrid--demo{grid-template-columns:30px repeat(7,var(--cell));grid-template-rows:repeat(7,var(--cell))}
+.amonth{font-family:var(--font-num);font-size:10px;color:var(--text-mute);letter-spacing:.02em;align-self:end;line-height:1;white-space:nowrap}
+.awd{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:var(--cell);align-self:center;text-align:right;padding-right:7px}
+.acell{
+  width:var(--cell);height:var(--cell);border-radius:2px;background:var(--heat-0);
+  opacity:0;animation:cellin var(--dur) var(--ease) forwards;
+  transition:outline-color var(--dur) var(--ease);
+  outline:1px solid transparent;outline-offset:1px;
+}
+@keyframes cellin{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:none}}
+.acell[data-l="1"]{background:var(--heat-1)}
+.acell[data-l="2"]{background:var(--heat-2)}
+.acell[data-l="3"]{background:var(--heat-3)}
+.acell[data-l="4"]{background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.30)}
+.acell--future{background:transparent;animation:none;pointer-events:none}
+.acell:hover{outline-color:var(--text)}
+.acell--today{outline:1px solid var(--accent-2)}
+/* AT 独立档位候选：色阶换向（青系），只给屏 4 的方案 B 用 */
+.agrid--alt .acell[data-l="1"]{background:#123C40}
+.agrid--alt .acell[data-l="2"]{background:#0E6A6E}
+.agrid--alt .acell[data-l="3"]{background:#0E9EA4}
+.agrid--alt .acell[data-l="4"]{background:var(--pf-at)}
+.legend{display:flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
+.legend i{width:var(--cell);height:var(--cell);border-radius:2px;display:block}
+
+/* 格子图右侧读数（同源派生，不是新模块）：一行一条，压得住高度 */
+.readout{flex:0 0 140px;border-left:1px solid var(--line-soft);padding-left:var(--sp-2);display:flex;flex-direction:column;justify-content:center;gap:11px}
+.ro{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;line-height:1.3}
+.ro__k{font-family:var(--font-num);font-size:9.5px;letter-spacing:.08em;color:var(--text-mute);text-transform:uppercase}
+.ro__v{font-family:var(--font-num);font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
+.ro__n{font-family:var(--font-num);font-size:10px;color:var(--text-mute);flex:0 0 100%;margin-top:-4px}
+.afoot{display:flex;align-items:center;gap:var(--sp-2);padding:10px var(--sp-3) 14px;flex-wrap:wrap}
+
+/* Tooltip */
+.tip{
+  position:fixed;z-index:50;pointer-events:none;
+  transform:translate(-50%,-100%);
+  background:#05070A;border:1px solid #2C3746;border-radius:var(--r-s);
+  padding:7px 10px;min-width:118px;max-width:280px;
+  box-shadow:0 8px 22px rgba(0,0,0,.55);
+  font-size:12px;line-height:1.45;color:var(--text);
+}
+.tip__d{font-family:var(--font-num);font-size:11px;color:var(--text-dim);letter-spacing:.02em}
+.tip__v{font-family:var(--font-num);font-size:13px;color:var(--accent);margin-top:2px;font-variant-numeric:tabular-nums}
+.tip__v.is-zero{color:var(--text-mute)}
+.tip__v.is-up{color:var(--accent-2)}          /* 折线 tooltip 分数按方向上色，与线段同色 */
+.tip__v.is-down{color:var(--accent)}
+.tip__x{font-size:11.5px;color:var(--text-dim);margin-top:3px}
+.tip__x b{color:var(--text);font-weight:600}
+.tip::after{
+  content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
+  transform:translateX(-50%) rotate(45deg);
+  background:#05070A;border-right:1px solid #2C3746;border-bottom:1px solid #2C3746;
+}
+/* 屏 4：tooltip 文案样本按正常流排，不走 fixed 定位 */
+.tip--static{position:static;transform:none;display:block;box-shadow:none;max-width:none;width:100%}
+.tip--static::after{display:none}
+
+/* ---------- 8. Rating 曲线 ---------- */
+.chart{position:relative;padding:8px 0 0}
+.chart svg{display:block;width:100%;height:auto}
+.chart__x{display:flex;justify-content:space-between;padding:4px 0 0;font-family:var(--font-num);font-size:10px;color:var(--text-mute)}
+.chart__peak{position:absolute;transform:translate(-50%,-100%);font-family:var(--font-num);font-size:10px;color:var(--text-dim);white-space:nowrap;padding-bottom:11px}
+.chart__now{position:absolute;transform:translate(6px,-50%);font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:15px;color:var(--accent);white-space:nowrap;letter-spacing:-.01em}
+.hit{fill:transparent}
+
+/* ---------- 9. Locked 模块 ---------- */
+.locked{
+  display:flex;gap:14px;align-items:flex-start;
+  background:var(--panel);border:1px dashed #2A3441;border-radius:var(--r);
+  padding:16px var(--sp-2);
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.locked:hover{border-color:#3B4757;background:var(--panel-2)}
+.locked>svg{width:20px;height:20px;color:var(--text-mute);flex:0 0 auto;margin-top:2px}
+.locked__t{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.locked__t .tag{font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;color:var(--text-mute);border:1px solid var(--line);border-radius:3px;padding:1px 5px;text-transform:uppercase}
+.locked__p{margin-top:6px;font-size:12.5px;color:var(--text-dim);line-height:1.6}
+.locked__p em{font-style:normal;color:var(--accent)}
+.locked__p b{color:var(--text);font-weight:600}
+.locked__go{margin-top:8px;font-family:var(--font-num);font-size:11px;color:var(--accent-2);letter-spacing:.04em}
+
+/* ---------- 10. 按钮 ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:34px;padding:0 14px;border-radius:var(--r-s);
+  font-size:13px;font-weight:600;letter-spacing:.01em;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),
+             box-shadow var(--dur) var(--ease),transform var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.btn svg{width:14px;height:14px}
+.btn:hover{background:#1E252F;border-color:#39465A}
+.btn:active{transform:translateY(1px);background:#1A2028}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none}
+.btn--primary{background:var(--accent);color:var(--accent-ink);border-color:#FFC356}
+.btn--primary:hover{background:#FFB63C;border-color:#FFD180;box-shadow:0 0 0 3px rgba(245,165,36,.16)}
+.btn--primary:active{background:#DE9417}
+.btn--ghost{background:transparent;border-color:transparent;color:var(--text-dim)}
+.btn--ghost:hover{background:rgba(255,255,255,.05);border-color:var(--line);color:var(--text)}
+.btn--danger{background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.35);color:#FF8A84}
+.btn--danger:hover{background:rgba(248,81,73,.2);border-color:var(--bad)}
+.btn--sm{height:28px;padding:0 10px;font-size:12px}
+.btn--lg{height:40px;padding:0 20px;font-size:14px}
+.btn-sync{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
+.btn-sync:hover{background:rgba(245,165,36,.17);border-color:rgba(245,165,36,.5);box-shadow:0 0 18px rgba(245,165,36,.10)}
+.btn-sync.is-busy svg{animation:spin 900ms linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- 11. 提示条 ---------- */
+.alert{display:flex;gap:12px;padding:12px 14px;border-radius:var(--r-s);border:1px solid;font-size:12.5px;line-height:1.65}
+.alert svg{width:16px;height:16px;flex:0 0 auto;margin-top:2px}
+.alert--err{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.32);color:#FFC9C5}
+.alert--err svg{color:var(--bad)}
+.alert--ok{background:rgba(63,185,80,.07);border-color:rgba(63,185,80,.3);color:#BCE7C4}
+.alert--ok svg{color:var(--ok)}
+/* 新：降级 / 过期态。琥珀只用到边框与图标，正文仍走可读灰白 */
+.alert--warn{background:rgba(210,153,34,.07);border-color:rgba(210,153,34,.30);color:#E8D6AE}
+.alert--warn svg{color:var(--warn)}
+.alert code{font-size:11.5px;color:var(--text);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px}
+.alert b{color:var(--text)}
+.alert__x{margin-left:auto;align-self:flex-start;font-family:var(--font-num);font-size:11px;color:var(--text-mute);white-space:nowrap}
+
+/* ---------- 12. 空态 ---------- */
+.empty-hero{display:flex;flex-direction:column;gap:var(--sp-3)}
+.hero-title{font-size:26px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.hero-title em{font-style:normal;color:var(--accent)}
+.onb{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}
+.onb__i{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:14px var(--sp-2)}
+.onb__n{font-family:var(--font-num);font-size:11px;color:var(--accent);letter-spacing:.1em}
+.onb__t{font-size:13.5px;font-weight:600;margin-top:8px}
+.onb__p{font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.65}
+
+/* ---------- 13. Token / 状态表 ---------- */
+.tk{display:flex;flex-direction:column;gap:var(--sp-3)}
+.tk section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-3)}
+.tk h3{font-family:var(--font-num);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:var(--sp-2)}
+.tk h3 span{color:var(--text-mute);letter-spacing:.04em;text-transform:none;font-size:11px;margin-left:8px}
+.tk h4{font-family:var(--font-num);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute);margin:var(--sp-3) 0 10px}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.sw__i{border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden;background:var(--panel-2)}
+.sw__c{height:44px;border-bottom:1px solid var(--line)}
+.sw__m{padding:8px 10px;font-family:var(--font-num);font-size:10.5px;line-height:1.7;color:var(--text-dim)}
+.sw__m b{color:var(--text);font-weight:600}
+.sw__u{color:var(--text-mute);font-family:var(--font-ui);font-size:11px}
+.states{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.state{border:1px solid var(--line-soft);border-radius:var(--r-s);padding:12px 10px;background:#0E1218;display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.state__n{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.06em;text-transform:uppercase}
+.tk-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-3)}
+.tk-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}
+.dec{display:flex;flex-direction:column;gap:16px}
+.dec__i{display:flex;gap:14px;border-left:2px solid var(--accent);padding-left:14px}
+.dec__i--blue{border-left-color:var(--accent-2)}
+.dec__i--pf{border-left-color:var(--pf-at)}
+.dec__i--line{border-left-color:#2E3846}
+.dec__t{font-size:13.5px;font-weight:600}
+.dec__p{font-size:12.5px;color:var(--text-dim);line-height:1.75;margin-top:5px}
+.dec__p b{color:var(--text)}
+.dec__p code{font-size:11.5px;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;color:var(--text-dim)}
+.dec__p .must{color:var(--accent);font-family:var(--font-num);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px}
+.demo-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line);border-radius:var(--r-s);background:#0E1218}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.switch input{accent-color:var(--accent);width:14px;height:14px}
+/* 数据槽位表 */
+.sl{width:100%;border-collapse:collapse;font-size:12px}
+.sl th{text-align:left;font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);padding:0 12px 8px 0;border-bottom:1px solid var(--line)}
+.sl td{padding:7px 12px 7px 0;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--text-dim);line-height:1.55}
+.sl td:first-child{color:var(--accent);font-family:var(--font-num);font-size:11.5px;white-space:nowrap}
+.sl .t{font-family:var(--font-num);font-size:11px;color:var(--text-mute);white-space:nowrap}
+.sl tr.grp td{border-bottom:none;padding:18px 0 6px;color:var(--accent-2);font-family:var(--font-num);font-size:11px;letter-spacing:.05em}
+.sl tr.grp:first-child td{padding-top:0}
+
+/* 状态样本行：一条一种状态，左边刻名，右边样本 */
+.spec-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:var(--sp-2);align-items:center;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.spec-row:last-child{border-bottom:none}
+.spec-row__k{font-family:var(--font-num);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute)}
+.spec-row__k b{display:block;color:var(--text-dim);font-weight:600;letter-spacing:.04em;text-transform:none;font-size:11px;margin-top:3px}
+.spec-row > *:last-child{min-width:0}
+
+/* 平台色两档对照 */
+.cmp{border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-2);background:#0E1218;display:flex;flex-direction:column;gap:12px}
+.cmp__h{display:flex;align-items:baseline;gap:10px}
+.cmp__t{font-size:13.5px;font-weight:600}
+.cmp__t i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:8px;vertical-align:1px}
+.cmp__p{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em}
+.cmp .srctabs{flex:none;padding:0;border-bottom:1px solid var(--line-soft);background:none;border-radius:var(--r-s);overflow:hidden}
+.cmp .srctab{padding:0 10px;font-size:13px}
+.cmp .srctab__name{font-size:13.5px}
+.cmp .grid-4{gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cmp .stat{padding:10px 12px 12px}
+.cmp .stat__num{font-size:22px}
+.cmp .stat__label{margin-bottom:6px}
+.cmp .stat__sub{margin-top:6px;font-size:11px}
+.cmp .mbars,.cmp .ticks{display:none}
+.cmp__note{font-size:11.5px;color:var(--text-mute);line-height:1.7}
+.cmp__note b{color:var(--text-dim)}
+
+/* 段位色对照表 */
+.rk{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;align-items:center;font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.rk__p{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.rk__s{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--line-soft);border-radius:var(--r-s);background:#0B0E13}
+.rk__s b{font-weight:600}
+.rk__s u{text-decoration:none;font-size:9.5px;letter-spacing:.08em;color:var(--text-mute);text-transform:uppercase}
+
+.rise{animation:rise 200ms var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* 系统偏好 + 演示开关，两者等效：连 stagger 的延迟一起取消，直接落终值 */
+body.rm-on *,body.rm-on *::before,body.rm-on *::after{
+  animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;
+  transition-duration:1ms !important;scroll-behavior:auto !important;
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:1ms !important}
+  .content{transition:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 内联图标：几何线条，零外部依赖 ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- 铁砧：炉面带 horn / 腰 / 底座，另加两点火星 -->
+    <symbol id="i-anvil" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M1.4 5.2h12.4l5.4 3.5H1.4z"/>
+      <path fill="currentColor" opacity=".72" d="M8.2 8.7h3.9l-.9 4.5H9.1z"/>
+      <path fill="currentColor" d="M4.9 13.2h10.3l2.9 5.6H2z"/>
+      <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".5" d="M18.4 2.6l2.6-1.2M20.6 6.1h3.2"/>
+    </symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="3" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="3" width="7.4" height="7.4" rx="1.4"/>
+      <rect x="3" y="13.6" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="13.6" width="7.4" height="7.4" rx="1.4"/>
+    </symbol>
+    <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="5.5" cy="5.8" r="2.3"/><circle cx="18.5" cy="5.2" r="2.3"/><circle cx="12" cy="13" r="2.3"/><circle cx="5.5" cy="19.2" r="2.3"/><circle cx="18.5" cy="18.8" r="2.3"/>
+      <path d="M7.4 7.1 10.2 11.4M16.6 6.7 13.8 11.4M11.2 15.1 6.9 17.8M12.9 15.1l4 2.8"/>
+    </symbol>
+    <symbol id="i-vp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+      <path d="M4.5 4.5h10.2l-1.2 4.2h6.1l-1.9 11.3H6.4z"/><path d="M4.5 4.5V20.6"/>
+    </symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="12" cy="12" r="3.1"/>
+      <path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9M12 14.3v2.5"/>
+    </symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.4 11.2A8.4 8.4 0 0 0 6 6.2L3.8 8.4"/><path d="M3.6 12.8a8.4 8.4 0 0 0 14.4 5l2.2-2.2"/><path d="M3.6 4.6v3.9h3.9M20.4 19.4v-3.9h-3.9"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.6 4.8 4.8L19.5 6.8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h14M13 6.5 18.5 12 13 17.5"/></symbol>
+    <!-- 新：降级 / 过期三角（alert--warn 用） -->
+    <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3.6 22 20.4H2z"/><path d="M12 9.6v5.1"/><circle cx="12" cy="17.3" r=".9" fill="currentColor" stroke="none"/>
+    </symbol>
+    <!-- 新：断线插头（源不可达用） -->
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <path d="M8.6 3v5.2M15.4 3v5.2"/><path d="M5.4 8.2h13.2v3.1a6.6 6.6 0 0 1-13.2 0z"/><path d="M12 17.9V21"/>
+    </symbol>
+  </defs>
+</svg>
+<!-- ================= 视觉稿导航条 ================= -->
+<header class="mockbar">
+  <span class="mockbar__tag"><i></i>ANVIL · 视觉稿 v3</span>
+  <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
+    <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / Codeforces</button>
+    <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / AtCoder</button>
+    <button class="mocktab" role="tab" id="t3" aria-controls="s3" aria-selected="false" data-screen="s3" tabindex="-1">03 / XCPC</button>
+    <button class="mocktab" role="tab" id="t4" aria-controls="s4" aria-selected="false" data-screen="s4" tabindex="-1">04 / 组件与状态</button>
+  </nav>
+  <label class="switch" title="整份稿子切到加强版：卡片再加一层极淡平台色晕"><input type="checkbox" id="pfToggle"> 平台色·加强版</label>
+  <span class="mockbar__spec">基准 1440×900 · 兼容 1280×800 · 桌面优先</span>
+</header>
+
+<main style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0">
+
+<!-- ============================================================
+     屏 1 · CF tab（= mock-01 仪表盘，仅两处调整：删两张锁定卡、曲线整行）
+     ============================================================ -->
+<section class="screen" id="s1" role="tabpanel" aria-labelledby="t1">
+<div class="app dash pf-cf">
+
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">
+      <b data-bind="status.counts.submissions">8540</b> 条提交 · <b data-bind="status.counts.problems">912</b> 题<br>
+      本地 <code>vault/anvil.db</code><br>
+      端口 <code>7788</code> · 不出网
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>仪表盘</h2>
+      <span class="chip"><i></i>@<span data-bind="status.handle">chenyu</span></span>
+      <span class="topbar__meta">
+        <svg class="syncIcon" style="width:13px;height:13px;color:var(--ok)" aria-hidden="true"><use href="#i-check"/></svg>
+        上次同步 <b class="num syncAt" style="color:var(--text-dim);font-weight:600" data-bind="status.lastSyncText">12 分钟前</b>
+      </span>
+      <span class="topbar__spacer"></span>
+      <button class="btn btn-sync syncBtn" data-src="cf"><svg aria-hidden="true"><use href="#i-sync"/></svg>同步 <span class="btn-src">Codeforces</span></button>
+    </div>
+
+    <!-- 源 tab 条：内容区顶部，topbar 之下 -->
+    <div class="srctabs" data-srctabs data-current="cf" role="tablist" aria-label="数据源切换"></div>
+
+    <div class="content" id="content-cf" data-content>
+
+      <!-- a. 统计卡 ×4 -->
+      <div class="grid-4">
+        <div class="stat">
+          <div class="label stat__label">总过题数 · 去重</div>
+          <div class="stat__num"><span class="cu" data-bind="stats.totalSolved" data-to="912">912</span><span class="stat__unit">题</span></div>
+        </div>
+        <div class="stat">
+          <div class="label label--blue stat__label">当月过题</div>
+          <div class="stat__num stat__num--blue"><span class="cu" data-bind="stats.months.-1.solved" data-to="9">9</span><span class="stat__unit">题</span></div>
+          <div class="mbars" id="mbars-cf" role="img" aria-label="近 6 个月过题柱状图"></div>
+        </div>
+        <div class="stat">
+          <div class="label stat__label">CF Rating</div>
+          <!-- 数字与段位名同色 = CF 段位色规则；Expert 原生 #0000FF 在深底只有 1.6:1，走提亮表（屏 4） -->
+          <div class="stat__num" style="color:var(--rk-blue-d)"><span class="cu" data-bind="rating.current" data-to="1683">1683</span><span class="stat__unit" style="color:var(--rk-blue-d)" data-bind="rating.rankLabel">Expert</span></div>
+          <div class="stat__sub">最高 <b class="num" style="color:var(--text-dim)" data-bind="rating.max">1731</b><span class="delta" data-tone="rating.lastDeltaTone" data-bind="rating.lastDeltaText">—</span><span class="mute" data-bind="rating.lastContestShort" title="上一场">—</span></div>
+        </div>
+        <div class="stat">
+          <div class="label label--accent stat__label">连续训练</div>
+          <div class="stat__num stat__num--hot"><span class="cu" data-bind="stats.streak.days" data-to="12">12</span><span class="stat__unit">天</span></div>
+          <div class="stat__sub" data-bind="stats.streak.sub">—</div>
+          <div class="ticks" id="streakTicks-cf" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- b. 活跃格子图（主角） -->
+      <div class="card card--pad0 rise">
+        <div class="card__head">
+          <span class="label label--pf">Activity</span>
+          <h3 class="card__title">活跃格子图 · Codeforces</h3>
+          <span class="spacer"></span>
+          <span class="card__note">近 53 周 <b data-bind="stats.activityTotal">—</b> 题次 · 生涯去重 <b data-bind="stats.totalSolved">—</b> 题</span>
+          <span class="legend" aria-hidden="true" style="margin-left:14px">
+            少
+            <i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></i>
+            多
+          </span>
+        </div>
+        <div class="agrid-body">
+          <div class="agrid-scroll">
+            <div class="agrid" id="agrid-cf" role="img" aria-label="近 53 周活跃格子图"></div>
+          </div>
+          <div class="readout">
+            <div class="ro"><span class="ro__k">最长连续</span><b class="ro__v" data-bind="stats.longestRun.days">—</b><span class="ro__n" data-bind="stats.longestRun.range">—</span></div>
+            <div class="ro"><span class="ro__k">断档 ≥3 天</span><b class="ro__v" data-bind="stats.gaps3">—</b></div>
+            <div class="ro"><span class="ro__k">周末占比</span><b class="ro__v" data-bind="stats.weekendPct">—</b></div>
+          </div>
+        </div>
+        <div class="afoot"><span class="card__note">日格 = 当日 AC 去重题数</span></div>
+      </div>
+
+      <!-- c. rating 曲线：两张锁定卡移除后改整行 -->
+      <div class="card rise" style="padding-bottom:18px">
+        <div class="card__head" style="padding:0 0 4px">
+          <span class="label label--pf">Rating</span>
+          <h3 class="card__title">近 <span data-bind="rating.count">30</span> 场</h3>
+          <span class="spacer"></span>
+          <span class="card__note"><b data-bind="rating.first" style="color:var(--text-dim);font-weight:400">1400</b> → <b data-bind="rating.current">1683</b> · <span class="delta" data-tone="rating.totalDeltaTone" data-bind="rating.totalDelta" style="font-size:10.5px">—</span></span>
+        </div>
+        <div class="chart" id="chart-cf"></div>
+        <div class="chart__x" id="chartX-cf"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 2 · AT tab（本稿主角）：降级态 + 全量 AT 卡
+     ============================================================ -->
+<section class="screen" id="s2" role="tabpanel" aria-labelledby="t2" hidden>
+<div class="app dash pf-at">
+
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">
+      <b data-bind="status.counts.submissions">1240</b> 条提交 · <b data-bind="status.counts.problems">261</b> 题<br>
+      源 <code>kenkoooo</code> + <code>atcoder.jp</code><br>
+      时区口径 <code>Asia/Shanghai</code>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>仪表盘</h2>
+      <span class="chip"><i style="background:var(--bad)"></i>@<span data-bind="status.handle">chenyu</span></span>
+      <span class="topbar__meta">
+        <svg class="syncIcon" style="width:13px;height:13px;color:var(--warn)" aria-hidden="true"><use href="#i-warn"/></svg>
+        上次同步 <b class="num syncAt" style="color:var(--text-dim);font-weight:600" data-bind="status.lastSyncText">昨天 20:15</b>
+      </span>
+      <span class="topbar__spacer"></span>
+      <button class="btn btn-sync syncBtn" data-src="at"><svg aria-hidden="true"><use href="#i-sync"/></svg>同步 <span class="btn-src">AtCoder</span></button>
+    </div>
+
+    <div class="srctabs" data-srctabs data-current="at" role="tablist" aria-label="数据源切换"></div>
+
+    <div class="content" id="content-at" data-content>
+
+      <!-- 源不可达：缓存 + 明确提示，不崩、不拿假数填空 -->
+      <div class="alert alert--warn rise" role="status">
+        <svg aria-hidden="true"><use href="#i-plug"/></svg>
+        <div><b>AtCoder Problems 暂不可达</b>（<code>503</code> · 已退避重试 2 次）· 下面是本地缓存（<code>10-03 20:15</code>）· 今日未同步，取不到的槽位显示 <b>—</b></div>
+        <button class="alert__x">重试</button>
+      </div>
+
+      <!-- a. 统计卡 ×4 -->
+      <div class="grid-4">
+        <div class="stat">
+          <div class="label stat__label">总过题数 · 去重</div>
+          <div class="stat__num"><span class="cu" data-bind="stats.totalSolved" data-to="261">261</span><span class="stat__unit">题</span></div>
+          <div class="stat__sub2">首次 AC 计一道 · 来源 kenkoooo 提交明细</div>
+        </div>
+        <div class="stat">
+          <div class="label label--blue stat__label">当月过题</div>
+          <div class="stat__num stat__num--blue"><span class="cu" data-bind="stats.months.-1.solved" data-to="6">6</span><span class="stat__unit">题</span></div>
+          <div class="mbars" id="mbars-at" role="img" aria-label="近 6 个月过题柱状图"></div>
+        </div>
+        <div class="stat">
+          <div class="label stat__label">AT Rating</div>
+          <!-- AT 只有颜色没有段位名：色名即段位名，用 AT 原生色（Cyan 原生即够亮，不提亮） -->
+          <div class="stat__num" style="color:var(--rk-at-cyan)"><span class="cu" data-bind="rating.current" data-to="1345">1345</span><span class="stat__unit" style="color:var(--rk-at-cyan)" data-bind="rating.rankLabel">Cyan</span></div>
+          <div class="stat__sub">最高 <b class="num" style="color:var(--text-dim)" data-bind="rating.max">1362</b><span class="delta" data-tone="rating.lastDeltaTone" data-bind="rating.lastDeltaText">—</span><span class="mute" data-bind="rating.lastContestShort" title="上一场">—</span></div>
+          <div class="stat__sub2"><span data-bind="stats.entryCount">参赛 18 场</span> · <span data-bind="stats.nonRatedCount">非 rated 2 场</span></div>
+        </div>
+        <div class="stat">
+          <div class="label label--accent stat__label">连续训练</div>
+          <div class="stat__num stat__num--hot"><span class="cu" data-bind="stats.streak.days" data-to="4">4</span><span class="stat__unit">天</span></div>
+          <div class="stat__sub" data-bind="stats.streak.sub">—</div>
+          <div class="ticks" id="streakTicks-at" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- b. 活跃格子图（同组件，输入换成 AT 提交） -->
+      <div class="card card--pad0 rise">
+        <div class="card__head">
+          <span class="label label--pf">Activity</span>
+          <h3 class="card__title">活跃格子图 · AtCoder</h3>
+          <span class="spacer"></span>
+          <span class="card__note">近 53 周 <b data-bind="stats.activityTotal">—</b> 题次 · 生涯去重 <b data-bind="stats.totalSolved">—</b> 题</span>
+          <span class="legend" aria-hidden="true" style="margin-left:14px">
+            少
+            <i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)"></i>
+            多
+          </span>
+        </div>
+        <div class="agrid-body">
+          <div class="agrid-scroll">
+            <div class="agrid" id="agrid-at" role="img" aria-label="近 53 周 AtCoder 活跃格子图"></div>
+          </div>
+          <div class="readout">
+            <div class="ro"><span class="ro__k">最长连续</span><b class="ro__v" data-bind="stats.longestRun.days">—</b><span class="ro__n" data-bind="stats.longestRun.range">—</span></div>
+            <div class="ro"><span class="ro__k">断档 ≥3 天</span><b class="ro__v" data-bind="stats.gaps3">—</b></div>
+            <div class="ro"><span class="ro__k">周末占比</span><b class="ro__v" data-bind="stats.weekendPct">—</b></div>
+          </div>
+        </div>
+        <div class="afoot">
+          <span class="card__note">日格 = 当日 AC 去重题数 · 与 CF 同组件同档位阈值</span>
+          <span class="card__note mute">AT 单日最高 6 题 → 此图只用 0–3 档，heat-4 永不亮（档位方案见屏 4）</span>
+        </div>
+      </div>
+
+      <!-- c. rating 曲线：只收 rated 场次，末点 / hover 与 CF 同规则 -->
+      <div class="card rise" style="padding-bottom:14px">
+        <div class="card__head" style="padding:0 0 4px">
+          <span class="label label--pf">Rating</span>
+          <h3 class="card__title">全 <span data-bind="rating.count">16</span> 场 rated</h3>
+          <span class="spacer"></span>
+          <span class="card__note"><b data-bind="rating.first" style="color:var(--text-dim);font-weight:400">372</b> → <b data-bind="rating.current">1345</b> · <span class="delta" data-tone="rating.totalDeltaTone" data-bind="rating.totalDelta" style="font-size:10.5px">—</span></span>
+        </div>
+        <div class="chart" id="chart-at"></div>
+        <div class="chart__x" id="chartX-at"></div>
+        <div class="card__foot">
+          <span data-bind="rating.note">2016 起 · 参赛史非提交史 · 来源：AtCoder 官方页 / AtCoder Problems</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 3 · XCPC tab（占位态）
+     ============================================================ -->
+<section class="screen" id="s3" role="tabpanel" aria-labelledby="t3" hidden>
+<div class="app dash pf-xcpc">
+
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">未接入<br>契约 <code>docs/09</code> §9</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>仪表盘</h2>
+      <span class="chip" style="color:var(--text-mute)"><i style="background:#39434F"></i>未认领</span>
+      <span class="topbar__spacer"></span>
+      <button class="btn" disabled title="XCPC 本切片不实现同步"><svg aria-hidden="true"><use href="#i-sync"/></svg>同步 <span class="btn-src">XCPC</span></button>
+    </div>
+
+    <div class="srctabs" data-srctabs data-current="xcpc" role="tablist" aria-label="数据源切换"></div>
+
+    <div class="content" id="content-xcpc" data-content>
+      <div class="card rise" style="padding:var(--sp-3);max-width:720px">
+        <span class="label">Coming soon</span>
+        <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:12px">XCPC 还没接进来</h3>
+        <p class="dim" style="font-size:13px;line-height:1.75;margin-top:10px">
+          rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/09</code> §9 · 数据源 heimaom 静态导出 · 身份 key <code>姓名@学校</code>），待接入。
+        </p>
+        <p class="hint" style="margin-top:10px">本切片无此源的数据，顶栏同步按钮为灰态；tab 项的 rating 一律 <b>—</b>。</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+<!-- ============================================================
+     屏 4 · 组件与状态
+     ============================================================ -->
+<section class="screen" id="s4" role="tabpanel" aria-labelledby="t4" hidden>
+<div class="app dash pf-cf">
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem" data-goto="s1"><svg aria-hidden="true"><use href="#i-dash"/></svg>仪表盘</button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg>掌握图<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
+    </div>
+    <div class="navfoot">切片 2 增量组件<br>tab 条 · 源状态 · 平台色</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h2>组件与状态</h2>
+      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/09</code> §7 一致</span>
+      <span class="topbar__spacer"></span>
+      <div class="demo-tools" style="border:none;padding:0;background:none">
+        <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
+        <label class="switch"><input type="checkbox" id="rmToggle"> 模拟 reduced-motion</label>
+      </div>
+    </div>
+
+    <div class="content" data-content>
+      <div class="tk">
+
+        <!-- ---------- tab 条各状态 ---------- -->
+        <section>
+          <h3>Source tabs <span>状态机 · 高度 48px · 每项 = 平台名 15/600 + 当前 rating 13/段位色 + 源状态点 6px</span></h3>
+
+          <div class="tk-grid2">
+            <div>
+              <div class="spec-row">
+                <span class="spec-row__k">默认<b>未选中 · 悬停前</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab" data-tip="AtCoder|数据更新于 2026-10-04 08:12">
+                    <span class="srctab__name">AtCoder</span><span class="srctab__rating" style="color:var(--rk-at-cyan)">1345</span><i class="dot dot--down"></i>
+                  </span>
+                </div>
+              </div>
+              <div class="spec-row">
+                <span class="spec-row__k">Hover<b>轻反馈 + tooltip</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab is-hover" data-tip="AtCoder|数据更新于 2026-10-04 08:12">
+                    <span class="srctab__name">AtCoder</span><span class="srctab__rating" style="color:var(--rk-at-cyan)">1345</span><i class="dot dot--down"></i>
+                  </span>
+                </div>
+              </div>
+              <div class="spec-row">
+                <span class="spec-row__k">选中<b>指示条（定稿方案）</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab pf-at" aria-selected="true" data-tip="当前源|点击其他项切换">
+                    <span class="srctab__name">AtCoder</span><span class="srctab__rating" style="color:var(--rk-at-cyan)">1345</span><i class="dot dot--down"></i>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="spec-row">
+                <span class="spec-row__k">未配置<b>AT 没填 handle</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab is-unset" data-tip="AtCoder|未配置 handle · 点进去填一个">
+                    <span class="srctab__name">AtCoder</span><span class="srctab__rating">—</span><i class="dot dot--idle"></i>
+                  </span>
+                </div>
+              </div>
+              <div class="spec-row">
+                <span class="spec-row__k">未接入<b>XCPC · 本切片不实现</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab is-unset" data-tip="XCPC|待接入 · 契约已冻结（docs/09 §9）">
+                    <span class="srctab__name">XCPC</span><span class="srctab__rating">—</span><span class="srctab__pending">待接入</span><i class="dot dot--idle"></i>
+                  </span>
+                </div>
+              </div>
+              <div class="spec-row">
+                <span class="spec-row__k">Focus<b>键盘可见 · 2px 琥珀</b></span>
+                <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
+                  <span class="srctab pf-cf" aria-selected="true" style="outline:2px solid var(--accent);outline-offset:2px">
+                    <span class="srctab__name">Codeforces</span><span class="srctab__rating" style="color:var(--rk-blue-d)">1683</span><i class="dot dot--ok"></i>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="hint" style="margin-top:14px">
+            选中态用<b>指示条 + 极淡平台色底</b>，不用实心块：一屏已有琥珀实心按钮和琥珀余热线两个实心强调，tab 再来一块就打架。
+            未配置 / 未接入都<b>保留可点</b>（进空态或占位屏）—— 灰到点不动的入口没人会去配。
+            <code>←/→</code> 在三项间移动焦点并直接切换，<code>Home/End</code> 到首末。
+          </p>
+        </section>
+
+        <!-- ---------- 源状态点三态 ---------- -->
+        <section>
+          <h3>Source status dot <span>三态 + 中性 · tooltip 文案示例</span></h3>
+          <div class="tk-grid3">
+            <div class="state">
+              <span class="state__n">正常 --ok</span>
+              <div style="display:flex;align-items:center;gap:9px;font-size:13px"><i class="dot dot--ok dot--big"></i>Codeforces</div>
+              <div class="tip tip--static">
+                <div class="tip__d">Codeforces · @chenyu</div>
+                <div class="tip__v" style="color:var(--text-dim);font-size:12px">数据更新于 2026-10-04 07:52</div>
+                <div class="tip__x">官方接口 · 上次同步 12 分钟前</div>
+              </div>
+            </div>
+            <div class="state">
+              <span class="state__n">数据过期 --warn</span>
+              <div style="display:flex;align-items:center;gap:9px;font-size:13px"><i class="dot dot--stale dot--big"></i>AtCoder</div>
+              <div class="tip tip--static">
+                <div class="tip__d">AtCoder · @chenyu</div>
+                <div class="tip__v" style="color:var(--warn);font-size:12px">缓存于 10-03 20:15 · 已 12 小时</div>
+                <div class="tip__x">AT 不自动同步 · 需要你点一次</div>
+              </div>
+            </div>
+            <div class="state">
+              <span class="state__n">不可达 --bad</span>
+              <div style="display:flex;align-items:center;gap:9px;font-size:13px"><i class="dot dot--down dot--big"></i>AtCoder</div>
+              <div class="tip tip--static">
+                <div class="tip__d">AtCoder Problems（kenkoooo）</div>
+                <div class="tip__v" style="color:var(--bad);font-size:12px">请求失败 503 · 已退避重试 2 次</div>
+                <div class="tip__x">显示本地缓存 · <b>今日字段留 —，不填假数</b></div>
+              </div>
+            </div>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            中性 <code>dot--idle</code>（#39434F）给未配置 / 未接入：还没发生的事不该用琥珀或红去预警。
+            点只说"源通不通"，日期与原因进 tooltip —— 6px 的点撑不下一句话。
+          </p>
+        </section>
+
+        <!-- ---------- 未配置空态 ---------- -->
+        <section>
+          <h3>Unconfigured <span>AT 没填 handle · tab 内空态（docs/09 §1.3）</span></h3>
+          <div class="card pf-at" style="background:#0E1218;max-width:760px">
+            <div class="empty-hero" style="gap:var(--sp-2)">
+              <div>
+                <span class="label label--pf">AtCoder</span>
+                <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:10px">这家还没接上。</h3>
+                <p class="dim" style="font-size:13px;line-height:1.7;margin-top:8px">
+                  给我一个 AtCoder handle。AT 只在你点击时发请求 —— 官方 <code>history/json</code> 不自动同步、不后台轮询。
+                </p>
+              </div>
+              <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+                <button class="btn btn--primary"><svg aria-hidden="true"><use href="#i-arrow"/></svg>去设置</button>
+                <span class="hint">这一态下格子图与曲线全部渲染 <b>—</b>，不出现 0，也不出现示例数据。</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- 平台识别色：两档对比 ---------- -->
+        <section>
+          <h3>Platform accent <span>平台识别色两档强度 · 需要你拍板</span></h3>
+          <div class="sw" style="margin-bottom:var(--sp-3)">
+            <div class="sw__i"><div class="sw__c" style="background:var(--pf-cf)"></div><div class="sw__m"><b>--pf-cf</b> #4CC9F0<br><span class="sw__u">蓝 · = 现有 --accent-2，CF 是切片 1 的原生端</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--pf-at)"></div><div class="sw__m"><b>--pf-at</b> #00C0C0<br><span class="sw__u">青 · AtCoder cyan 档原生色，也是本画像的段位色</span></div></div>
+            <div class="sw__i"><div class="sw__c" style="background:var(--pf-xcpc)"></div><div class="sw__m"><b>--pf-xcpc</b> #FF8A84<br><span class="sw__u">绯 · --bad 亮一档，未接入前只活在稿里</span></div></div>
+          </div>
+
+          <div class="tk-grid2">
+            <!-- 方案 A · 克制 -->
+            <div class="cmp cmp--soft dash pf-at">
+              <div class="cmp__h"><span class="cmp__t"><i style="background:var(--pf-at)"></i>方案 A · 克制</span><span class="cmp__p">三处：tab 指示条 / 卡头 label / 统计卡读数线</span></div>
+              <div class="srctabs" role="presentation">
+                <span class="srctab"><span class="srctab__name">Codeforces</span><span class="srctab__rating" style="color:var(--rk-blue-d)">1683</span><i class="dot dot--ok"></i></span>
+                <span class="srctab" aria-selected="true"><span class="srctab__name">AtCoder</span><span class="srctab__rating" style="color:var(--rk-at-cyan)">1345</span><i class="dot dot--down"></i></span>
+                <span class="srctab is-unset"><span class="srctab__name">XCPC</span><span class="srctab__rating">—</span><i class="dot dot--idle"></i></span>
+              </div>
+              <div class="grid-4">
+                <div class="stat"><div class="label stat__label">总过题</div><div class="stat__num">261<span class="stat__unit">题</span></div></div>
+                <div class="stat"><div class="label label--blue stat__label">当月</div><div class="stat__num stat__num--blue">6<span class="stat__unit">题</span></div></div>
+                <div class="stat"><div class="label stat__label">AT Rating</div><div class="stat__num" style="color:var(--rk-at-cyan)">1345<span class="stat__unit" style="color:var(--rk-at-cyan)">Cyan</span></div></div>
+                <div class="stat"><div class="label label--accent stat__label">连续</div><div class="stat__num stat__num--hot">4<span class="stat__unit">天</span></div></div>
+              </div>
+              <div class="card" style="padding:12px 14px"><span class="label label--pf">Activity</span> <span style="font-size:13.5px;font-weight:600;margin-left:8px">活跃格子图 · AtCoder</span></div>
+              <p class="cmp__note">代价：四张卡的读数线由语义色（橙 / 蓝 / 琥珀）统一换成平台色，<b>卡内区分度只剩数字色</b>。琥珀主色、热力色阶、段位色都不动。</p>
+            </div>
+
+            <!-- 方案 B · 加强 -->
+            <div class="cmp cmp--strong dash pf-at">
+              <div class="cmp__h"><span class="cmp__t"><i style="background:var(--pf-at)"></i>方案 B · 加强</span><span class="cmp__p">A 的三处 + 卡片极淡色晕与描边</span></div>
+              <div class="srctabs" role="presentation">
+                <span class="srctab"><span class="srctab__name">Codeforces</span><span class="srctab__rating" style="color:var(--rk-blue-d)">1683</span><i class="dot dot--ok"></i></span>
+                <span class="srctab" aria-selected="true"><span class="srctab__name">AtCoder</span><span class="srctab__rating" style="color:var(--rk-at-cyan)">1345</span><i class="dot dot--down"></i></span>
+                <span class="srctab is-unset"><span class="srctab__name">XCPC</span><span class="srctab__rating">—</span><i class="dot dot--idle"></i></span>
+              </div>
+              <div class="grid-4">
+                <div class="stat"><div class="label stat__label">总过题</div><div class="stat__num">261<span class="stat__unit">题</span></div></div>
+                <div class="stat"><div class="label label--blue stat__label">当月</div><div class="stat__num stat__num--blue">6<span class="stat__unit">题</span></div></div>
+                <div class="stat"><div class="label stat__label">AT Rating</div><div class="stat__num" style="color:var(--rk-at-cyan)">1345<span class="stat__unit" style="color:var(--rk-at-cyan)">Cyan</span></div></div>
+                <div class="stat"><div class="label label--accent stat__label">连续</div><div class="stat__num stat__num--hot">4<span class="stat__unit">天</span></div></div>
+              </div>
+              <div class="card" style="padding:12px 14px"><span class="label label--pf">Activity</span> <span style="font-size:13.5px;font-weight:600;margin-left:8px">活跃格子图 · AtCoder</span></div>
+              <p class="cmp__note">多出来的是从左上角 5.5% 透明度起的一层晕 + 同色描边：<b>三屏之间的差别一眼可辨</b>，代价是深色底上多了两块"有色"的脏区，格子图旁边的冷铁味会被推远。</p>
+            </div>
+          </div>
+
+          <div class="demo-tools" style="margin-top:var(--sp-2)">
+            <span class="label">全局试穿</span>
+            <label class="switch"><input type="checkbox" id="pfToggle2"> 加强版（与顶栏开关同步，屏 1 / 2 / 3 一起换）</label>
+          </div>
+        </section>
+
+        <!-- ---------- 降级提示条 ---------- -->
+        <section>
+          <h3>Degradation <span>降级提示条 · 沿用 alert 家族 · 新增 warn 一档</span></h3>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div class="alert alert--warn">
+              <svg aria-hidden="true"><use href="#i-plug"/></svg>
+              <div><b>AtCoder Problems 暂不可达</b> · 显示本地缓存（<code>10-03</code> 同步）· 今日未入库，取不到的槽位显示 <b>—</b></div>
+              <button class="alert__x">重试</button>
+            </div>
+            <div class="alert alert--warn">
+              <svg aria-hidden="true"><use href="#i-warn"/></svg>
+              <div><b>缓存已 3 天未更新</b> · AT 不自动同步（官方 <code>history/json</code> 属 robots 灰色口径，只在你点击时发一次请求）</div>
+              <button class="alert__x">立即同步</button>
+            </div>
+            <div class="alert alert--err">
+              <svg aria-hidden="true"><use href="#i-x"/></svg>
+              <div><b>AtCoder 同步失败</b> · 两次退避后仍是 <code>503</code> · <b>CF 不受影响</b>，单源失败不牵连另一源</div>
+            </div>
+            <div class="alert alert--ok">
+              <svg aria-hidden="true"><use href="#i-check"/></svg>
+              <div>AT 同步完成 · <b>1 240</b> 条提交 · <b>18</b> 场参赛（非 rated 2 场）· 写入 <code>vault/anvil.db</code></div>
+            </div>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            一句话只讲一件事：<b>现在看到的是缓存</b>。接口路径与状态码进 <code>code</code>，行末留一个动作，不解释"退避"是什么。
+            提示条只在源异常时出现，正常态不占位。
+          </p>
+        </section>
+
+        <!-- ---------- 段位色：原生 vs 深底 ---------- -->
+        <section>
+          <h3>Rank colors <span>段位色在深底 · 原生值（与站点一致）vs 提亮值（同色相只提明度）</span></h3>
+          <div class="tk-grid2">
+            <div>
+              <h4>Codeforces · 官方段位名</h4>
+              <div class="rk__p">
+                <span class="rk__s"><b style="color:var(--rk-gray)">Newbie</b><u>808080 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-green-d)">Pupil</b><u>008000 → 41D06B</u></span>
+                <span class="rk__s"><b style="color:var(--rk-cf-cyan)">Specialist</b><u>03A89E 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-blue-d)">Expert</b><u>0000FF → 5B7BFF</u></span>
+                <span class="rk__s"><b style="color:var(--rk-violet-d)">Candidate Master</b><u>AA00AA → D473D4</u></span>
+                <span class="rk__s"><b style="color:var(--rk-cf-orange)">Master</b><u>FF8C00 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-red)">Grandmaster</b><u>FF0000 直用</u></span>
+              </div>
+              <p class="hint" style="margin-top:12px">要提亮的只有 3 档：<b>Pupil / Expert / Candidate Master</b> —— 原生值在 <code>#0A0C10</code> 上约 2.4 / 1.6 / 2.1:1，13px 文字直接读不出来。</p>
+            </div>
+            <div>
+              <h4>AtCoder · 只有颜色没有段位名 → 色名即段位名</h4>
+              <div class="rk__p">
+                <span class="rk__s"><b style="color:var(--rk-gray)">Gray</b><u>1–399 · 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-at-brown-d)">Brown</b><u>400–799 · 804000 → C58A52</u></span>
+                <span class="rk__s"><b style="color:var(--rk-green-d)">Green</b><u>800–1199 · 008000 → 41D06B</u></span>
+                <span class="rk__s"><b style="color:var(--rk-at-cyan)">Cyan</b><u>1200–1599 · 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-blue-d)">Blue</b><u>1600–1999 · 0000FF → 5B7BFF</u></span>
+                <span class="rk__s"><b style="color:var(--rk-at-yellow)">Yellow</b><u>2000–2399 · 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-at-orange)">Orange</b><u>2400–2799 · 直用</u></span>
+                <span class="rk__s"><b style="color:var(--rk-red)">Red</b><u>2800+ · 直用</u></span>
+              </div>
+              <p class="hint" style="margin-top:12px">AT 的 8 档里 <b>Brown / Green / Blue</b> 要提亮，其余 5 档原生直用。档位边界与 <code>docs/08</code> 的实测 class 样本同解（2006→yellow、2708→orange、2958+→red）；低段边界实现时再打一次卡。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- AT 格子档位 ---------- -->
+        <section>
+          <h3>AT grid thresholds <span>同一份 AT 数据 · 两套档位</span></h3>
+          <div class="tk-grid2">
+            <div>
+              <h4>方案 A · 与 CF 共用阈值（本稿实装）</h4>
+              <div class="agrid agrid--demo" id="agrid-demoA" role="group" aria-label="AT 格子档位方案 A 示例"></div>
+              <div class="legend" style="margin-top:10px">少<i style="background:var(--heat-0)"></i><i style="background:var(--heat-1)"></i><i style="background:var(--heat-2)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-4)"></i>多</div>
+              <p class="hint" style="margin-top:10px">阈值 <code>0 / 1–2 / 3–5 / 6–9 / 10+</code>。AT 单日最高 6 题 → <b>heat-4 永不亮，heat-3 只在满贯日出现</b>，整张图偏灰。</p>
+            </div>
+            <div>
+              <h4>方案 B · AT 独立阈值 + 青系色阶</h4>
+              <div class="agrid agrid--alt agrid--demo" id="agrid-demoB" role="group" aria-label="AT 格子档位方案 B 示例"></div>
+              <div class="legend" style="margin-top:10px">少<i style="background:var(--heat-0)"></i><i style="background:#123C40"></i><i style="background:#0E6A6E"></i><i style="background:#0E9EA4"></i><i style="background:var(--pf-at)"></i>多</div>
+              <p class="hint" style="margin-top:10px">阈值 <code>0 / 1 / 2 / 3 / 4+</code>，把 AT 的量纲摊开。<b>代价</b>：两源的"热"不再是同一个词，跨源对照会读反。</p>
+            </div>
+          </div>
+          <p class="hint" style="margin-top:14px">
+            两块样本是同一份数据（屏 2 的 AT 尾部 6 周），只差分档函数。方案 A 保住"热力 = 琥珀 = 锻打"这条全局隐喻，方案 B 让 AT 侧看得出深浅。
+            <b>本稿按 <code>docs/09</code> §5 走 A</b>，B 只作对照。
+          </p>
+        </section>
+
+        <!-- ---------- 切换动画 ---------- -->
+        <section>
+          <h3>Switch animation <span>源切换动效口径</span></h3>
+          <table class="sl">
+            <thead><tr><th style="width:210px">项</th><th>口径</th></tr></thead>
+            <tbody>
+              <tr><td>时长</td><td>淡出 <b>90ms</b> → 换 DOM → 淡入 <b>110ms</b>，合计 200ms 上限；缓动沿用 <code>--ease</code></td></tr>
+              <tr><td>动的是什么</td><td>只有 <code>.content</code> 的 opacity。tab 条、顶栏、左导航不淡 —— 它们是外壳，跟着闪会显得整屏在重载</td></tr>
+              <tr><td>不重播的</td><td>格子 stagger 与数字 count-up 只在首载跑一次；切回来直接落终值，否则每切一次都要等 470ms 看它重画</td></tr>
+              <tr><td>reduced-motion</td><td>无淡入淡出，直接替换（<code>transition:none</code>），stagger 与 count-up 一起落终值</td></tr>
+              <tr><td>焦点</td><td>切换后焦点留在被选中的 tab 项上，不把焦点甩进内容区；滚动位置按源各记一份</td></tr>
+              <tr><td>高度</td><td>不锁高度：CF 与 AT 的卡面行数不同，淡入期间容器已就位，不会"先跳一下再淡"</td></tr>
+              <tr><td>键盘</td><td><code>←/→</code> 切源并跟随焦点；<code>Home/End</code> 到首末项</td></tr>
+            </tbody>
+          </table>
+          <p class="hint" style="margin-top:14px">在屏 1 / 2 / 3 之间点 tab 条就是真实动效；按下「模拟 reduced-motion」后同一套切换应直落终值、无淡入淡出。</p>
+        </section>
+
+        <!-- ---------- 新增数据槽 ---------- -->
+        <section>
+          <h3>New data slots <span>切片 2 新增槽位 · 沿用"取不到渲染 —"</span></h3>
+          <table class="sl">
+            <thead><tr><th style="width:250px">data-bind</th><th style="width:170px">界面上的位置</th><th style="width:160px">类型</th><th>口径 / 备注</th></tr></thead>
+            <tbody>
+              <tr class="grp"><td colspan="4">GET /api/status → sources</td></tr>
+              <tr><td>sources.cf · sources.at</td><td>tab 条 / 顶栏 chip</td><td class="t">{configured,handle,lastSyncAt,status}</td><td><code>status</code> = <code>ok｜stale｜down</code> → 点的三态；<code>configured:false</code> → tab 走未配置态</td></tr>
+              <tr><td>sources.xcpc</td><td>tab 条第三项</td><td class="t">null</td><td>本切片固定 null → 渲染 <code>—</code> + "待接入"</td></tr>
+              <tr><td>status.lastSyncText</td><td>顶栏「上次同步…」</td><td class="t">string</td><td>由该源的 <code>lastSyncAt</code> 现算相对时间；接口别给成品串（会过期）</td></tr>
+
+              <tr class="grp"><td colspan="4">GET /api/dashboard?source=at → 增量字段</td></tr>
+              <tr><td>stats.entryCount</td><td>AT rating 卡副行 2</td><td class="t">string</td><td>「参赛 18 场」成品串 = history 数组长度（含非 rated）</td></tr>
+              <tr><td>stats.nonRatedCount</td><td>AT rating 卡副行 2</td><td class="t">string</td><td>「非 rated 2 场」= <code>IsRated:false</code> 条数，不入曲线</td></tr>
+              <tr><td>rating.series[].place</td><td>折线 tooltip 第 3 行</td><td class="t">int｜null</td><td>「第 198 名」；AT 未上榜 → <b>null → —</b></td></tr>
+              <tr><td>rating.series[].performance</td><td>折线 tooltip 第 3 行</td><td class="t">int｜null</td><td>「Perf 1377」；非 rated 上游给 0 → 转 NULL 再渲染 <b>—</b></td></tr>
+              <tr><td>rating.note</td><td>曲线卡脚注</td><td class="t">string</td><td>诚实标注整句由后端拼，前端不猜数据来源</td></tr>
+              <tr><td>source=xcpc</td><td>整屏</td><td class="t">501</td><td>前端走屏 3 占位，不请求、不渲染任何数字</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- ---------- 拍板 ---------- -->
+        <section>
+          <h3>Decisions <span>最需要拍板的几件事</span></h3>
+          <div class="dec">
+            <div class="dec__i dec__i--pf"><div>
+              <div class="dec__t">① 平台识别色选哪档<span class="must">必答</span></div>
+              <p class="dec__p">A 克制 = 指示条 + 卡头 label + 读数线三处；B 加强 = 再加卡片极淡色晕与同色描边。<b>我推荐 A</b>：三端之间已经由 tab 条本身、卡片标题的平台名、格子图标题三处交代过"这是哪一家"，色晕再叠一层只是把深色底染脏，还和热力色阶的暖调抢注意力。要 B 建议加一条限制：色晕只上四张统计卡，格子图与曲线卡不上 —— 大卡面染色会盖掉格子图的冷铁底。</p>
+            </div></div>
+            <div class="dec__i"><div>
+              <div class="dec__t">② 段位色在深底提不提亮<span class="must">必答</span></div>
+              <p class="dec__p">CF Expert 原生 <code>#0000FF</code> 在 <code>#0A0C10</code> 上只有约 1.6:1，13px 的 tab rating 读不出；AT Brown / Green 同病。三条路：<b>A 同色相提亮表</b>（本稿采用，代价是数字色不再是站点原值）；B 数字用原生色，只在 <code>rankLabel</code> 文字旁补一个同色方块做辨识；C 硬扛原生色，"忠实站点"优先于可读性。切片 1 写的是"深色底上仍用 CF 原值，不自行提亮"，选 A 就是改这条，需要你点头。</p>
+            </div></div>
+            <div class="dec__i dec__i--blue"><div>
+              <div class="dec__t">③ AT 格子用不用独立档位<span class="must">必答</span></div>
+              <p class="dec__p">共用 CF 阈值（方案 A）时 AT 全图只落 0–2 档，看着"永远很冷"，但它诚实：<b>AT 的日强度确实低一个量级</b>，同一把尺正好把差距摆出来。独立阈值（方案 B）读得清深浅，代价是两源不再同标尺。本稿按 <code>docs/09</code> §5 走 A，B 留在屏 4 当对照。</p>
+            </div></div>
+            <div class="dec__i dec__i--line"><div>
+              <div class="dec__t">④ 顶栏同步按钮多写了源名</div>
+              <p class="dec__p">brief 说 CF tab"顶栏一律不动"，但 <code>docs/09</code> §1.5 要求同步按钮只拉当前选中源 —— 三端并排后光写"同步"不知道点下去动的是哪家。做法是最小偏离：主文案仍是"同步"，右侧挂 11px 灰字 <code>Codeforces / AtCoder</code>，XCPC 时整钮灰态。</p>
+            </div></div>
+            <div class="dec__i dec__i--line"><div>
+              <div class="dec__t">⑤ 演示时钟推到 2026-10-04，CF 头部数字与 mock-01 逐项相同</div>
+              <p class="dec__p">为了对上 brief 里的"数据更新于 2026-10-04"和"缓存（10-03 同步）"，今天改成 10-04（周日）。尾部重排了 3 格（<code>10-01 5→4</code>、<code>10-03 0→1</code>、<code>09-21 1→0</code>）才让 streak 仍是 12 天、当月仍是 9 题 —— <b>912 / 8540 / 1683 / 1731 / 12 天 / 1024 题次全部不变</b>，逐格深浅会有微差。若要求 CF 屏与 mock-01 逐格一致，就把时钟退回 10-03，tooltip 的 10-04 跟着改。</p>
+            </div></div>
+            <div class="dec__i dec__i--line"><div>
+              <div class="dec__t">⑥ AT tab 直接用"源不可达"这一态出场</div>
+              <p class="dec__p">屏 2 打开就是降级条 + 红点 + 缓存数字，而不是干净的成功态 —— 切片 2 真正的风险就是 kenkoooo 这个社区源的可用性，界面必须先把"看到的是缓存"讲清楚。代价：验收时留意屏 2 所有 AT 数字都挂着"缓存 10-03 20:15"。成功态样本在屏 4 的 <code>alert--ok</code> 那条。</p>
+            </div></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v3（切片 2）· 数据为演示假数据</footer>
+
+<div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
+<script>
+/* ==========================================================================
+   演示数据：全部确定性 —— 冻结日期 + 固定种子 PRNG，每次打开一模一样。
+   画像：中国大学生 ICPC 选手 · CF @chenyu 1683 Expert（头部数字与 mock-01 逐项相同）
+        · AT @chenyu 1345 Cyan（2025-04 起 · 18 场参赛，含 2 场非 rated）
+   实现 agent 注意：这一段在真实产品里由 GET /api/status + GET /api/dashboard?source= 提供，
+   形状照 docs/09 §4，不要搬进 React。
+   ========================================================================== */
+(function(){
+"use strict";
+
+/* ---------- 固定种子随机 ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---------- 时间骨架：两源共用同一个 53 周窗口，格子才能横向对照 ---------- */
+var MS=86400000;
+var TODAY=new Date(2026,9,4);                                       /* 2026-10-04 周日 */
+var WEEKS=53;
+function dowMon(d){return (d.getDay()+6)%7}                         /* 周一=0 … 周日=6 */
+function mondayOf(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate()-dowMon(d))}
+var GRID_START=new Date(mondayOf(TODAY).getTime()-(WEEKS-1)*7*MS);  /* 2025-09-29 周一 */
+var CELLS=WEEKS*7;
+var N_REAL=Math.round((TODAY-GRID_START)/MS)+1;                     /* 371 个真实日 */
+var WD=["一","二","三","四","五","六","日"];
+function p2(n){return String(n).padStart(2,"0")}
+function key(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())}
+function ymd(d){return key(d)}
+function parseYMD(s){var a=s.split("-");return new Date(+a[0],+a[1]-1,+a[2])}
+function inRange(k,list){for(var i=0;i<list.length;i++) if(k>=list[i][0]&&k<=list[i][1]) return true; return false}
+
+/* ---------- CF：学期稳定 · 寒暑假集训拉满 · 期末与春节断档（沿用 mock-01） ---------- */
+function cfBand(d){
+  var t=d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();
+  if(t<20251001) return 1.00;
+  if(t<20251101) return 1.25;
+  if(t<20251201) return 1.35;
+  if(t<20251221) return 1.25;
+  if(t<20260105) return 0.30;   /* 期末考试周 */
+  if(t<20260119) return 0.90;
+  if(t<20260209) return 7.50;   /* 冬训营 */
+  if(t<20260215) return 1.20;
+  if(t<20260222) return 0.10;   /* 春节 2026-02-17 */
+  if(t<20260401) return 1.55;
+  if(t<20260501) return 1.70;
+  if(t<20260506) return 8.00;   /* 五一集训 */
+  if(t<20260615) return 1.45;
+  if(t<20260622) return 0.25;   /* 期末 */
+  if(t<20260824) return 7.50;   /* 暑假集训 · 全年最热 */
+  if(t<20260901) return 1.90;   /* 返校 */
+  return 1.20;
+}
+var CF_ZEROS=[["2025-12-24","2025-12-31"],["2026-01-28","2026-01-30"],
+              ["2026-02-15","2026-02-21"],["2026-06-15","2026-06-20"]];
+var CF_SPIKES={"2025-11-08":13,"2026-03-14":12,"2026-04-18":14,"2026-05-02":15,"2026-07-11":16,"2026-08-08":15};
+/* 尾部 30 天（09-05 → 10-04）钉死：当月 9 题 / 连续 12 天 / 今天还没开张 */
+var CF_FIXED30=[0,1,1,0,0,0,3,0,0,1,0,0,0,0,0,0, 0,1,2,1,2,3,4,1,1,1,4,4,1,0];
+
+/* ---------- AT：周日 ABC 为主 · 周一补题 · 暑期与期末偏松（周赛节奏，不集训） ---------- */
+function atBand(d,rnd){
+  var t=d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate(), dow=dowMon(d);
+  var w = dow===6?3.40 : dow===0?0.50 : dow===5?0.35 : 0.12;
+  if(dow===6 && rnd()<0.16) w=0;         /* 这一周的 ABC 没打 */
+  if(t>=20260701&&t<20260901) w*=0.50;   /* 暑期偏松：AT 不是主场 */
+  if(t>=20260105&&t<20260201) w*=0.35;   /* 期末 */
+  if(t>=20260615&&t<20260623) w*=0.25;
+  if(t>=20251224&&t<20260101) w*=0.30;
+  if(t>=20260215&&t<20260223) w=0;       /* 春节 */
+  return w;
+}
+var AT_ZEROS=[["2026-02-15","2026-02-22"],["2026-06-16","2026-06-21"],["2025-12-25","2025-12-29"]];
+var AT_FIXED30=[0,3,1,0,0,0,0,0,4,1,0,0,0,0,0,4,2,0,0,1,0,0,4,3,0,1,3,1,2,0];
+
+/* ---------- 日序列：尾部写死，其余按权重最大余数法分配 —— 求和精确、形状不失真 ---------- */
+function buildDays(seed,cfg){
+  var rnd=mulberry32(seed), days=[], i, d, k;
+  for(i=0;i<CELLS;i++){
+    d=new Date(GRID_START.getTime()+i*MS); k=key(d);
+    days.push({d:d,k:k,future:i>=N_REAL,w:0,v:0,zero:inRange(k,cfg.zeros)});
+  }
+  for(i=0;i<30;i++) days[N_REAL-30+i].v=cfg.tail[i];
+
+  var tailSum=cfg.tail.reduce(function(a,b){ return a+b },0);
+  var pinned=0, pool=[];
+  for(i=0;i<=N_REAL-31;i++){
+    var day=days[i];
+    if(cfg.spikes[day.k]!==undefined && !day.zero){ day.v=cfg.spikes[day.k]; pinned+=day.v; continue }
+    if(day.zero){ day.w=0; day.v=0; continue }
+    day.w=cfg.band(day.d, rnd);
+    if(dowMon(day.d)>=5) day.w*=cfg.weekend;
+    day.w*=(0.45+rnd()*1.25);
+    pool.push(i);
+  }
+  var need=cfg.gridTotal-tailSum-pinned, sumW=0, frac=[], rem=need;
+  pool.forEach(function(x){ sumW+=days[x].w });
+  pool.forEach(function(x){
+    var raw=sumW>0 ? days[x].w/sumW*need : 0;
+    days[x].v=Math.min(cfg.cap, Math.floor(raw));
+    rem-=days[x].v;
+    frac.push({i:x, f:raw-Math.floor(raw)});
+  });
+  frac.sort(function(a,b){ return b.f-a.f || a.i-b.i });
+  for(i=0;i<frac.length&&rem>0;i++){ if(days[frac[i].i].v<cfg.cap){ days[frac[i].i].v++; rem-- } }
+  return days;
+}
+
+/* 与 CF 同档：0 / 1–2 / 3–5 / 6–9 / 10+（docs/09 §5 两源共用一把尺） */
+function lvl(v){return v<=0?0 : v<=2?1 : v<=5?2 : v<=9?3 : 4}
+/* AT 独立档位候选（屏 4 方案 B）：0 / 1 / 2 / 3 / 4+ */
+function lvlAlt(v){return v<=0?0 : v<=1?1 : v<=2?2 : v<=3?3 : 4}
+
+/* ==========================================================================
+   GET /api/status → sources：点只说"通不通"，日期与原因交给 tooltip
+   ========================================================================== */
+var STATUS={
+  cf:{configured:true, handle:"chenyu", state:"ok", lastSyncText:"12 分钟前",
+      counts:{submissions:8540, problems:912},
+      tip:["数据更新于 2026-10-04 07:52","官方接口 · 一次同步 1 个请求"]},
+  at:{configured:true, handle:"chenyu", state:"down", lastSyncText:"昨天 20:15",
+      counts:{submissions:1240, problems:261},
+      tip:["AtCoder Problems 暂不可达 · 503（已退避重试 2 次）","显示本地缓存 10-03 20:15 · 今日未入库"]},
+  xcpc:null
+};
+var DOT={ok:"dot--ok", stale:"dot--stale", down:"dot--down", idle:"dot--idle"};
+
+/* ==========================================================================
+   CF 场次：30 场，与 mock-01 同一组数值（今天推进到 10-04，日期整体 +1 天）
+   ========================================================================== */
+var RATING=[1400,1438,1372,1419,1461,1428,1483,1512,1466,1499,1548,1519,1571,1604,1562,1588,1629,1661,1618,1645,1688,1652,1671,1712,1731,1694,1719,1701,1663,1683];
+var CF_CONTESTS=(function(){
+  var gaps=[18,21,17,22,19,18,20,17,19,21,18,17,20,19,18,17,19,18,20,17,18,19,17,18,20,17,19,18,17,14];
+  var out=[], t=TODAY.getTime()-6*MS, num=1081, edu=209, hello=false;
+  for(var i=29;i>=0;i--){
+    var d=new Date(t), m=d.getMonth(), y=d.getFullYear(), name;
+    if(m===0&&!hello){ hello=true; name="Hello "+y+" (Div. 1 + Div. 2)" }
+    else if(m===3&&d.getDate()<=12){ name="April Fools' Day Contest "+y }
+    else if(i%4===1){ name="Educational Codeforces Round "+(edu--)+" (Rated for Div. 2)" }
+    else if(i%7===3){ name="Codeforces Round "+(num--)+" (Div. 1 + Div. 2)" }
+    else { name="Codeforces Round "+(num--)+" (Div. 2)" }
+    out[i]={name:name, ts:d};
+    t-=gaps[i]*MS;
+  }
+  return out;
+})();
+/* 卡面上要短，tooltip 里要全。长模式先替，否则 "Educational Codeforces Round" 会被先截成 "Educational CF" */
+function shortContest(n){
+  return n.replace("Educational Codeforces Round ","Edu ")
+          .replace("Codeforces Round ","CF ")
+          .replace("April Fools' Day Contest ","Fools ")
+          .replace(" (Rated for Div. 2)","");
+}
+
+/* AT 参赛史：18 场含 2 场非 rated。非 rated 不入主曲线，只进"参赛 N 场"；
+   place / performance 是 CF 侧拿不到的增量，直接进折线 tooltip 第三行 */
+var AT_HISTORY=[
+  {d:"2025-04-06", full:"AtCoder Beginner Contest 397", short:"ABC 397", rated:true,  r:372,  place:1284, perf:402},
+  {d:"2025-05-11", full:"AtCoder Beginner Contest 402", short:"ABC 402", rated:true,  r:441,  place:903,  perf:478},
+  {d:"2025-06-08", full:"AtCoder Beginner Contest 407", short:"ABC 407", rated:true,  r:405,  place:1655, perf:361},
+  {d:"2025-06-28", full:"典型 90 問（typical90）",       short:"典型 90 問", rated:false, r:405, place:null, perf:null},
+  {d:"2025-07-13", full:"AtCoder Beginner Contest 411", short:"ABC 411", rated:true,  r:486,  place:812,  perf:512},
+  {d:"2025-08-10", full:"AtCoder Beginner Contest 415", short:"ABC 415", rated:true,  r:452,  place:1401, perf:402},
+  {d:"2025-09-07", full:"AtCoder Regular Contest 169",  short:"ARC 169", rated:true,  r:538,  place:402,  perf:601},
+  {d:"2025-10-05", full:"AtCoder Beginner Contest 421", short:"ABC 421", rated:true,  r:613,  place:736,  perf:640},
+  {d:"2025-11-08", full:"AtCoder Regular Contest 173",  short:"ARC 173", rated:true,  r:585,  place:611,  perf:552},
+  {d:"2025-12-07", full:"AtCoder Beginner Contest 427", short:"ABC 427", rated:true,  r:672,  place:588,  perf:690},
+  {d:"2026-01-11", full:"AtCoder Beginner Contest 432", short:"ABC 432", rated:true,  r:749,  place:470,  perf:771},
+  {d:"2026-02-08", full:"AtCoder Beginner Contest 436", short:"ABC 436", rated:true,  r:838,  place:392,  perf:862},
+  {d:"2026-02-22", full:"Educational DP Contest",       short:"DP",      rated:false, r:838,  place:null, perf:null},
+  {d:"2026-04-12", full:"AtCoder Beginner Contest 444", short:"ABC 444", rated:true,  r:972,  place:298,  perf:995},
+  {d:"2026-05-10", full:"AtCoder Regular Contest 178",  short:"ARC 178", rated:true,  r:1104, place:187,  perf:1140},
+  {d:"2026-06-14", full:"AtCoder Beginner Contest 453", short:"ABC 453", rated:true,  r:1288, place:246,  perf:1301},
+  {d:"2026-07-12", full:"AtCoder Beginner Contest 457", short:"ABC 457", rated:true,  r:1362, place:198,  perf:1377},
+  {d:"2026-09-13", full:"AtCoder Beginner Contest 466", short:"ABC 466", rated:true,  r:1345, place:341,  perf:1289}
+];
+
+/* ==========================================================================
+   聚合：两源跑同一段纯函数，输入换成各自提交（docs/09 §5「聚合函数直接复用」）
+   ========================================================================== */
+function signed(n){ return (n>0?"+":n<0?"−":"±")+Math.abs(n) }
+
+function buildSource(cfg){
+  var days=buildDays(cfg.seed, cfg.days);
+  var activity=days.filter(function(x){ return !x.future })
+                   .map(function(x){ return {day:x.k, solved:x.v} });
+  var n=activity.length;
+
+  var gridSum=activity.reduce(function(t,x){ return t+x.solved },0), weekend=0;
+  activity.forEach(function(a){ if(dowMon(parseYMD(a.day))>=5) weekend+=a.solved });
+
+  var todaySolved=activity[n-1].solved, k=n-1;
+  if(todaySolved===0) k--;                                /* 今天没开张 → 从昨天起算 */
+  var streak=0; while(k>=0 && activity[k].solved>0){ streak++; k-- }
+
+  var best=0,cur=0,bestEnd=0,gaps=[],gap=0;
+  activity.forEach(function(a,idx){
+    if(a.solved>0){ cur++; if(cur>best){ best=cur; bestEnd=idx } if(gap>=3) gaps.push(gap); gap=0 }
+    else { cur=0; gap++ }
+  });
+  if(gap>=3) gaps.push(gap);
+
+  var months=[];                                          /* 近 6 个日历月，末项 = 当月 */
+  for(var back=5;back>=0;back--){
+    var st=new Date(TODAY.getFullYear(),TODAY.getMonth()-back,1);
+    var en=new Date(st.getFullYear(),st.getMonth()+1,1), total=0;
+    activity.forEach(function(a){ var d=parseYMD(a.day); if(d>=st&&d<en) total+=a.solved });
+    months.push({month:st.getFullYear()+"-"+p2(st.getMonth()+1), solved:total,
+                 partial: st.getMonth()===TODAY.getMonth() && st.getFullYear()===TODAY.getFullYear()});
+  }
+
+  /* 主曲线只收 rated；delta 自算（AT 上游不给 Diff，与 CF 侧 buildRating 同一做法） */
+  var series=cfg.history.filter(function(h){ return h.rated }).map(function(h,i,arr){
+    return {ts:h.d.slice(0,7), date:h.d, newRating:h.r, contestName:h.full, short:h.short,
+            place:h.place, performance:h.perf, isRated:true,
+            delta: i ? h.r-arr[i-1].r : 0};
+  });
+  var last=series[series.length-1], first=series[0], pi=0;
+  series.forEach(function(p,i){ if(p.newRating>series[pi].newRating) pi=i });
+  var pmax=series[pi].newRating;
+  var nonRated=cfg.history.length-series.length;
+
+  var st=STATUS[cfg.id];
+  return {
+    status:{ configured:st.configured, handle:st.handle, lastSyncText:st.lastSyncText, counts:st.counts },
+    activity:activity,
+    stats:{
+      totalSolved:cfg.totalSolved,
+      activityTotal:gridSum,
+      months:months,
+      streak:{ days:streak,
+               sub: todaySolved>0 ? "已连续 "+streak+" 天 · 今天已开张"
+                                  : "今天还没开张 · 昨日 "+activity[n-2].solved+" 题" },
+      longestRun:{ days:best+" 天",
+                   range: activity[bestEnd-best+1].day.slice(5)+" → "+activity[bestEnd].day.slice(5) },
+      gaps3: gaps.length+" 次",
+      weekendPct: Math.round(weekend/gridSum*100)+"%",
+      entryCount: "参赛 "+cfg.history.length+" 场",
+      nonRatedCount: "非 rated "+nonRated+" 场"
+    },
+    rating:{
+      count:series.length, current:last.newRating, first:first.newRating, max:pmax, peakIndex:pi,
+      totalDelta:signed(last.newRating-first.newRating), totalDeltaTone:last.newRating-first.newRating,
+      lastDeltaText:signed(last.delta), lastDeltaTone:last.delta,
+      lastContestShort:last.short, lastContest:last.contestName,
+      rankLabel:cfg.rankLabel, rankColor:cfg.rankColor, note:cfg.note,
+      series:series
+    }
+  };
+}
+
+var DASH={
+  cf:buildSource({
+    id:"cf", seed:0x4E564C, totalSolved:912,
+    days:{tail:CF_FIXED30, zeros:CF_ZEROS, spikes:CF_SPIKES, band:cfBand, cap:16, weekend:1.75, gridTotal:1024},
+    history:RATING.map(function(v,i){
+      return {d:ymd(CF_CONTESTS[i].ts), full:CF_CONTESTS[i].name, short:shortContest(CF_CONTESTS[i].name),
+              rated:true, r:v, place:null, perf:null};
+    }),
+    rankLabel:"Expert", rankColor:"var(--rk-blue-d)", note:null
+  }),
+  at:buildSource({
+    id:"at", seed:0x41544F4D, totalSolved:261,
+    days:{tail:AT_FIXED30, zeros:AT_ZEROS, spikes:{}, band:atBand, cap:6, weekend:1, gridTotal:236},
+    history:AT_HISTORY,
+    rankLabel:"Cyan", rankColor:"var(--rk-at-cyan)",
+    note:"2016 起 · 参赛史非提交史 · 来源：AtCoder 官方页 / AtCoder Problems"
+  })
+};
+
+var SOURCES={ cf:{name:"Codeforces", screen:"s1", pf:"pf-cf"},
+              at:{name:"AtCoder",    screen:"s2", pf:"pf-at"},
+              xcpc:{name:"XCPC",     screen:"s3", pf:"pf-xcpc"} };
+var ORDER=["cf","at","xcpc"];
+
+/* ==========================================================================
+   渲染
+   ========================================================================== */
+var $ =function(s,r){return (r||document).querySelector(s)};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+function el(tag,cls,txt){var n=document.createElement(tag); if(cls)n.className=cls; if(txt!=null)n.textContent=txt; return n}
+var SVGNS="http://www.w3.org/2000/svg";
+function svgEl(t,attrs){var n=document.createElementNS(SVGNS,t); for(var k in attrs) n.setAttribute(k,attrs[k]); return n}
+function reduced(){
+  return document.body.classList.contains("rm-on") ||
+        (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+/* ---------- Tooltip ---------- */
+var TIP=$("#tip");
+function showTip(cx,cy,lines){
+  TIP.innerHTML="";
+  lines.forEach(function(l){
+    var d=el("div",l.c); if(l.color) d.style.color=l.color;
+    d.textContent=l.t; TIP.appendChild(d);
+  });
+  TIP.hidden=false;
+  var half=TIP.offsetWidth/2+6;
+  TIP.style.left=Math.max(half,Math.min(window.innerWidth-half,cx))+"px";
+  TIP.style.top=Math.max(8,cy-10)+"px";
+}
+function hideTip(){ TIP.hidden=true }
+function parseTip(str){
+  var p=str.split("|"), out=[{c:"tip__d",t:p[0]}];
+  for(var i=1;i<p.length;i++) out.push({c:i===1?"tip__v":"tip__x",t:p[i]});
+  return out;
+}
+function tipFor(node){
+  var r=node.getBoundingClientRect();
+  showTip(r.left+r.width/2, r.top, node._tip||parseTip(node.getAttribute("data-tip")||""));
+}
+function bindTip(node){
+  node.addEventListener("mouseenter",function(){ tipFor(node) });
+  node.addEventListener("mouseleave",hideTip);
+}
+
+/* ---------- 源 tab 条 ---------- */
+function statusColor(s){ return s==="ok"?"var(--text-dim)":s==="stale"?"var(--warn)":"var(--bad)" }
+function tabModel(id){
+  var meta=SOURCES[id], st=STATUS[id];
+  if(!st) return {pf:meta.pf, unset:true, pending:"待接入", dot:DOT.idle, rating:"—", color:"",
+    lines:[{c:"tip__d",t:meta.name+" · 未接入"},
+           {c:"tip__v",t:"待接入 · 契约已冻结（docs/09 §9）",color:"var(--text-mute)"},
+           {c:"tip__x",t:"本切片不实现同步"}]};
+  var R=DASH[id], unset=!st.configured;
+  if(unset) return {pf:meta.pf, unset:true, dot:DOT.idle, rating:"—", color:"",
+    lines:[{c:"tip__d",t:meta.name+" · 未配置"},
+           {c:"tip__v",t:"还没有填 handle · 点进去填一个",color:"var(--text-mute)"}]};
+  return {pf:meta.pf, unset:false, dot:DOT[st.state], rating:String(R.rating.current), color:R.rating.rankColor,
+    lines:[{c:"tip__d",t:meta.name+" · @"+st.handle},
+           {c:"tip__v",t:st.tip[0],color:statusColor(st.state)},
+           {c:"tip__x",t:st.tip[1]}]};
+}
+function renderTabs(){
+  var act=document.activeElement;
+  var back=act&&act.classList&&act.classList.contains("srctab")
+            ? {src:act.dataset.src, screen:act.closest(".screen").id} : null;
+  $$("[data-srctabs]").forEach(function(host){
+    host.innerHTML="";
+    ORDER.forEach(function(id){
+      var m=tabModel(id), b=el("button","srctab "+m.pf+(m.unset?" is-unset":""));
+      b.setAttribute("role","tab");
+      b.setAttribute("aria-selected", host.dataset.current===id?"true":"false");
+      b.setAttribute("aria-controls", "content-"+id);
+      b.tabIndex=host.dataset.current===id?0:-1;
+      b.dataset.src=id;
+      b.appendChild(el("span","srctab__name",SOURCES[id].name));
+      var r=el("span","srctab__rating",m.rating); if(m.color) r.style.color=m.color;
+      b.appendChild(r);
+      if(m.pending) b.appendChild(el("span","srctab__pending",m.pending));
+      b.appendChild(el("i","dot "+m.dot));
+      b._tip=m.lines;
+      bindTip(b);
+      b.addEventListener("click",function(){ switchSource(id) });
+      host.appendChild(b);
+    });
+  });
+  if(back){
+    var t=$('#'+back.screen+' .srctab[data-src="'+back.src+'"]');
+    if(t) t.focus();
+  }
+}
+
+/* ---------- 活跃格子图：只读 data.activity ---------- */
+function renderGrid(host, data, name){
+  host.innerHTML="";
+  var byDay={}; data.activity.forEach(function(a){ byDay[a.day]=a.solved });
+
+  /* 月份标签：该周含某月 1 号 → 标该月；距上一个不足 3 列就跳过（否则糊在一起） */
+  var last=-99;
+  for(var c=0;c<WEEKS;c++){
+    var ms=null;
+    for(var j=0;j<7;j++){
+      var d=new Date(GRID_START.getTime()+(c*7+j)*MS);
+      if(d.getDate()===1 && d<=TODAY){ ms=d; break }
+    }
+    if(!ms || (c-last<3 && c!==0)) continue;
+    var lab=el("div","amonth", ms.getMonth()===0 ? String(ms.getFullYear()) : (ms.getMonth()+1)+"月");
+    lab.style.gridRow="1"; lab.style.gridColumn=String(c+2);
+    host.appendChild(lab); last=c;
+  }
+  /* 星期标签：真实的第一列，不用绝对定位（免得被滚动容器裁掉） */
+  [0,2,4].forEach(function(r){
+    var t=el("div","awd",["周一","周三","周五"][ [0,2,4].indexOf(r) ]);
+    t.style.gridRow=String(r+2); t.style.gridColumn="1";
+    host.appendChild(t);
+  });
+  /* 格子：53 周 × 7 天；数组里没有的那一天 = 还没到 */
+  for(var i=0;i<CELLS;i++){
+    var date=new Date(GRID_START.getTime()+i*MS), iso=key(date);
+    var cell=el("div","acell");
+    cell.style.gridRow=String(dowMon(date)+2);
+    cell.style.gridColumn=String(Math.floor(i/7)+2);
+    if(date>TODAY || !(iso in byDay)){ cell.classList.add("acell--future"); host.appendChild(cell); continue }
+    var v=byDay[iso];
+    cell.dataset.l=String(lvl(v));
+    cell.style.animationDelay=Math.min(470, i*1.2)+"ms";
+    (function(cell,iso,v){
+      cell.addEventListener("mouseenter",function(){
+        var r=cell.getBoundingClientRect();
+        showTip(r.left+r.width/2, r.top,
+          [{c:"tip__d",t:iso+" · 周"+WD[dowMon(parseYMD(iso))]},
+           {c:"tip__v"+(v===0?" is-zero":""),t:v>0?("过 "+v+" 题"):"没有训练"}]);
+      });
+      cell.addEventListener("mouseleave",hideTip);
+    })(cell,iso,v);
+    if(iso===key(TODAY)) cell.classList.add("acell--today");
+    host.appendChild(cell);
+  }
+  host.setAttribute("aria-label","近 53 周 "+name+" 活跃格子图：合计 "+data.stats.activityTotal+" 题次");
+}
+
+/* 屏 4 的档位对照：同一份 AT 尾部 7 周，只换分档函数 */
+function renderDemoGrid(host, alt){
+  host.innerHTML="";
+  var A=DASH.at.activity.slice(-49), base=parseYMD(A[0].day);
+  [0,2,4].forEach(function(r){
+    var t=el("div","awd",["周一","周三","周五"][ [0,2,4].indexOf(r) ]);
+    t.style.gridRow=String(r+1); t.style.gridColumn="1"; host.appendChild(t);
+  });
+  A.forEach(function(a,i){
+    var d=parseYMD(a.day), cell=el("div","acell");
+    cell.dataset.l=String(alt?lvlAlt(a.solved):lvl(a.solved));
+    cell.style.gridRow=String(dowMon(d)+1); cell.style.gridColumn=String(Math.round((d-base)/MS/7)+2);
+    cell.style.animationDelay=i*10+"ms";
+    cell.addEventListener("mouseenter",function(){
+      var r=cell.getBoundingClientRect();
+      showTip(r.left+r.width/2, r.top,
+        [{c:"tip__d",t:a.day+" · 周"+WD[dowMon(d)]},
+         {c:"tip__v"+(a.solved===0?" is-zero":""),t:a.solved>0?("过 "+a.solved+" 题"):"没有训练"}]);
+    });
+    cell.addEventListener("mouseleave",hideTip);
+    host.appendChild(cell);
+  });
+}
+
+/* ---------- Rating 曲线：只读 data.rating.series ---------- */
+function renderChart(host, ax, R){
+  var P=R.series, n=P.length-1;
+  var W=Math.max(560, Math.round(window.innerWidth-332)), H=180, PL=46, PR=64, PT=30, PB=16;
+  var lo=Math.min.apply(null,P.map(function(p){return p.newRating}));
+  var hi=Math.max.apply(null,P.map(function(p){return p.newRating}));
+  var min=Math.floor((lo-60)/50)*50, max=Math.ceil((hi+60)/50)*50;
+  function X(i){return PL + i*(W-PL-PR)/n}
+  function Y(v){return PT + (1-(v-min)/(max-min))*(H-PT-PB)}
+  var pi=R.peakIndex, last=P[n], start=P[0], grid=[];
+  var step=100*Math.max(1, Math.ceil((max-min)/600));   /* AT 跨度 400→1400，固定 100 会把刻度挤糊 */
+  for(var g=min; g<=max; g+=step) if(g>min && g<max) grid.push(g);
+
+  var svg=svgEl("svg",{viewBox:"0 0 "+W+" "+H,role:"img",
+    "aria-label":"rating 折线 "+P.length+" 场："+start.newRating+" 到 "+last.newRating+"，最高 "+P[pi].newRating});
+
+  grid.forEach(function(v){
+    svg.appendChild(svgEl("line",{x1:PL,x2:W-PR,y1:Y(v),y2:Y(v),stroke:"#222A36","stroke-width":1,"vector-effect":"non-scaling-stroke"}));
+    var t=svgEl("text",{x:PL-9,y:Y(v)+3.4,"text-anchor":"end",fill:"#6C7A8C","font-size":10,"font-family":"Consolas, monospace"});
+    t.textContent=String(v); svg.appendChild(t);
+  });
+  /* 起点以下压暗：那是已经离开的地方 */
+  svg.appendChild(svgEl("rect",{x:PL,y:Y(start.newRating),width:W-PL-PR,height:H-PB-Y(start.newRating),fill:"rgba(76,201,240,.035)"}));
+
+  /* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/09 §7） */
+  for(var s=0;s<n;s++){
+    var up = P[s+1].newRating >= P[s].newRating;
+    svg.appendChild(svgEl("line",{x1:X(s),y1:Y(P[s].newRating),x2:X(s+1),y2:Y(P[s+1].newRating),
+      stroke: up?"#4CC9F0":"#F5A524","stroke-width":1.9,"stroke-linecap":"round","vector-effect":"non-scaling-stroke"}));
+  }
+
+  var atPeak = pi!==n;
+  if(atPeak){
+    svg.appendChild(svgEl("line",{x1:X(pi),x2:X(pi),y1:Y(P[pi].newRating)+7,y2:H-PB,stroke:"rgba(245,165,36,.30)","stroke-dasharray":"2 3","vector-effect":"non-scaling-stroke"}));
+    svg.appendChild(svgEl("circle",{cx:X(pi),cy:Y(P[pi].newRating),r:4.4,fill:"#0A0C10",stroke:"#F5A524","stroke-width":1.6,"vector-effect":"non-scaling-stroke"}));
+  }
+  P.forEach(function(p,i){
+    if(i===pi||i===n) return;
+    svg.appendChild(svgEl("circle",{cx:X(i),cy:Y(p.newRating),r:2.1,fill:p.delta>=0?"#4CC9F0":"#F5A524",opacity:.75}));
+  });
+  svg.appendChild(svgEl("circle",{cx:X(n),cy:Y(last.newRating),r:9,fill:"rgba(245,165,36,.14)"}));
+  svg.appendChild(svgEl("circle",{cx:X(n),cy:Y(last.newRating),r:4,fill:"#F5A524",stroke:"#0A0C10","stroke-width":1.5,"vector-effect":"non-scaling-stroke"}));
+
+  /* 命中区：整列可悬停；AT 多一行 Place / Perf（CF 上游没有这两个字段） */
+  P.forEach(function(p,i){
+    var r=svgEl("rect",{class:"hit",x:X(i)-(W-PL-PR)/n/2,y:0,width:(W-PL-PR)/n,height:H});
+    r.addEventListener("mouseenter",function(){
+      var box=r.getBoundingClientRect();
+      var lines=[{c:"tip__d",t:p.contestName+" · "+p.ts}];
+      lines.push({c:"tip__v "+(i===0?"":p.delta>=0?"is-up":"is-down"),
+                  t:p.newRating+(i===0?" · 起点":"  "+signed(p.delta))+(atPeak&&i===pi?" · 峰值":"")});
+      if(p.place!==null||p.performance!==null)
+        lines.push({c:"tip__x",t:"第 "+(p.place===null?"—":p.place)+" 名 · Perf "+(p.performance===null?"—":p.performance)});
+      showTip(box.left+box.width/2, box.top+(Y(p.newRating)/H)*box.height, lines);
+    });
+    r.addEventListener("mouseleave",hideTip);
+    svg.appendChild(r);
+  });
+
+  host.innerHTML="";
+  host.appendChild(svg);
+  if(atPeak){
+    var pk=el("div","chart__peak","峰值 "+P[pi].newRating);
+    pk.style.left=(X(pi)/W*100)+"%"; pk.style.top=(Y(P[pi].newRating)/H*100)+"%";
+    host.appendChild(pk);
+  }
+  var nw=el("div","chart__now",String(last.newRating));
+  nw.style.left=(X(n)/W*100)+"%"; nw.style.top=(Y(last.newRating)/H*100)+"%";
+  host.appendChild(nw);
+
+  ax.innerHTML="";
+  [0,Math.round(n/3),Math.round(2*n/3),n].forEach(function(i){ ax.appendChild(el("span",null,P[i].ts)) });
+}
+
+/* ---------- 卡 2 底部迷你柱 / 卡 4 下方近 14 日刻度 ---------- */
+function renderMonths(host, data){
+  var M=data.stats.months, mx=Math.max.apply(null, M.map(function(m){ return m.solved }));
+  host.innerHTML="";
+  M.forEach(function(m){
+    var col=el("div","mbar"+(m.partial?" mbar--partial":""));
+    var bar=el("i"); bar.style.height=(mx>0 ? m.solved/mx*100 : 0)+"%";
+    col.appendChild(bar); col.appendChild(el("b"));
+    col.setAttribute("aria-label", m.month+" "+m.solved+" 题"+(m.partial?" 进行中":""));
+    col.addEventListener("mouseenter",function(){
+      var r=col.getBoundingClientRect();
+      showTip(r.left+r.width/2, r.top, [{c:"tip__d",t:m.month},
+        {c:"tip__v"+(m.solved===0?" is-zero":""), t:m.solved+" 题"+(m.partial?" · 进行中":"")}]);
+    });
+    col.addEventListener("mouseleave",hideTip);
+    host.appendChild(col);
+  });
+}
+function renderTicks(host, data){
+  host.innerHTML="";
+  data.activity.slice(-14).forEach(function(a,i,arr){
+    var t=el("i"); t.dataset.l=String(lvl(a.solved));
+    if(i===arr.length-1) t.className="today";
+    host.appendChild(t);
+  });
+}
+
+/* ---------- count-up：只在某源第一次出现时跑 ---------- */
+function countUp(scope){
+  var skip = reduced() || document.hidden;
+  $$(".cu",scope).forEach(function(n){
+    var to=parseInt(n.dataset.to,10)||0;
+    if(skip){ n.textContent=String(to); return }
+    var t0=performance.now(), D=560;
+    (function step(t){
+      var p=Math.min(1,(t-t0)/D), e=1-Math.pow(1-p,3);
+      n.textContent=String(Math.round(to*e));
+      if(p<1) requestAnimationFrame(step);
+    })(t0);
+  });
+}
+
+/* ==========================================================================
+   数据绑定 —— markup 里每一个 data-bind 就是一个槽，路径与接口字段同名
+   取不到值显示 "—"：后端少实现一个字段，界面不崩，也不拿假数填空。
+   ========================================================================== */
+function pathOf(obj,p){
+  return p.split(".").reduce(function(o,k){
+    if(o==null) return undefined;
+    return k==="-1" ? o[o.length-1] : o[k];
+  }, obj);
+}
+function bindAll(root, data){
+  $$("[data-bind]",root).forEach(function(n){
+    var v=pathOf(data, n.dataset.bind);
+    if(n.classList.contains("cu")) n.dataset.to=(v==null?0:v);
+    else n.textContent=(v===null||v===undefined||v==="") ? "—" : String(v);
+    if(n.dataset.tone!==undefined){
+      var t=Number(pathOf(data, n.dataset.tone))||0;
+      n.classList.toggle("delta--up", t>0);
+      n.classList.toggle("delta--down", t<0);
+    }
+  });
+}
+
+/* ==========================================================================
+   屏切换 + 源切换（渐隐渐出 ≤200ms）
+   ========================================================================== */
+var painted={};
+function contentOf(screen){ return $("#"+screen+" [data-content]") }
+function currentScreen(){
+  var s=$$(".screen").filter(function(x){ return !x.hidden })[0];
+  return s?s.id:"s1";
+}
+function go(id){
+  hideTip();
+  $$(".screen").forEach(function(s){ s.hidden=(s.id!==id) });
+  $$(".mocktab").forEach(function(t){
+    var on=t.dataset.screen===id;
+    t.setAttribute("aria-selected",on?"true":"false");
+    t.tabIndex=on?0:-1;
+  });
+  firstPaint(id);
+}
+function firstPaint(id){
+  if(painted[id]) return;
+  painted[id]=true;
+  var c=$("#"+id); if(!c) return;
+  countUp(c);
+}
+function revealAfter(sourceScreen, srcId){
+  var c=contentOf(sourceScreen);
+  if(!c || reduced()) return;
+  c.classList.add("is-entering");
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ c.classList.remove("is-entering") }) });
+  var t=$('#'+sourceScreen+' .srctab[data-src="'+srcId+'"]');
+  if(t) t.focus();
+}
+function switchSource(id){
+  var cur=currentScreen(), target=SOURCES[id].screen;
+  if(target===cur) return;
+  var old=contentOf(cur);
+  function land(){ go(target); revealAfter(target,id); }
+  if(old && !reduced()){
+    old.classList.add("is-leaving");
+    setTimeout(function(){ old.classList.remove("is-leaving"); land() },90);
+  } else land();
+}
+
+$$(".mocktab").forEach(function(t){ t.addEventListener("click",function(){ go(t.dataset.screen) }) });
+$(".mocktabs").addEventListener("keydown",function(e){
+  var tabs=$$(".mocktab"), i=tabs.findIndex(function(t){return t.getAttribute("aria-selected")==="true"});
+  var j = e.key==="ArrowRight" ? (i+1)%tabs.length : e.key==="ArrowLeft" ? (i-1+tabs.length)%tabs.length : -1;
+  if(j>=0){ e.preventDefault(); tabs[j].focus(); go(tabs[j].dataset.screen) }
+});
+document.addEventListener("click",function(e){
+  var g=e.target.closest && e.target.closest("[data-goto]");
+  if(g){ go(g.dataset.goto); return }
+  var x=e.target.closest && e.target.closest(".alert__x");
+  if(x){ var b=$$(".screen").filter(function(s){return !s.hidden})[0];
+         var btn=b&&$(".syncBtn",b); if(btn) btn.click(); }
+});
+
+/* ---------- 源 tab 条的键盘导航：←/→ 切源并跟随焦点 ---------- */
+$$("[data-srctabs]").forEach(function(host){
+  host.addEventListener("keydown",function(e){
+    var tabs=$$(".srctab",host), i=tabs.findIndex(function(t){return t.getAttribute("aria-selected")==="true"});
+    var j=-1;
+    if(e.key==="ArrowRight") j=(i+1)%tabs.length;
+    else if(e.key==="ArrowLeft") j=(i-1+tabs.length)%tabs.length;
+    else if(e.key==="Home") j=0;
+    else if(e.key==="End") j=tabs.length-1;
+    if(j>=0){ e.preventDefault(); switchSource(tabs[j].dataset.src) }
+  });
+});
+
+/* ==========================================================================
+   装配
+   ========================================================================== */
+bindAll($("#s1"), DASH.cf);
+bindAll($("#s2"), DASH.at);
+$$("[data-tip]").forEach(bindTip);
+renderTabs();
+renderGrid($("#agrid-cf"), DASH.cf, "Codeforces");
+renderGrid($("#agrid-at"), DASH.at, "AtCoder");
+renderChart($("#chart-cf"), $("#chartX-cf"), DASH.cf.rating);
+renderChart($("#chart-at"), $("#chartX-at"), DASH.at.rating);
+renderMonths($("#mbars-cf"), DASH.cf);
+renderMonths($("#mbars-at"), DASH.at);
+renderTicks($("#streakTicks-cf"), DASH.cf);
+renderTicks($("#streakTicks-at"), DASH.at);
+renderDemoGrid($("#agrid-demoA"), false);
+renderDemoGrid($("#agrid-demoB"), true);
+
+/* 顶栏同步：只拉当前选中源（docs/09 §1.5）。AT 拉成功后降级条当场消失 */
+$$(".syncBtn").forEach(function(btn){
+  btn.addEventListener("click",function(){
+    if(btn.classList.contains("is-busy")) return;
+    var id=btn.dataset.src, old=btn.innerHTML;
+    btn.classList.add("is-busy");
+    btn.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>拉取 <span class="btn-src">'+SOURCES[id].name+'</span>…';
+    setTimeout(function(){
+      btn.classList.remove("is-busy"); btn.innerHTML=old;
+      STATUS[id].state="ok"; STATUS[id].lastSyncText="刚刚";
+      STATUS[id].tip=["数据更新于 2026-10-04 08:31","一次请求 · 已写入 vault/anvil.db"];
+      DASH[id].status.lastSyncText="刚刚";
+      var main=btn.closest(".main");
+      $(".syncAt",main).textContent="刚刚";
+      var ic=$(".syncIcon",main); ic.style.color="var(--ok)"; ic.innerHTML='<use href="#i-check"/>';
+      var chip=$(".chip i",main); if(chip) chip.style.background="var(--ok)";
+      if(id==="at"){
+        var al=$(".alert--warn",main);
+        if(al){ al.style.transition="opacity 110ms var(--ease)"; al.style.opacity="0"; setTimeout(function(){ al.remove() },120) }
+      }
+      renderTabs();
+    },1600);
+  });
+});
+
+/* ---------- 演示开关：平台色两档 / reduced-motion / 动效重播 ---------- */
+function bindPair(a,b,apply){
+  [a,b].forEach(function(t){ if(t) t.addEventListener("change",function(){ apply(t.checked) }) });
+}
+var pfA=$("#pfToggle"), pfB=$("#pfToggle2");
+bindPair(pfA,pfB,function(on){
+  document.body.classList.toggle("pf-strong",on);
+  if(pfA) pfA.checked=on; if(pfB) pfB.checked=on;
+});
+var rm=$("#rmToggle");
+function setRM(on){ document.body.classList.toggle("rm-on",on); if(rm) rm.checked=on }
+if(rm) rm.addEventListener("change",function(){ setRM(rm.checked) });
+if(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) setRM(true);
+$("#replay").addEventListener("click",function(){
+  renderGrid($("#agrid-cf"), DASH.cf, "Codeforces");
+  renderGrid($("#agrid-at"), DASH.at, "AtCoder");
+  renderDemoGrid($("#agrid-demoA"), false);
+  renderDemoGrid($("#agrid-demoB"), true);
+  renderTicks($("#streakTicks-cf"), DASH.cf);
+  renderTicks($("#streakTicks-at"), DASH.at);
+  countUp($("#"+currentScreen()));
+  $$(".rise").forEach(function(n){ n.style.animation="none"; void n.offsetWidth; n.style.animation="" });
+});
+
+window.addEventListener("scroll",hideTip,true);
+$$(".content").forEach(function(c){ c.addEventListener("scroll",hideTip) });
+var rz=null;
+window.addEventListener("resize",function(){
+  clearTimeout(rz);
+  rz=setTimeout(function(){
+    renderChart($("#chart-cf"), $("#chartX-cf"), DASH.cf.rating);
+    renderChart($("#chart-at"), $("#chartX-at"), DASH.at.rating);
+  },120);
+});
+
+/* 直达某一屏 / 预置某一态：#s2 · #s4,strong · #s2,rm（strong=平台色加强版，rm=reduced-motion）
+   必须在 firstPaint 之前解析 —— 否则 count-up 已经按动画模式起跑。 */
+(function route(){
+  var tokens=(location.hash||"").replace(/^#/,"").split(",");
+  tokens.forEach(function(t){
+    if(t==="strong"){ document.body.classList.add("pf-strong"); if(pfA) pfA.checked=true; if(pfB) pfB.checked=true }
+    else if(t==="rm") setRM(true);
+  });
+  tokens.forEach(function(t){ if(/^s[1-4]$/.test(t)) go(t) });
+})();
+
+firstPaint("s1");
+})();
+</script>
+</body>
+</html>
