@@ -53,7 +53,7 @@ export function App() {
   const [shown, setShown] = useState<SourceId>('cf');
   const shownRef = useRef<SourceId>('cf');
   const wantRef = useRef<SourceId>('cf');
-  const flyRef = useRef<{ anims: Animation[]; timer: number } | null>(null);
+  const flyRef = useRef<{ settle: () => void; timer: number } | null>(null);
   const landRef = useRef(false);
   const scrollRef = useRef<Partial<Record<SourceId, number>>>({});
   const tabRefs = useRef<Partial<Record<SourceId, HTMLButtonElement | null>>>({});
@@ -68,7 +68,7 @@ export function App() {
     () => () => {
       if (flyRef.current) {
         clearTimeout(flyRef.current.timer);
-        for (const a of flyRef.current.anims) a.cancel();
+        flyRef.current.settle();
       }
     },
     [],
@@ -147,7 +147,7 @@ export function App() {
     const f = flyRef.current;
     if (!f) return;
     clearTimeout(f.timer);
-    for (const a of f.anims) a.cancel();
+    f.settle();
     flyRef.current = null;
   };
 
@@ -173,15 +173,15 @@ export function App() {
     }
     from.classList.add('is-flying');
     scrollRef.current[fromId] = from.scrollTop;
-    const { total, anims } = flyOut(from);
+    const { total, settle } = flyOut(from);
     const timer = window.setTimeout(() => {
-      for (const a of anims) a.cancel();
+      settle();
       from.classList.remove('is-flying');
       flyRef.current = null;
       landRef.current = true;
       commit(next);
     }, total + FLY.handoff);
-    flyRef.current = { anims, timer };
+    flyRef.current = { settle, timer };
   }, []);
 
   /** 换屏刚落地的这一帧：飞入新屏（reduced-motion 直接留终态） */
@@ -194,13 +194,13 @@ export function App() {
     tabRefs.current[shown]?.focus();
     if (flySkipped() || flyNodes(to).length === 0) return;
     to.classList.add('is-flying');
-    const { total, anims } = flyIn(to);
+    const { total, settle } = flyIn(to);
     const timer = window.setTimeout(() => {
-      for (const a of anims) a.cancel();
+      settle();
       to.classList.remove('is-flying');
       flyRef.current = null;
     }, total);
-    flyRef.current = { anims, timer };
+    flyRef.current = { settle, timer };
   }, [shown]);
 
   const active: SyncSourceId | null = shown === 'xcpc' ? null : shown;
