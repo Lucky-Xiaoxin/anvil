@@ -108,23 +108,24 @@ interface Props {
   dash: DashboardDto;
   today: Date;
   notice?: Notice | null;
+  /** 首次出现才播格子 stagger 与数字 count-up；换屏回来时图里已是终态 */
+  firstPaint: boolean;
   srcStatus: StatusDto['sources']['at'] | null;
   onSync: () => void;
-  /** 三屏常驻 DOM，靠 hidden 切：飞入的卡就不是「本帧新建的节点」，Gecko 不会先画一帧基础样式 */
-  hidden?: boolean;
 }
 
-export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidden = false }: Props) {
+export function Dashboard({ source, dash, today, notice, firstPaint, srcStatus, onSync }: Props) {
   const { activity, stats, rating } = dash;
   const currentMonth = stats.months[stats.months.length - 1];
   const rankColor = rating ? rankColorFor(rating.current, source) : undefined;
+  const animate = firstPaint;
   const warn =
     srcStatus && (srcStatus.status === 'down' || srcStatus.status === 'stale') ? (
       <DegradeBar source={source} src={srcStatus} onSync={onSync} />
     ) : null;
 
   return (
-    <div className="content" id={`content-${source}`} role="tabpanel" hidden={hidden}>
+    <div className="content" id={`content-${source}`} role="tabpanel">
       {notice ? <NoticeBar {...notice} /> : null}
       {warn}
 
@@ -132,7 +133,7 @@ export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidd
         <div className="stat">
           <div className="label stat__label">总过题数 · 去重</div>
           <div className="stat__num">
-            <Num to={stats.totalSolved} />
+            <Num to={stats.totalSolved} instant={!animate} />
             <span className="stat__unit">题</span>
           </div>
           {source === 'at' ? <div className="stat__sub2">首次 AC 计一道</div> : null}
@@ -141,7 +142,7 @@ export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidd
         <div className="stat">
           <div className="label label--blue stat__label">当月过题</div>
           <div className="stat__num stat__num--blue">
-            <Num to={currentMonth ? currentMonth.solved : null} />
+            <Num to={currentMonth ? currentMonth.solved : null} instant={!animate} />
             <span className="stat__unit">题</span>
           </div>
           <MonthlyBars months={stats.months} />
@@ -150,7 +151,7 @@ export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidd
         <div className="stat">
           <div className="label stat__label">{source === 'at' ? 'AT Rating' : 'CF Rating'}</div>
           <div className="stat__num" style={rankColor ? { color: rankColor } : undefined}>
-            <Num to={rating ? rating.current : null} />
+            <Num to={rating ? rating.current : null} instant={!animate} />
             <span className="stat__unit" style={rankColor ? { color: rankColor } : undefined}>
               {rating ? rating.rankLabel : '—'}
             </span>
@@ -168,7 +169,7 @@ export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidd
         <div className="stat">
           <div className="label label--accent stat__label">连续训练</div>
           <div className="stat__num stat__num--hot">
-            <Num to={stats.streak.days} />
+            <Num to={stats.streak.days} instant={!animate} />
             <span className="stat__unit">天</span>
           </div>
           <div className="stat__sub">{stats.streak.sub}</div>
@@ -210,7 +211,13 @@ export function Dashboard({ source, dash, today, notice, srcStatus, onSync, hidd
         </div>
         <div className="agrid-body">
           <div className="agrid-scroll">
-            <ActivityGrid activity={activity} today={today} totalLabel={stats.activityTotal} alt={source === 'at'} />
+            <ActivityGrid
+              activity={activity}
+              today={today}
+              totalLabel={stats.activityTotal}
+              alt={source === 'at'}
+              stagger={animate}
+            />
           </div>
           <div className="readout">
             <div className="ro">
@@ -263,14 +270,13 @@ interface ColdProps {
   today: Date;
   notice?: Notice | null;
   onGoSettings: () => void;
-  hidden?: boolean;
 }
 
 /** 一个 handle 都没配：空态 + 幽灵格子图 + 两张未解锁 */
-export function ColdStart({ dash, status, today, notice, onGoSettings, hidden = false }: ColdProps) {
+export function ColdStart({ dash, status, today, notice, onGoSettings }: ColdProps) {
   const total = status.sources.cf.counts.submissions + status.sources.at.counts.submissions;
   return (
-    <div className="content" id="content-cf" role="tabpanel" hidden={hidden}>
+    <div className="content" id="content-cf" role="tabpanel">
       {notice ? <NoticeBar {...notice} /> : null}
       <div className="card rise" style={{ padding: 'var(--sp-3)' }}>
         <div className="empty-hero">
@@ -343,17 +349,9 @@ export function ColdStart({ dash, status, today, notice, onGoSettings, hidden = 
 }
 
 /** 该源没配 handle：空态 + 去设置 CTA（docs/09 §1.3） */
-export function Unconfigured({
-  source,
-  onGoSettings,
-  hidden = false,
-}: {
-  source: SyncSourceId;
-  onGoSettings: () => void;
-  hidden?: boolean;
-}) {
+export function Unconfigured({ source, onGoSettings }: { source: SyncSourceId; onGoSettings: () => void }) {
   return (
-    <div className="content" id={`content-${source}`} role="tabpanel" hidden={hidden}>
+    <div className="content" id={`content-${source}`} role="tabpanel">
       <div className="card rise" style={{ padding: 'var(--sp-3)', maxWidth: 720 }}>
         <span className="label label--pf">Unconfigured</span>
         <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 12 }}>
@@ -374,9 +372,9 @@ export function Unconfigured({
 }
 
 /** XCPC 占位屏：一句状态 + 一句预告，无 CTA（docs/09 §1.4） */
-export function XcpcPlaceholder({ hidden = false }: { hidden?: boolean }) {
+export function XcpcPlaceholder() {
   return (
-    <div className="content" id="content-xcpc" role="tabpanel" hidden={hidden}>
+    <div className="content" id="content-xcpc" role="tabpanel">
       <div className="card rise" style={{ padding: 'var(--sp-3)', maxWidth: 720 }}>
         <span className="label label--pf">Coming soon</span>
         <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 12 }}>XCPC 还没接进来</h3>

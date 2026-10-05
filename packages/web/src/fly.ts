@@ -8,7 +8,8 @@ import { prefersReduced } from './format.ts';
 export const FLY = {
   out: { dur: 360, step: 41, durStep: 9, ease: 'cubic-bezier(.65,0,.35,1)' },
   in: { dur: 520, step: 30, durStep: 14, ease: 'cubic-bezier(.4,0,.2,1)' },
-  /** 两段之间的空档：docs/09 §7 定档 80ms，用户 2026-10-05 微调减半到 40ms */
+  /* 契约定档是 step 51/40 + handoff 80（整段 1530/1644ms）；
+     用户 2026-10-05 两轮微调：空档减半、两段起步间隔各再减 10ms → 整段 1390/1484ms */
   handoff: 40,
   rise: 72,
   scale: 4,
@@ -57,14 +58,8 @@ function plan(content: HTMLElement): { items: Item[]; box: DOMRect } {
   return { items, box };
 }
 
-/** 一趟编排的收尾句柄：取消动画，并摘掉我们钉上去的内联样式 */
-export interface Flight {
-  total: number;
-  settle: () => void;
-}
-
 /** 飞出：外圈先走（距中线降序）。左卡钻进侧边栏底下并淡出，右卡切在屏幕边 */
-export function flyOut(content: HTMLElement): Flight {
+export function flyOut(content: HTMLElement): { total: number; anims: Animation[] } {
   const { items, box } = plan(content);
   items.sort((a, b) => b.dist - a.dist);
   const s = FLY.scale / 100;
@@ -90,57 +85,32 @@ export function flyOut(content: HTMLElement): Flight {
     anims.push(it.node.animate(kf, { duration, delay, easing: FLY.out.ease, fill: 'forwards' }));
     total = Math.max(total, delay + duration);
   });
-  return {
-    total,
-    settle: () => {
-      for (const a of anims) a.cancel();
-    },
-  };
+  return { total, anims };
 }
 
-/**
- * 飞入：中部先来（距中线升序），从底部升起 rise + 距/6 px 收成扇形。
- *
- * 起始态先用内联样式钉住再建动画 —— Gecko 对「刚由 hidden 转可见的节点 + 同帧 element.animate()」
- * 会先画一帧基础样式（原位、不透明），下一帧才用 fill:'backwards' 的回填值，那就是 Firefox 上
- * 「原位闪一下 → 消失 → 才飞入」。WAAPI 的层叠优先级高于内联，动画跑动期间由动画说话；
- * 收尾（跑完或被取消）时 settle() 摘掉内联，卡片回到自然状态。
- */
-export function flyIn(content: HTMLElement): Flight {
+/** 飞入：中部先来（距中线升序），从底部升起 72 + 距/6 px 收成扇形 */
+export function flyIn(content: HTMLElement): { total: number; anims: Animation[] } {
   const { items } = plan(content);
   items.sort((a, b) => a.dist - b.dist);
   const s = FLY.scale / 100;
   const times = legTimes(items.length, 'in');
   const anims: Animation[] = [];
-  const pinned: HTMLElement[] = [];
   let total = 0;
   items.forEach((it, i) => {
     const { start: delay, duration } = times[i]!;
     const rise = Math.round(FLY.rise + it.dist / 6);
-    const from = { transform: `translateY(${rise}px) scale(${(1 - s).toFixed(3)})`, opacity: '0' };
-    it.node.style.transform = from.transform;
-    it.node.style.opacity = from.opacity;
-    pinned.push(it.node);
     anims.push(
-      it.node.animate([from, { transform: 'translateY(0px) scale(1)', opacity: 1 }], {
-        duration,
-        delay,
-        easing: FLY.in.ease,
-        fill: 'backwards',
-      }),
+      it.node.animate(
+        [
+          { transform: `translateY(${rise}px) scale(${(1 - s).toFixed(3)})`, opacity: 0 },
+          { transform: 'translateY(0px) scale(1)', opacity: 1 },
+        ],
+        { duration, delay, easing: FLY.in.ease, fill: 'backwards' },
+      ),
     );
     total = Math.max(total, delay + duration);
   });
-  return {
-    total,
-    settle: () => {
-      for (const a of anims) a.cancel();
-      for (const n of pinned) {
-        n.style.removeProperty('transform');
-        n.style.removeProperty('opacity');
-      }
-    },
-  };
+  return { total, anims };
 }
 
 /** 整套编排跳过、直接换屏（prefers-reduced-motion） */

@@ -30,8 +30,8 @@ describe('切换编排的时序不变量（docs/09 §7：任意两张卡不同�
       const inTotal = Math.max(...legTimes(n, 'in').map((t) => t.start + t.duration));
       return out + FLY.handoff + inTotal;
     };
-    // 契约定档是 step 51/40 + handoff 80 → 1530 / 1644；用户 2026-10-05 两轮微调：
-    // handoff 减半到 40，两段 step 各再减 10ms（出 41 / 入 30）
+    // 契约 §7 定档是 step 51/40 + handoff 80 → 1530 / 1644；用户 2026-10-05 微调成
+    // step 41/30 + handoff 40 → 1390 / 1484
     expect(total(6)).toBe(1390);
     expect(total(7)).toBe(1484);
   });
