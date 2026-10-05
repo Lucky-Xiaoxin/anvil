@@ -113,20 +113,5 @@ export function flyIn(content: HTMLElement): { total: number; anims: Animation[]
   return { total, anims };
 }
 
-/**
- * 把飞行物**复位到未飞的原始状态**。
- *
- * 飞出段挂着 `fill:"forwards"`：动画一旦 `cancel()`，填充立刻失效、元素瞬移回原位。
- * 所以取消之后必须把 WAAPI 动画本身也抹掉并把内联残值清干净，否则「切换中改道」
- * 会把上一屏的卡闪回原处 —— 看上去正是"卡突然出现又瞬间消失"。
- */
-export function resetFly(nodes: readonly HTMLElement[]): void {
-  for (const n of nodes) {
-    for (const a of n.getAnimations()) a.cancel();
-    n.style.removeProperty('opacity');
-    n.style.removeProperty('transform');
-  }
-}
-
 /** 整套编排跳过、直接换屏（prefers-reduced-motion） */
 export const flySkipped = (): boolean => prefersReduced();

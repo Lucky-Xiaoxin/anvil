@@ -10,7 +10,7 @@ import type {
 } from '@anvil/shared';
 import { getDashboard, getSyncStates, getStatus, startSync } from './api.ts';
 import { messageOf, sleep } from './format.ts';
-import { FLY, flyIn, flyNodes, flyOut, flySkipped, resetFly } from './fly.ts';
+import { FLY, flyIn, flyNodes, flyOut, flySkipped } from './fly.ts';
 import { AppShell, type View } from './components/AppShell.tsx';
 import {
   ColdStart,
@@ -53,7 +53,6 @@ export function App() {
   /** 真的挂在屏上的源；切换过程中它还是旧屏 */
   const [shown, setShown] = useState<SourceId>('cf');
   const shownRef = useRef<SourceId>('cf');
-  const wantRef = useRef<SourceId>('cf');
   const flyRef = useRef<{ anims: Animation[]; timer: number } | null>(null);
   const landRef = useRef(false);
   const seenRef = useRef<Set<SourceId>>(new Set());
@@ -153,43 +152,25 @@ export function App() {
     flushSync(() => setShown(to));
   };
 
-  const cancelFly = (): void => {
-    const f = flyRef.current;
-    if (!f) return;
-    clearTimeout(f.timer);
-    for (const a of f.anims) a.cancel();
-    flyRef.current = null;
-  };
-
   /**
    * 源切换：旧卡飞出、新卡飞入（docs/09 §7）。
-   * 切换中改道 → 当前编排立即落位、直接开播目标档，不排队等待。
+   *
+   * **编排期间不接受任何切换请求**（用户 2026-10-05 拍板）：整段 1.39s / 1.48s 里点谁都不动，
+   * 等这一轮跑完再响应下一次点击。早期版本做的是"立即落位 + 开播目标档"，但改道会让卡片在
+   * 中间屏上先瞬移回原位再重飞（`flyOut` 的起始关键帧就是自然位），看上去正是"卡直接出现然后才飞" ——
+   * 与其去治那个中间态，不如根本不进入它。
    */
   const select = useCallback((next: SourceId) => {
-    const action = decideSwitch({ shown: shownRef.current, want: wantRef.current, flying: flyRef.current !== null }, next);
+    const action = decideSwitch({ shown: shownRef.current, flying: flyRef.current !== null }, next);
 
-    // 目标已在途：连点同一个 tab 会 cancel 掉正在播的飞出段，挂 forwards 的卡瞬移回原位
     if (action.kind === 'ignore') return;
-
-    if (action.kind === 'retarget') {
-      cancelFly();
-      // 取消即丢失 forwards 填充：旧卡必须整套复位，否则会在原位置闪一下再重飞
-      const half = nodeOf(shownRef.current);
-      if (half) {
-        resetFly(flyNodes(half));
-        half.classList.remove('is-flying');
-      }
-      commit(action.mid);
-    }
-
-    wantRef.current = next;
 
     if (action.kind === 'plain') {
       commit(next);
       return;
     }
 
-    const fromId = action.kind === 'fly' ? action.from : shownRef.current;
+    const fromId = action.from;
     const from = nodeOf(fromId);
     const canFly = from !== null && !flySkipped() && flyNodes(from).length > 0;
     // 没卡可飞就瞬切：走这条绝不能置 landRef，否则空屏上会挂一次没有意义的飞入
