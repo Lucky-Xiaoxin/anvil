@@ -23,6 +23,9 @@ export interface TipData {
   sub?: string;
   /** 主读数换档：折线 tooltip 分数按方向上色，与线段同色 */
   valueClass?: string;
+  /** 强制在锚点下方弹出（此时 y 传锚点底缘）：顶部 tab 条用它 —— 上方放不下，而按默认
+   *  翻面落点 `y + 18` 又会落进 47px 高的按钮里，把按钮下半截盖住 */
+  below?: boolean;
 }
 
 interface TipApi {
@@ -50,9 +53,10 @@ export function TipProvider({ children }: { children: ReactNode }) {
     /*
      * 基础样式是 translate(-50%,-100%)，浮层整体在锚点上方 10px 处。顶栏底下的 tab 条
      * 锚点 top 只有 56px，而浮层高 55–73px —— 不翻面的话标题行整行跑到视口外。
-     * 上方放不下就翻到下方（箭头跟着翻，改由 .tip--below 接管）。
+     * 上方放不下就翻到下方（箭头跟着翻，改由 .tip--below 接管）；锚点自带 below 偏好的
+     * （tab 条）一律走下方，y 是它们的底缘。
      */
-    const down = tip.y - 10 - el.offsetHeight < 4;
+    const down = tip.below === true || tip.y - 10 - el.offsetHeight < 4;
     el.style.transform = down ? 'translate(-50%,0)' : 'translate(-50%,-100%)';
     el.style.top = `${down ? tip.y + 18 : tip.y - 10}px`;
     setBelow(down);

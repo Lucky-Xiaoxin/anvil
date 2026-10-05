@@ -96,7 +96,7 @@ export function SourceTabs({ current, status, onSelect, tabRefs }: Props) {
             data-src={id}
             onMouseEnter={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              show({ x: r.left + r.width / 2, y: r.top, date: tip.date, value: tip.value, valueClass: tip.valueClass, sub: tip.sub, zero: false });
+              show({ x: r.left + r.width / 2, y: r.bottom, below: true, date: tip.date, value: tip.value, valueClass: tip.valueClass, sub: tip.sub, zero: false });
             }}
             onMouseLeave={hide}
             onClick={() => onSelect(id)}

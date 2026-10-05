@@ -57,11 +57,16 @@ export function shortContestName(name: string): string {
     .replace(' (Rated for Div. 2)', '');
 }
 
+/**
+ * AT 比赛名 → 短名：在整名里查找标准赛号（冠名场也归位 ——
+ * `AtCoder Talent Quest 〜…〜予選（AtCoder Beginner Contest 472）` → `ABC 472`）。
+ * 非标准命名（如 `code-festival-2015-final`）原样返回。
+ */
 export function shortAtCoderName(name: string): string {
-  return name
-    .replace('AtCoder Beginner Contest ', 'ABC ')
-    .replace('AtCoder Regular Contest ', 'ARC ')
-    .replace('AtCoder Grand Contest ', 'AGC ');
+  const [, kind, num] = name.match(/AtCoder (Beginner|Regular|Grand) Contest (\d+)/) ?? [];
+  if (!kind || !num) return name;
+  const abbr = kind === 'Beginner' ? 'ABC' : kind === 'Regular' ? 'ARC' : 'AGC';
+  return `${abbr} ${num}`;
 }
 
 export function signedDelta(n: number): string {

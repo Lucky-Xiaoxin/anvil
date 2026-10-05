@@ -121,6 +121,13 @@ describe('卡面短名', () => {
     expect(shortAtCoderName('code-festival-2015-final')).toBe('code-festival-2015-final');
   });
 
+  it('AT 冠名场从整名里提出标准赛号（真实数据）', () => {
+    expect(
+      shortAtCoderName('AtCoder Talent Quest 〜 今から28卒には脱出してもらいます〜予選（AtCoder Beginner Contest 472）'),
+    ).toBe('ABC 472');
+    expect(shortAtCoderName('Toyota Programming Contest 2024#1（AtCoder Beginner Contest 337）')).toBe('ABC 337');
+  });
+
   it('正负号给串、数值给 tone', () => {
     expect(signedDelta(28)).toBe('+28');
     expect(signedDelta(-19)).toBe('−19');
