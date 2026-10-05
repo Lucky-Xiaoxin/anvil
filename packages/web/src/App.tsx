@@ -10,7 +10,7 @@ import type {
 } from '@anvil/shared';
 import { getDashboard, getSyncStates, getStatus, startSync } from './api.ts';
 import { messageOf, sleep } from './format.ts';
-import { FLY, flyIn, flyNodes, flyOut, flySkipped } from './fly.ts';
+import { FLY, flyIn, flyNodes, flyOut, flySkipped, resetFly } from './fly.ts';
 import { AppShell, type View } from './components/AppShell.tsx';
 import {
   ColdStart,
@@ -25,6 +25,7 @@ import {
 import { Settings } from './components/Settings.tsx';
 import { SourceTabs } from './components/SourceTabs.tsx';
 import { Wizard } from './components/Wizard.tsx';
+import { decideSwitch } from './switcher.ts';
 
 function viewFromHash(): View {
   const h = window.location.hash.replace(/^#\/?/, '');
@@ -138,10 +139,18 @@ export function App() {
     window.location.hash = `/${next}`;
   }, []);
 
-  const commit = (to: SourceId, flush = false): void => {
+  const commit = (to: SourceId): void => {
     shownRef.current = to;
-    if (flush) flushSync(() => setShown(to));
-    else setShown(to);
+    /*
+     * 换屏这一步**必须同步提交**（flushSync）。飞入的起始态（opacity 0 / 下移 / 缩 4%）
+     * 是在 `useLayoutEffect` 里挂上去的，只有「换屏 + 挂动画」落在同一个任务里，
+     * 浏览器才会只画出挂好动画的那一帧。若走普通 `setShown()`，React 18 会把这次更新
+     * 排进调度器：这一帧一旦被让出去，落地屏就先以**终态**画一帧（卡片在原位置全部出现、
+     * 闪一下），下一帧才被飞入动画拽回屏底重飞 —— 即 Chrome / Firefox 上概率性闪屏的来由
+     * （Edge 的调度时机不同所以看不到）。`flushSync` 让 setShown 与随之而来的
+     * `useLayoutEffect` 在同一个任务内跑完，任何浏览器都没机会插进这一帧。
+     */
+    flushSync(() => setShown(to));
   };
 
   const cancelFly = (): void => {
@@ -154,29 +163,42 @@ export function App() {
 
   /**
    * 源切换：旧卡飞出、新卡飞入（docs/09 §7）。
-   * 切换中再次点击 → 当前动画立即落位，直接开播目标档，不排队等待。
+   * 切换中改道 → 当前编排立即落位、直接开播目标档，不排队等待。
    */
   const select = useCallback((next: SourceId) => {
-    if (next === shownRef.current && !flyRef.current) return;
-    if (flyRef.current) {
-      const mid = wantRef.current;
+    const action = decideSwitch({ shown: shownRef.current, want: wantRef.current, flying: flyRef.current !== null }, next);
+
+    // 目标已在途：连点同一个 tab 会 cancel 掉正在播的飞出段，挂 forwards 的卡瞬移回原位
+    if (action.kind === 'ignore') return;
+
+    if (action.kind === 'retarget') {
       cancelFly();
-      nodeOf(shownRef.current)?.classList.remove('is-flying');
-      commit(mid, true);
+      // 取消即丢失 forwards 填充：旧卡必须整套复位，否则会在原位置闪一下再重飞
+      const half = nodeOf(shownRef.current);
+      if (half) {
+        resetFly(flyNodes(half));
+        half.classList.remove('is-flying');
+      }
+      commit(action.mid);
     }
+
     wantRef.current = next;
-    const fromId = shownRef.current;
-    if (fromId === next) {
+
+    if (action.kind === 'plain') {
       commit(next);
       return;
     }
+
+    const fromId = action.kind === 'fly' ? action.from : shownRef.current;
     const from = nodeOf(fromId);
     const canFly = from !== null && !flySkipped() && flyNodes(from).length > 0;
+    // 没卡可飞就瞬切：走这条绝不能置 landRef，否则空屏上会挂一次没有意义的飞入
     if (!canFly) {
       seenRef.current.add(fromId);
       commit(next);
       return;
     }
+
     seenRef.current.add(fromId);
     from.classList.add('is-flying');
     scrollRef.current[fromId] = from.scrollTop;
