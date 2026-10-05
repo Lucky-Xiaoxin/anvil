@@ -8,7 +8,8 @@ import { prefersReduced } from './format.ts';
 export const FLY = {
   out: { dur: 360, step: 51, durStep: 9, ease: 'cubic-bezier(.65,0,.35,1)' },
   in: { dur: 520, step: 40, durStep: 14, ease: 'cubic-bezier(.4,0,.2,1)' },
-  handoff: 80,
+  /** 两段之间的空档：docs/09 §7 定档 80ms，用户 2026-10-05 微调减半到 40ms */
+  handoff: 40,
   rise: 72,
   scale: 4,
   /** 中线 ±3% 内算「中部」：跨行宽卡（格子图 / 曲线 / 降级条）走右侧 */

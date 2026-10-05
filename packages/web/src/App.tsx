@@ -55,7 +55,6 @@ export function App() {
   const wantRef = useRef<SourceId>('cf');
   const flyRef = useRef<{ anims: Animation[]; timer: number } | null>(null);
   const landRef = useRef(false);
-  const seenRef = useRef<Set<SourceId>>(new Set());
   const scrollRef = useRef<Partial<Record<SourceId, number>>>({});
   const tabRefs = useRef<Partial<Record<SourceId, HTMLButtonElement | null>>>({});
 
@@ -154,10 +153,11 @@ export function App() {
 
   /**
    * 源切换：旧卡飞出、新卡飞入（docs/09 §7）。
-   * 切换中再次点击 → 当前动画立即落位，直接开播目标档，不排队等待。
+   * 切换中改道 → 当前动画立即落位，直接开播目标档，不排队等待。
    */
   const select = useCallback((next: SourceId) => {
-    if (next === shownRef.current && !flyRef.current) return;
+    // 目标没变（连点同一个 tab 就是这种）→ 忽略，让正在播的编排走完，别把它快进成"没有动效"
+    if (next === wantRef.current) return;
     if (flyRef.current) {
       const mid = wantRef.current;
       cancelFly();
@@ -166,18 +166,11 @@ export function App() {
     }
     wantRef.current = next;
     const fromId = shownRef.current;
-    if (fromId === next) {
-      commit(next);
-      return;
-    }
     const from = nodeOf(fromId);
-    const canFly = from !== null && !flySkipped() && flyNodes(from).length > 0;
-    if (!canFly) {
-      seenRef.current.add(fromId);
+    if (!from || flySkipped() || flyNodes(from).length === 0) {
       commit(next);
       return;
     }
-    seenRef.current.add(fromId);
     from.classList.add('is-flying');
     scrollRef.current[fromId] = from.scrollTop;
     const { total, anims } = flyOut(from);
@@ -259,32 +252,61 @@ export function App() {
         />
       );
     }
-    if (status && !status.sources.cf.configured && !status.sources.at.configured) {
-      return <ColdStart dash={dashes.cf ?? null} status={status} today={today} notice={notice} onGoSettings={() => navigate('settings')} />;
+    /*
+     * 三屏常驻 DOM，切换只翻 hidden（照视觉稿的结构：CF / AT / XCPC 都在文档里，靠 hidden 切）。
+     * 飞入的卡因此不是「本帧刚插入的节点」—— Gecko 会先给新节点画一帧基础样式再挂上动画，
+     * 那就是 Firefox 上「原位闪一下 → 消失 → 才飞入」的来由；Chromium 同帧起好动画所以看不出。
+     */
+    if (status === null) {
+      return (
+        <div className="content" id="content-cf" role="tabpanel">
+          {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
+        </div>
+      );
     }
-    if (active === null) return <XcpcPlaceholder />;
-    const src = status?.sources[active] ?? null;
-    if (src !== null && !src.configured) {
-      return <Unconfigured source={active} onGoSettings={() => navigate('settings')} />;
-    }
-    const dash = dashes[active];
-    if (dash) {
+    const firstRun = !status.sources.cf.configured && !status.sources.at.configured;
+    const screenFor = (id: SyncSourceId) => {
+      const hidden = shown !== id;
+      if (id === 'cf' && firstRun) {
+        return (
+          <ColdStart
+            dash={dashes.cf ?? null}
+            status={status}
+            today={today}
+            notice={notice}
+            onGoSettings={() => navigate('settings')}
+            hidden={hidden}
+          />
+        );
+      }
+      const src = status.sources[id];
+      if (!src.configured) return <Unconfigured source={id} onGoSettings={() => navigate('settings')} hidden={hidden} />;
+      const dash = dashes[id];
+      if (!dash) {
+        return (
+          <div className="content" id={`content-${id}`} role="tabpanel" hidden={hidden}>
+            {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
+          </div>
+        );
+      }
       return (
         <Dashboard
-          source={active}
+          source={id}
           dash={dash}
           today={today}
           notice={notice}
-          firstPaint={!seenRef.current.has(active)}
           srcStatus={src}
-          onSync={() => void runSync(active)}
+          onSync={() => void runSync(id)}
+          hidden={hidden}
         />
       );
-    }
+    };
     return (
-      <div className="content" id={`content-${active}`} role="tabpanel">
-        {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
-      </div>
+      <>
+        {screenFor('cf')}
+        {screenFor('at')}
+        <XcpcPlaceholder hidden={shown !== 'xcpc'} />
+      </>
     );
   };
 

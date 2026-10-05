@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useLayoutEffect, useState, type CSSProperties } from 'react';
 import { levelOf, type ActivityCellDto, type MonthBucketDto } from '@anvil/shared';
 import { fmtInt, prefersReduced } from '../format.ts';
 import { useTip } from '../tip.tsx';
@@ -11,22 +11,16 @@ export function Icon({ id, className, style }: { id: string; className?: string;
   );
 }
 
-/**
- * 主数字：count-up ≤600ms；reduced-motion 或页面隐藏时直接落终值。
- * `instant` 只管挂载那一次 —— 换屏回来时卡里已是终态，但同步完的新读数照旧要"燃烧起身"。
- */
-export function Num({ to, className, instant = false }: { to: number | null | undefined; className?: string; instant?: boolean }) {
+/** 主数字：count-up ≤600ms；reduced-motion 或页面隐藏时直接落终值 */
+export function Num({ to, className }: { to: number | null | undefined; className?: string }) {
   const [text, setText] = useState('—');
-  const mounted = useRef(false);
 
   useLayoutEffect(() => {
-    const skip = (instant && !mounted.current) || prefersReduced() || document.hidden;
-    mounted.current = true;
     if (to === null || to === undefined) {
       setText('—');
       return;
     }
-    if (skip) {
+    if (prefersReduced() || document.hidden) {
       setText(fmtInt(to));
       return;
     }
@@ -40,7 +34,7 @@ export function Num({ to, className, instant = false }: { to: number | null | un
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [to, instant]);
+  }, [to]);
 
   return <span className={className}>{text}</span>;
 }

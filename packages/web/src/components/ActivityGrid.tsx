@@ -20,11 +20,9 @@ interface Props {
   totalLabel?: number;
   /** AT 青阶（档位仍与 CF 共用，只换色相，docs/09 §5） */
   alt?: boolean;
-  /** 首次载入才逐格点亮；换屏回来时图里已是终态 */
-  stagger?: boolean;
 }
 
-export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt = false, stagger = true }: Props) {
+export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt = false }: Props) {
   const { show, hide } = useTip();
 
   const model = useMemo(() => {
@@ -65,8 +63,6 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt =
     return { cells, months, todayKey };
   }, [activity, today, ghost]);
 
-  const still = ghost || !stagger;
-
   return (
     <div
       className={`agrid${alt ? ' agrid--alt' : ''}`}
@@ -89,7 +85,7 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt =
           return <div key={c.iso} className="acell acell--future" style={style} />;
         }
         const solved = ghost ? 0 : c.solved;
-        if (still) {
+        if (ghost) {
           style.animation = 'none';
           style.opacity = 1;
         } else {

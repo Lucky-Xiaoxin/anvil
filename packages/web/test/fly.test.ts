@@ -24,14 +24,15 @@ describe('切换编排的时序不变量（docs/09 §7：任意两张卡不同�
     }
   });
 
-  it('定档总时长：6 卡 1530ms、AT 屏 7 卡 1644ms（含 80ms 空档）', () => {
+  it('总时长：6 卡 1490ms、AT 屏 7 卡 1604ms（含 40ms 空档）', () => {
     const total = (n: number) => {
       const out = Math.max(...legTimes(n, 'out').map((t) => t.start + t.duration));
       const inTotal = Math.max(...legTimes(n, 'in').map((t) => t.start + t.duration));
       return out + FLY.handoff + inTotal;
     };
-    expect(total(6)).toBe(1530);
-    expect(total(7)).toBe(1644);
+    // 契约 §7 定档是 handoff 80 → 1530 / 1644；用户 2026-10-05 把空档减半到 40
+    expect(total(6)).toBe(1490);
+    expect(total(7)).toBe(1604);
   });
 
   it('跨段不撞：飞入段整体晚于飞出段一个 handoff', () => {
