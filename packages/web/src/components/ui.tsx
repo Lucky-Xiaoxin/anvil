@@ -56,12 +56,16 @@ export function MonthlyBars({ months }: { months: MonthBucketDto[] }) {
   const { show, hide } = useTip();
   const max = months.reduce((m, x) => Math.max(m, x.solved), 0);
   return (
-    <div className="mbars" role="img" aria-label="近 6 个月过题柱状图">
+    <div
+      className="mbars"
+      role="img"
+      /* role="img" 的子节点一律按装饰处理，逐柱 aria-label 读不到 —— 把 6 个数折进整体名字里 */
+      aria-label={`近 6 个月过题柱状图：${months.map((m) => `${m.month} ${m.solved} 题${m.partial ? '（进行中）' : ''}`).join('，')}`}
+    >
       {months.map((m) => (
         <div
           key={m.month}
           className={`mbar${m.partial ? ' mbar--partial' : ''}`}
-          aria-label={`${m.month} ${m.solved} 题${m.partial ? ' 进行中' : ''}`}
           onMouseEnter={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             show({

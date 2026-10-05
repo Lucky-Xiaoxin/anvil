@@ -11,8 +11,6 @@ const DOT: Record<SourceState, string> = {
   down: 'dot--down',
   idle: 'dot--idle',
 };
-/** 点只说"通不通"，日期与原因交给 tooltip 的读数行 */
-const READ_CLASS: Record<SourceState, string> = { ok: 'is-dim', stale: 'is-warn', down: 'is-bad', idle: 'is-mute' };
 
 interface Props {
   /** 当前真的挂在屏上的源（切换进行中仍是旧源，指示条跟着换屏走） */
@@ -68,6 +66,8 @@ export function SourceTabs({ current, status, onSelect, tabRefs }: Props) {
   const { show, hide } = useTip();
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // 带修饰键的方向键属于浏览器/系统（Alt+←/→ = 后退/前进），不能被 tablist 吞掉
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const i = ORDER.indexOf(current);
     const j = e.key === 'ArrowRight' ? (i + 1) % ORDER.length : e.key === 'ArrowLeft' ? (i - 1 + ORDER.length) % ORDER.length : e.key === 'Home' ? 0 : e.key === 'End' ? ORDER.length - 1 : -1;
     if (j < 0) return;

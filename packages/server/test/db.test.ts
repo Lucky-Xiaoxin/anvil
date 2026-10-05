@@ -131,11 +131,28 @@ describe('Schema v2 DDL', () => {
     db.close();
   });
 
-  it('重拉同一批不重复（INSERT OR IGNORE）', () => {
+  it('重拉同一批不重复（INSERT OR IGNORE 语义）', () => {
     const db = mem();
     expect(insertSubmissions(db, 'cf', [row(), row({ id: 101 })])).toBe(2);
     expect(insertSubmissions(db, 'cf', [row(), row({ id: 101 })])).toBe(0);
     expect(countSubmissions(db, 'cf')).toBe(2);
+    db.close();
+  });
+
+  it('评测中的提交能被订正：NULL / TESTING → 真结论只订正一次', () => {
+    const db = mem();
+    // 同步时还在评测队列里
+    insertSubmissions(db, 'cf', [row({ id: 1, verdict: null }), row({ id: 2, verdict: 'TESTING' })]);
+    expect(loadAcEvents(db, 'cf')).toEqual([]);
+    // 再同步拉到结论：两条都该被订正，各算 1 次 changes（增量早退判据照旧）
+    expect(insertSubmissions(db, 'cf', [row({ id: 1, verdict: 'OK' }), row({ id: 2, verdict: 'WRONG_ANSWER' })])).toBe(2);
+    expect(loadAcEvents(db, 'cf')).toEqual([{ day: '2026-10-02', problemKey: 'cf:2268:D' }]);
+    // 已经定论的行不再改写：OK 不会被后来的 WA 覆盖，重拉仍是 0
+    expect(insertSubmissions(db, 'cf', [row({ id: 1, verdict: 'WRONG_ANSWER' })])).toBe(0);
+    expect(loadAcEvents(db, 'cf')).toHaveLength(1);
+    // 反向不算订正：拿到结论后再收到 TESTING / NULL 不该抹掉它
+    expect(insertSubmissions(db, 'cf', [row({ id: 1, verdict: 'TESTING' }), row({ id: 1, verdict: null })])).toBe(0);
+    expect(loadAcEvents(db, 'cf')).toHaveLength(1);
     db.close();
   });
 });

@@ -265,6 +265,8 @@ export function Dashboard({ source, dash, today, notice, firstPaint, srcStatus, 
 }
 
 interface ColdProps {
+  /** 当前选中的源：面板 id 必须跟着它走，否则 tab 的 aria-controls 指不到、落地也找不到节点 */
+  source: SyncSourceId;
   dash: DashboardDto | null;
   status: StatusDto;
   today: Date;
@@ -273,10 +275,10 @@ interface ColdProps {
 }
 
 /** 一个 handle 都没配：空态 + 幽灵格子图 + 两张未解锁 */
-export function ColdStart({ dash, status, today, notice, onGoSettings }: ColdProps) {
+export function ColdStart({ source, dash, status, today, notice, onGoSettings }: ColdProps) {
   const total = status.sources.cf.counts.submissions + status.sources.at.counts.submissions;
   return (
-    <div className="content" id="content-cf" role="tabpanel">
+    <div className="content" id={`content-${source}`} role="tabpanel">
       {notice ? <NoticeBar {...notice} /> : null}
       <div className="card rise" style={{ padding: 'var(--sp-3)' }}>
         <div className="empty-hero">

@@ -26,7 +26,9 @@ registerApi(app, {
   },
   setHandles: (patch) => saveHandles(patch),
 });
-registerStatic(app, webDistDir);
+// `npm run dev` 会把这个置 0：开发时前端走 Vite(5173) + 代理，别再让 7788 顺带发一份
+// 可能已经过期的 packages/web/dist —— 否则很容易对着旧 bundle 调 bug
+if (process.env.ANVIL_SERVE_WEB !== '0') registerStatic(app, webDistDir);
 
 const port = portOf(config);
 try {

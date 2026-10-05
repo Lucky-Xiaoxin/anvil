@@ -37,6 +37,7 @@ export const useTip = (): TipApi => useContext(TipCtx);
 /** 一个全局 tooltip：position:fixed，不受内容区滚动裁剪 */
 export function TipProvider({ children }: { children: ReactNode }) {
   const [tip, setTip] = useState<TipData | null>(null);
+  const [below, setBelow] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const hide = useCallback(() => setTip(null), []);
   const api = useMemo<TipApi>(() => ({ show: setTip, hide }), [hide]);
@@ -46,7 +47,15 @@ export function TipProvider({ children }: { children: ReactNode }) {
     if (!el || !tip) return;
     const half = el.offsetWidth / 2 + 6;
     el.style.left = `${Math.max(half, Math.min(window.innerWidth - half, tip.x))}px`;
-    el.style.top = `${tip.y - 10}px`;
+    /*
+     * 基础样式是 translate(-50%,-100%)，浮层整体在锚点上方 10px 处。顶栏底下的 tab 条
+     * 锚点 top 只有 56px，而浮层高 55–73px —— 不翻面的话标题行整行跑到视口外。
+     * 上方放不下就翻到下方（箭头跟着翻，改由 .tip--below 接管）。
+     */
+    const down = tip.y - 10 - el.offsetHeight < 4;
+    el.style.transform = down ? 'translate(-50%,0)' : 'translate(-50%,-100%)';
+    el.style.top = `${down ? tip.y + 18 : tip.y - 10}px`;
+    setBelow(down);
   }, [tip]);
 
   useEffect(() => {
@@ -58,7 +67,13 @@ export function TipProvider({ children }: { children: ReactNode }) {
     <TipCtx.Provider value={api}>
       {children}
       {tip && (
-        <div className="tip" ref={ref} role="tooltip" aria-hidden="false" style={{ left: tip.x, top: tip.y - 10 }}>
+        <div
+          className={`tip${below ? ' tip--below' : ''}`}
+          ref={ref}
+          role="tooltip"
+          aria-hidden="false"
+          style={{ left: tip.x, top: tip.y - 10 }}
+        >
           <div className="tip__d">{tip.date}</div>
           <div className={`tip__v${tip.zero ? ' is-zero' : ''}${tip.valueClass ? ` ${tip.valueClass}` : ''}`}>
             {tip.value}

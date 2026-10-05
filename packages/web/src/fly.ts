@@ -27,7 +27,7 @@ export function legTimes(n: number, leg: 'out' | 'in'): { start: number; duratio
 }
 
 /** 飞行物 = 内容区的直接子卡片：四张统计卡、格子卡 / 曲线卡、以及降级条 */
-export const FLY_SELECTOR = ':scope > .grid-4 > .stat, :scope > .card, :scope > .alert';
+const FLY_SELECTOR = ':scope > .grid-4 > .stat, :scope > .card, :scope > .alert';
 
 export const flyNodes = (content: HTMLElement): HTMLElement[] =>
   Array.from(content.querySelectorAll<HTMLElement>(FLY_SELECTOR));

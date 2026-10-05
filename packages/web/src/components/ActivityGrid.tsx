@@ -71,7 +71,7 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt =
     <div
       className={`agrid${alt ? ' agrid--alt' : ''}`}
       role="img"
-      aria-label={ghost ? undefined : `近 53 周活跃格子图：合计 ${totalLabel ?? 0} 题次`}
+      aria-label={ghost ? '活跃格子图（空态，还没有数据）' : `近 53 周活跃格子图：合计 ${totalLabel ?? 0} 题次`}
     >
       {model.months.map((m) => (
         <div key={`m${m.col}`} className="amonth" style={{ gridRow: '1', gridColumn: String(m.col + 2) }}>

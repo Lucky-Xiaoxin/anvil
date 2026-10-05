@@ -173,10 +173,12 @@ export function App() {
     const fromId = action.from;
     const from = nodeOf(fromId);
     const canFly = from !== null && !flySkipped() && flyNodes(from).length > 0;
-    // 没卡可飞就瞬切：走这条绝不能置 landRef，否则空屏上会挂一次没有意义的飞入
+    // 没卡可飞就瞬切：走这条绝不能置 landRef，否则空屏上会挂一次没有意义的飞入。
+    // 但焦点交接不能跟着一起省掉 —— 换屏后旧 tab 已经 tabIndex=-1，焦点留在上面就丢了。
     if (!canFly) {
       seenRef.current.add(fromId);
       commit(next);
+      tabRefs.current[next]?.focus();
       return;
     }
 
@@ -262,10 +264,25 @@ export function App() {
         />
       );
     }
-    if (status && !status.sources.cf.configured && !status.sources.at.configured) {
-      return <ColdStart dash={dashes.cf ?? null} status={status} today={today} notice={notice} onGoSettings={() => navigate('settings')} />;
-    }
+    /*
+     * XCPC 的判定必须在「一个 handle 都没配」之前：XCPC 屏是占位屏，与有没有 handle 无关。
+     * 原先这条在下面，导致没配 handle 时点 XCPC / AT 也走 ColdStart，而 ColdStart 的面板 id
+     * 写死 content-cf —— 飞出的卡落地时 `nodeOf(shown)` 取不到节点，于是没有飞入、没有焦点交接，
+     * 卡还会在飞出段被 cancel 的瞬间弹回原位；`aria-controls` 也指向了不存在的面板。
+     */
     if (active === null) return <XcpcPlaceholder />;
+    if (status && !status.sources.cf.configured && !status.sources.at.configured) {
+      return (
+        <ColdStart
+          source={active}
+          dash={dashes.cf ?? null}
+          status={status}
+          today={today}
+          notice={notice}
+          onGoSettings={() => navigate('settings')}
+        />
+      );
+    }
     const src = status?.sources[active] ?? null;
     if (src !== null && !src.configured) {
       return <Unconfigured source={active} onGoSettings={() => navigate('settings')} />;
@@ -274,6 +291,13 @@ export function App() {
     if (dash) {
       return (
         <Dashboard
+          /*
+           * key 让换源走「重新挂载」而不是「更新同一实例」：`Num` 的 `instant` 只在挂载那一次
+           * 生效，不给 key 的话换屏回来 `mounted.current` 已是 true，四张卡的 count-up 会重播
+           * 一遍（与 docs 里"换屏回来时图里已是终态"的口径相反），而且第一帧还会先画出上一个
+           * 源的旧数字。
+           */
+          key={active}
           source={active}
           dash={dash}
           today={today}

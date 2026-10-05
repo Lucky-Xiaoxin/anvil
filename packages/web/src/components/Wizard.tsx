@@ -203,7 +203,12 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
                     }
                   }}
                 />
-                <button className="btn btn--primary" style={{ flex: '0 0 auto' }} disabled={busy} onClick={() => void check()}>
+                <button
+                  className="btn btn--primary"
+                  style={{ flex: '0 0 auto' }}
+                  disabled={busy || handle.trim() === ''}
+                  onClick={() => void check()}
+                >
                   <Icon id="i-arrow" />
                   校验 handle
                 </button>
@@ -271,7 +276,7 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
               <div className="prow" style={{ marginTop: 10, justifyContent: 'space-between' }}>
                 <span>
                   {shown && phase === 'syncing'
-                    ? `已拉取 ${fmtInt(shown.fetched)} 条 / 约 ${fmtInt(shown.total)} 条 · 第 ${shown.pages} 页`
+                    ? `已拉取 ${fmtInt(shown.fetched)} 条 / 约 ${fmtInt(shown.total)} 条${typeof shown.pages === 'number' ? ` · 第 ${shown.pages} 页` : ''}`
                     : '待开始'}
                 </span>
                 <span>{pct}%</span>

@@ -189,13 +189,24 @@ function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
-/** INSERT OR IGNORE：重拉同一批提交不会重复落库；主键 (source, id) 让两源的 id 命名空间互不干扰 */
+/**
+ * 落库提交。重复拉取同一批不会重复计数（主键 (source, id)），但**评测中的提交允许被订正**：
+ * CF 的 verdict 枚举含 `TESTING`、AT 的 result 也可能是空，用户在评测队列里点一次同步就会把
+ * 那一行以 NULL/`TESTING` 写死；此后每次同步都会重新拉到它（CF 首页最新在前、AT 的游标含当天），
+ * 可纯 `INSERT OR IGNORE` 会把订正后的行丢掉 —— 那条 AC 就永久从格子/连续训练/总过题里缺席，
+ * 只能靠换 handle 清库才能修。这里的 `DO UPDATE … WHERE` 只订正"原来没有结论、现在有了"的行，
+ * 普通重拉仍然 `changes = 0`，`stored < fetched` 的增量早退判据不受影响。
+ */
 export function insertSubmissions(db: DatabaseSync, source: SyncSourceId, rows: readonly SubmissionRow[]): number {
   const stmt = db.prepare(
-    `INSERT OR IGNORE INTO submissions
+    `INSERT INTO submissions
        (source, id, contest_id, problem_key, problem_name, problem_rating, problem_tags_json,
         verdict, language, participant_type, created_ts, relative_ts)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(source, id) DO UPDATE SET verdict = excluded.verdict
+       WHERE (submissions.verdict IS NULL OR submissions.verdict = 'TESTING')
+         AND excluded.verdict IS NOT NULL
+         AND excluded.verdict <> 'TESTING'`,
   );
   return withTransaction(db, () => {
     let stored = 0;

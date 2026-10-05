@@ -3,8 +3,9 @@
  * 全模块不读运行机时区 —— 一律 offset 算术 + UTC getter（docs/09 §6）。
  *
  * 约定：本模块流转的 `Date` 是「上海日历日」的载体 —— 它的 UTC 字段才是真实日历字段，
- * 毫秒值比真实 UTC 早 8 小时。只有 UTC 午夜（`dayOf` 之外的 parseDayKey/addDays 结果）
- * 才代表"某一天"，一天之内的时刻只出现在 today 这类入参上。
+ * 毫秒值比真实时刻**晚** 8 小时（`dayOf` 是 `(epoch + 8*3600)*1000`；上海 10-04 00:00 的载体
+ * 落在 10-04T00:00Z，而真实时刻是 10-03T16:00Z）。只有 UTC 午夜（`dayOf` 之外的
+ * parseDayKey/addDays 结果）才代表"某一天"，一天之内的时刻只出现在 today 这类入参上。
  */
 
 export const WEEKS = 53;

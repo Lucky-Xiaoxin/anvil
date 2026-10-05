@@ -34,7 +34,8 @@ function Row({ source, status, states, busy, onStatus, onRun }: Props & { source
 
   const sync = states?.[source];
   const running = busy[source];
-  const dirty = input.trim() !== (src.handle ?? '');
+  // 空/纯空白不算 dirty：否则「校验」按钮点下去是静默 no-op（check() 会直接 return）
+  const dirty = input.trim() !== '' && input.trim() !== (src.handle ?? '');
 
   async function check() {
     const name = input.trim();

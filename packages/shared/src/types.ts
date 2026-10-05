@@ -44,7 +44,7 @@ export interface SyncStateDto {
   total: number;
   problems: number;
   ratingContests: number;
-  /** CF 专有：user.status 已拉页数。AT 无分页概念 → 不出这个键 */
+  /** CF 专有：user.status 已拉页数。AT 每请求 500 条，页数对用户没意义 → 不出这个键 */
   pages?: number;
   /** CF 专有：哨兵值转 NULL 的场外提交数。AT 无此概念 → 不出这个键 */
   offsite?: number;
