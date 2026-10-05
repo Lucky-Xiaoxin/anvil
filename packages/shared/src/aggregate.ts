@@ -1,4 +1,4 @@
-import { addDays, addMonths, dowMon, formatDay, formatMonth, gridStartDate, monthOfDay, parseDayKey, WEEKS } from './days.ts';
+import { addDays, addMonths, civilDay, dowMon, formatDay, formatMonth, gridStartDate, monthOfDay, parseDayKey, WEEKS } from './days.ts';
 import type { AcEvent, ActivityCellDto, LongestRunDto, MonthBucketDto, StatsDto, StreakDto } from './types.ts';
 
 /** 5 档：0 / 1-2 / 3-5 / 6-9 / 10+ */
@@ -30,14 +30,15 @@ export function countDistinctProblems(events: readonly AcEvent[]): number {
   return new Set(events.map((e) => e.problemKey)).size;
 }
 
-/** 53 周 × 7 天窗口内、今天及以前的每一格；未来日不出现（缺项 = 那天还没到） */
+/** 53 周 × 7 天窗口内、今天及以前的每一格；未来日不出现（缺项 = 那天还没到）。`today` 传真实时刻 */
 export function buildActivity(events: readonly AcEvent[], today: Date, weeks = WEEKS): ActivityCellDto[] {
   const counts = solvedPerDay(events);
-  const start = gridStartDate(today, weeks);
+  const day = civilDay(today);
+  const start = gridStartDate(day, weeks);
   const cells: ActivityCellDto[] = [];
   for (let i = 0; i < weeks * 7; i++) {
     const d = addDays(start, i);
-    if (d.getTime() > today.getTime()) break;
+    if (d.getTime() > day.getTime()) break;
     cells.push({ day: formatDay(d), solved: counts.get(formatDay(d)) ?? 0 });
   }
   return cells;
@@ -45,9 +46,10 @@ export function buildActivity(events: readonly AcEvent[], today: Date, weeks = W
 
 export function buildStreak(events: readonly AcEvent[], today: Date): StreakDto {
   const counts = solvedPerDay(events);
-  const todayKey = formatDay(today);
+  const day = civilDay(today);
+  const todayKey = formatDay(day);
   const todaySolved = counts.get(todayKey) ?? 0;
-  const cursor = todaySolved > 0 ? today : addDays(today, -1);
+  const cursor = todaySolved > 0 ? day : addDays(day, -1);
 
   let days = 0;
   let at = cursor;
@@ -58,13 +60,13 @@ export function buildStreak(events: readonly AcEvent[], today: Date): StreakDto 
 
   let sub: string;
   if (todaySolved > 0) sub = `已连续 ${days} 天 · 今天已开张`;
-  else if (days > 0) sub = `今天还没开张 · 昨日 ${counts.get(formatDay(addDays(today, -1))) ?? 0} 题`;
+  else if (days > 0) sub = `今天还没开张 · 昨日 ${counts.get(formatDay(addDays(day, -1))) ?? 0} 题`;
   else sub = '今天还没开张';
 
   return { days, sub };
 }
 
-/** 近 6 个本地日历月；历史不足就不补齐 */
+/** 近 6 个上海日历月；历史不足就不补齐 */
 export function buildMonths(events: readonly AcEvent[], today: Date): MonthBucketDto[] {
   if (events.length === 0) return [];
   const byMonth = new Map<string, Set<string>>();
@@ -80,11 +82,11 @@ export function buildMonths(events: readonly AcEvent[], today: Date): MonthBucke
     set.add(e.problemKey);
   }
 
-  const currentMonth = formatDay(today).slice(0, 7);
+  const day = civilDay(today);
+  const currentMonth = formatDay(day).slice(0, 7);
   const months: MonthBucketDto[] = [];
   for (let back = 5; back >= 0; back--) {
-    const d = addMonths(today, -back);
-    const key = formatMonth(d);
+    const key = formatMonth(addMonths(day, -back));
     if (key < earliest) continue;
     months.push({ month: key, solved: byMonth.get(key)?.size ?? 0, partial: key === currentMonth });
   }

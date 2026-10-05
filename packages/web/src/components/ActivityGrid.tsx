@@ -1,6 +1,7 @@
 import { useMemo, type CSSProperties } from 'react';
 import {
   addDays,
+  civilDay,
   dowMon,
   formatDay,
   gridStartDate,
@@ -17,15 +18,20 @@ interface Props {
   /** 空态：整张网格按 0 档铺满，不动效 */
   ghost?: boolean;
   totalLabel?: number;
+  /** AT 青阶（档位仍与 CF 共用，只换色相，docs/09 §5） */
+  alt?: boolean;
+  /** 首次载入才逐格点亮；换屏回来时图里已是终态 */
+  stagger?: boolean;
 }
 
-export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Props) {
+export function ActivityGrid({ activity, today, ghost = false, totalLabel, alt = false, stagger = true }: Props) {
   const { show, hide } = useTip();
 
   const model = useMemo(() => {
     const byDay = new Map(activity.map((a) => [a.day, a.solved]));
-    const start = gridStartDate(today, WEEKS);
-    const todayKey = formatDay(today);
+    const day = civilDay(today);
+    const start = gridStartDate(day, WEEKS);
+    const todayKey = formatDay(day);
 
     const months: { col: number; text: string }[] = [];
     let last = -99;
@@ -33,7 +39,7 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Pro
       let firstOfMonth: Date | null = null;
       for (let j = 0; j < 7; j++) {
         const d = addDays(start, c * 7 + j);
-        if (d.getDate() === 1 && d.getTime() <= today.getTime()) {
+        if (d.getUTCDate() === 1 && d.getTime() <= day.getTime()) {
           firstOfMonth = d;
           break;
         }
@@ -41,7 +47,8 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Pro
       if (!firstOfMonth || (c - last < 3 && c !== 0)) continue;
       months.push({
         col: c,
-        text: firstOfMonth.getMonth() === 0 ? String(firstOfMonth.getFullYear()) : `${firstOfMonth.getMonth() + 1}月`,
+        text:
+          firstOfMonth.getUTCMonth() === 0 ? String(firstOfMonth.getUTCFullYear()) : `${firstOfMonth.getUTCMonth() + 1}月`,
       });
       last = c;
     }
@@ -52,15 +59,17 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Pro
       const iso = formatDay(date);
       const solved = byDay.get(iso) ?? 0;
       // 空态网格要的是"铺满 0 档"，只有真·未来日才留空
-      const future = date.getTime() > today.getTime() || (!ghost && !byDay.has(iso));
+      const future = date.getTime() > day.getTime() || (!ghost && !byDay.has(iso));
       cells.push({ iso, row: dowMon(date), col: Math.floor(i / 7), i, solved, future, weekday: dowMon(date) });
     }
     return { cells, months, todayKey };
   }, [activity, today, ghost]);
 
+  const still = ghost || !stagger;
+
   return (
     <div
-      className="agrid"
+      className={`agrid${alt ? ' agrid--alt' : ''}`}
       role="img"
       aria-label={ghost ? undefined : `近 53 周活跃格子图：合计 ${totalLabel ?? 0} 题次`}
     >
@@ -80,7 +89,7 @@ export function ActivityGrid({ activity, today, ghost = false, totalLabel }: Pro
           return <div key={c.iso} className="acell acell--future" style={style} />;
         }
         const solved = ghost ? 0 : c.solved;
-        if (ghost) {
+        if (still) {
           style.animation = 'none';
           style.opacity = 1;
         } else {

@@ -1,3 +1,5 @@
+import { clockOf, dayKeyOf } from '@anvil/shared';
+
 export function prefersReduced(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
@@ -14,6 +16,23 @@ export function fmtInt(n: number): string {
   return n >= 10000 ? n.toLocaleString('zh-CN') : String(n);
 }
 
+function p2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** epoch 秒 → 「2026-10-04 08:12」，钉死 Asia/Shanghai */
+export function fullStamp(epochSeconds: number): string {
+  const { hour, minute } = clockOf(new Date(epochSeconds * 1000));
+  return `${dayKeyOf(epochSeconds)} ${p2(hour)}:${p2(minute)}`;
+}
+
+/** epoch 秒 → 「10-04 20:15」：同年不写年份，降级条这类短读数用 */
+export function shortStamp(epochSeconds: number, now = Date.now()): string {
+  const stamp = fullStamp(epochSeconds);
+  const sameYear = stamp.slice(0, 4) === fullStamp(Math.floor(now / 1000)).slice(0, 4);
+  return sameYear ? stamp.slice(5) : stamp;
+}
+
 export function relativeTime(epochSeconds: number | null, now = Date.now()): string {
   if (epochSeconds === null) return '从未同步';
   const diff = Math.max(0, now - epochSeconds * 1000);
@@ -24,6 +43,5 @@ export function relativeTime(epochSeconds: number | null, now = Date.now()): str
   if (hour < 24) return `${hour} 小时前`;
   const day = Math.floor(hour / 24);
   if (day < 7) return `${day} 天前`;
-  const d = new Date(epochSeconds * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dayKeyOf(epochSeconds);
 }

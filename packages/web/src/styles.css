@@ -1,6 +1,7 @@
 /* ==========================================================================
-   ANVIL 产品样式 —— 照抄 design/mock-01-dashboard.html（视觉稿 v2，已冻结）
-   tokens 与 docs/04 §5 一一对应；视觉稿外壳（mockbar / Token 表）不进产品。
+   ANVIL 产品样式 —— 底子照抄 design/mock-01-dashboard.html（切片 1，已冻结），
+   切片 2 增量照抄 design/mock-02-three-ends.html（三端 tab / AT 卡 / 源状态 / 降级条 / 切换动效）。
+   tokens 与 docs/09 §7 一一对应；视觉稿外壳（mockbar / Token 表）不进产品。
    ========================================================================== */
 
 /* ---------- 1. Tokens ---------- */
@@ -20,6 +21,23 @@
   --warn:#D29922;
   --bad:#F85149;
   --gold:#D9A441; --silver:#AEB8C6; --bronze:#B08968;
+
+  /* 平台识别色：三端三色，全部取自本仓库已有色族（docs/09 §7 强度分档见 §3） */
+  --pf-cf:#4CC9F0;   --pf-cf-rgb:76,201,240;    /* 蓝 · = --accent-2，CF 是切片 1 的原生端 */
+  --pf-at:#00C0C0;   --pf-at-rgb:0,192,192;     /* 青 · = AtCoder cyan 档原生色 */
+  --pf-xcpc:#FF8A84; --pf-xcpc-rgb:255,138,132; /* 绯 · 取自 --bad 的亮一档 */
+
+  /* 段位色：站点原生值 → 深底提亮值（同色相只提明度）。需要提亮的只有 6 档 */
+  --rk-gray:#808080;
+  --rk-at-brown:#804000;   --rk-at-brown-d:#C58A52;
+  --rk-green:#008000;      --rk-green-d:#41D06B;   /* CF Pupil / AT Green */
+  --rk-at-cyan:#00C0C0;
+  --rk-cf-cyan:#03A89E;
+  --rk-blue:#0000FF;       --rk-blue-d:#5B7BFF;    /* CF Expert / AT Blue */
+  --rk-violet:#AA00AA;     --rk-violet-d:#D473D4;
+  --rk-at-yellow:#C0C000;
+  --rk-cf-orange:#FF8C00;  --rk-at-orange:#FF8000;
+  --rk-red:#FF0000;
 
   --heat-0:#1A1F29;
   --heat-1:#4A3520;
@@ -137,7 +155,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .topbar__spacer{flex:1 1 auto}
 
-.content{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-3) var(--sp-4) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2)}
+.content{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-2) var(--sp-4) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2)}
 .content::-webkit-scrollbar{width:11px}
 .content::-webkit-scrollbar-track{background:transparent}
 .content::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--bg);border-radius:999px}
@@ -240,7 +258,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   position:fixed;z-index:50;pointer-events:none;
   transform:translate(-50%,-100%);
   background:#05070A;border:1px solid #2C3746;border-radius:var(--r-s);
-  padding:7px 10px;min-width:118px;
+  padding:7px 10px;min-width:118px;max-width:280px;
   box-shadow:0 8px 22px rgba(0,0,0,.55);
   font-size:12px;line-height:1.45;color:var(--text);
 }
@@ -361,6 +379,123 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 
 .rise{animation:rise 200ms var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- 12. 切片 2 增量：三端 tab / 平台色 / AT 卡 / 降级条 / 设置两行 ---------- */
+
+/* 平台色作用域：--pf 是"这一屏属于哪一家"的唯一入口 */
+.pf-cf{--pf:var(--pf-cf);--pf-rgb:var(--pf-cf-rgb)}
+.pf-at{--pf:var(--pf-at);--pf-rgb:var(--pf-at-rgb)}
+.pf-xcpc{--pf:var(--pf-xcpc);--pf-rgb:var(--pf-xcpc-rgb)}
+/* 克制版作用点 ②：详情区标题 accent = 平台识别色 */
+.label--pf{color:var(--pf)}
+/* 克制版作用点 ③：统计卡底部读数线换平台色（四卡同色，卡内区分交给数字色与 label） */
+.dash .stat{--sc:var(--pf)}
+
+/*
+ * 加强版：极淡平台色晕 + 同色描边。只给 XCPC 占位屏 —— 那一屏没有内容可辨，
+ * 色晕是唯一的归属信号；CF / AT 密集屏不染色，免得和热力色阶抢注意力（docs/09 §7）。
+ */
+.dash.is-strong .card{
+  background-image:radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.05), transparent 58%);
+  border-color:rgba(var(--pf-rgb),.17);
+}
+.dash.is-strong .stat{
+  background-image:
+    radial-gradient(130% 100% at 0% 0%, rgba(var(--pf-rgb),.055), transparent 58%),
+    linear-gradient(180deg,var(--panel-2),var(--panel) 62%);
+  border-color:rgba(var(--pf-rgb),.17);
+}
+
+/* 源 tab 条：48px · 平台名 15/600 + 当前 rating 13/段位色 + 6px 源状态点 */
+.srctabs{
+  flex:0 0 48px;display:flex;align-items:stretch;gap:2px;
+  height:48px;padding:0 var(--sp-4);
+  border-bottom:1px solid var(--line);
+  background:rgba(14,18,24,.5);
+}
+.srctab{
+  position:relative;display:flex;align-items:center;gap:9px;
+  padding:0 14px;color:var(--text-dim);border-radius:var(--r-s) var(--r-s) 0 0;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.srctab__name{font-size:15px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.srctab__rating{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:13px;letter-spacing:-.01em;color:var(--text-mute)}
+.srctab__pending{
+  font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-mute);border:1px solid var(--line);border-radius:3px;padding:1.5px 5px;
+}
+.srctab:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.srctab[aria-selected="true"]{color:var(--text);background:rgba(var(--pf-rgb),.07)}
+/* 克制版作用点 ①：选中指示条 = 平台色 */
+.srctab[aria-selected="true"]::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  background:var(--pf);box-shadow:0 0 10px rgba(var(--pf-rgb),.5);
+  transform-origin:center;animation:railignite var(--dur) var(--ease) both;
+}
+.srctab.is-unset{color:var(--text-mute)}
+.srctab.is-unset:hover{color:var(--text-dim)}
+.srctab[aria-disabled="true"]{cursor:default}
+
+/* 源状态点：点只说"源通不通"，日期与原因进 tooltip —— 6px 的点撑不下一句话 */
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:0 0 auto;background:#39434F}
+.dot--ok{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.12)}
+.dot--stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,153,34,.13)}
+.dot--down{background:var(--bad);box-shadow:0 0 0 3px rgba(248,81,73,.14)}
+.dot--idle{background:#39434F}
+
+/* 顶栏同步按钮：三端并排后得说清点下去动的是哪家 */
+.btn-src{font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
+
+/* 卡面第二副行（参赛 N 场 · 非 rated M 场）与曲线卡脚注（诚实标注） */
+.stat__sub2{margin-top:3px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em}
+.card__foot{padding:10px var(--sp-3) 14px;font-size:11.5px;color:var(--text-mute);line-height:1.6}
+.card__foot b{color:var(--text-dim);font-weight:600}
+
+/* 降级 / 过期态：琥珀只用到边框与图标，正文仍走可读灰白 */
+.alert--warn{background:rgba(210,153,34,.07);border-color:rgba(210,153,34,.30);color:#E8D6AE}
+.alert--warn svg{color:var(--warn)}
+.alert__x{margin-left:auto;align-self:flex-start;font-family:var(--font-num);font-size:11px;color:var(--text-mute);white-space:nowrap}
+.alert__x:hover{color:var(--text)}
+
+/*
+ * AT 青阶格子：档位与 CF 共用 0 / 1–2 / 3–5 / 6–9 / 10+，只换色相，明度阶梯逐级对齐。
+ * 0 档必须仍看得见 —— 比卡片底 #12161D 亮一档；压到比卡片底还暗等于把"打了但没做题"的空格
+ * 省略掉，读图会误判成缺数据。换色范围仅活跃格子：刻度与当月柱保持琥珀（docs/09 §5）。
+ */
+.agrid--alt .acell:not(.acell--future){background:#17262B}
+.agrid--alt .acell[data-l="1"]{background:#1E4A50}
+.agrid--alt .acell[data-l="2"]{background:#0E6A6E}
+.agrid--alt .acell[data-l="3"]{background:#0E9EA4}
+.agrid--alt .acell[data-l="4"]{background:var(--pf-at)}
+
+/* tooltip 第三行（口径 / 名次附注）+ 折线主读数按方向上色，与线段同色 */
+.tip__x{font-size:11.5px;color:var(--text-dim);margin-top:3px}
+.tip__x b{color:var(--text);font-weight:600}
+.tip__v.is-up{color:var(--accent-2)}
+.tip__v.is-down{color:var(--accent)}
+/* 源状态读数的三档颜色：正常灰白、过期琥珀、不可达红，中性给 mute */
+.tip__v.is-dim{color:var(--text-dim)}
+.tip__v.is-warn{color:var(--warn)}
+.tip__v.is-bad{color:var(--bad)}
+.tip__v.is-mute{color:var(--text-mute)}
+
+/*
+ * 飞行途中锁掉横向溢出：左卡被内容区左边缘裁掉 = 钻进侧边栏底下，右卡切在屏幕边，
+ * 同时免得 transform 撑出横向滚动条把版面顶宽 11px。
+ */
+.content.is-flying{overflow-x:hidden}
+
+/* 设置页：CF / AT 各一行，每行 handle 输入 + 校验 + 源状态 + 上次同步 + 单源同步 */
+.srcrows{display:flex;flex-direction:column}
+.srcrow{display:flex;flex-direction:column;gap:10px;padding:var(--sp-3) 0}
+.srcrow + .srcrow{border-top:1px solid var(--line-soft)}
+.srcrow:first-child{padding-top:0}
+.srcrow__head{display:flex;align-items:center;gap:10px}
+.srcrow__name{font-size:14px;font-weight:600;letter-spacing:.01em}
+.srcrow__meta{display:flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:11.5px;color:var(--text-mute);flex-wrap:wrap}
+.srcrow__meta b{color:var(--text-dim);font-weight:600}
+.srcrow__spacer{flex:1 1 auto}
+.footnote{font-size:11px;color:var(--text-mute)}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:1ms !important}

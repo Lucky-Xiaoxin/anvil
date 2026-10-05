@@ -6,50 +6,50 @@ import {
   countRatingContests,
   countSubmissions,
   getMeta,
+  handleMetaKey,
   insertSubmissions,
-  resetUserData,
+  resetSourceData,
   setMeta,
   setSyncState,
+  syncKey,
   upsertRatingHistory,
   type RatingInput,
 } from '../db.ts';
-import { CfError, PAGE_SIZE, parseRating, parseSubmission, type CfClient, type CfRatingRaw, type CfSubmissionRaw } from './cf.ts';
+import {
+  CfError,
+  PAGE_SIZE,
+  parseRating,
+  parseSubmission,
+  type CfClient,
+  type CfRatingRaw,
+  type CfSubmissionRaw,
+} from './cf.ts';
+import type { CheckResult, SyncSource } from './source.ts';
+import { switchNote } from './note.ts';
+
+export const SOURCE = 'cf' as const;
 
 export const IDLE_STATE: SyncStateDto = {
   phase: 'idle',
   fetched: 0,
   stored: 0,
   total: 0,
-  pages: 0,
   problems: 0,
   ratingContests: 0,
+  pages: 0,
   offsite: 0,
 };
 
 export function deriveState(db: DatabaseSync): Pick<SyncStateDto, 'total' | 'problems' | 'ratingContests' | 'offsite'> {
   return {
-    total: countSubmissions(db),
-    problems: countDistinctOkProblems(db),
-    ratingContests: countRatingContests(db),
-    offsite: countOffsite(db),
+    total: countSubmissions(db, SOURCE),
+    problems: countDistinctOkProblems(db, SOURCE),
+    ratingContests: countRatingContests(db, SOURCE),
+    offsite: countOffsite(db, SOURCE),
   };
 }
 
 export type SyncPatch = Partial<Omit<SyncStateDto, 'error'>> & { error?: string };
-
-/** 本地库归属于哪个 handle */
-export const META_HANDLE = 'cf_handle';
-
-/**
- * 库只属于一个 handle：换了人就清空重建。
- * submissions 会把两个人的提交叠在一起，rating_history 更狠——它以 contest_id 为主键，
- * 两人打过的同一场会互相覆盖，曲线变成两个 rating 的拼图。
- */
-function switchNote(owner: string | null, handle: string, stale: number): string | null {
-  if (owner === handle) return null;
-  if (owner === null) return stale > 0 ? `本地数据无法归属 handle → 清空 ${stale} 条，为 ${handle} 重建` : null;
-  return `换 handle：清掉 ${owner} 的 ${stale} 条数据，为 ${handle} 全量重建`;
-}
 
 /**
  * 全量：from=1 一页一页拉到底。
@@ -61,8 +61,8 @@ export async function syncOnce(
   client: CfClient,
   onChange?: (state: SyncStateDto) => void,
 ): Promise<SyncStateDto> {
-  const owner = getMeta(db, META_HANDLE);
-  const stale = countSubmissions(db);
+  const owner = getMeta(db, handleMetaKey(SOURCE));
+  const stale = countSubmissions(db, SOURCE);
   const switching = owner !== handle;
   const resetNote = switchNote(owner, handle, stale);
   const startCount = switching ? 0 : stale;
@@ -84,19 +84,19 @@ export async function syncOnce(
     for (;;) {
       const page = await client.call<CfSubmissionRaw[]>('user.status', { handle, from, count: PAGE_SIZE });
       if (pendingWipe) {
-        resetUserData(db);
-        setMeta(db, META_HANDLE, handle);
+        resetSourceData(db, SOURCE);
+        setMeta(db, handleMetaKey(SOURCE), handle);
         pendingWipe = false;
       }
       pages++;
       fetched += page.length;
-      stored += insertSubmissions(db, page.map(parseSubmission));
+      stored += insertSubmissions(db, SOURCE, page.map(parseSubmission));
       publish({
         phase: 'fetching',
         fetched,
         stored,
         pages,
-        problems: countDistinctOkProblems(db),
+        problems: countDistinctOkProblems(db, SOURCE),
         total: startCount + fetched + (page.length === PAGE_SIZE ? PAGE_SIZE : 0),
       });
       if (page.length < PAGE_SIZE) break;
@@ -104,18 +104,28 @@ export async function syncOnce(
       from += PAGE_SIZE;
     }
 
-    publish({ phase: 'storing', total: countSubmissions(db) });
+    publish({ phase: 'storing', total: countSubmissions(db, SOURCE) });
     const rating = await client.call<CfRatingRaw[]>('user.rating', { handle });
     const rows: RatingInput[] = rating.map(parseRating);
-    upsertRatingHistory(db, rows);
-    setSyncState(db, 'last_sync_at', String(Math.floor(Date.now() / 1000)));
+    upsertRatingHistory(db, SOURCE, rows);
+    setSyncState(db, syncKey(SOURCE, 'last_sync_at'), String(Math.floor(Date.now() / 1000)));
+    setSyncState(db, syncKey(SOURCE, 'last_error'), '');
     publish({ phase: 'done', ...deriveState(db) });
     return state;
   } catch (err) {
     const message =
       err instanceof CfError ? `${err.message}${err.detail ? `（${err.detail}）` : ''}` : `同步失败：${String(err)}`;
-    setSyncState(db, 'last_error', message);
-    publish({ phase: 'error', error: message, total: countSubmissions(db) });
+    setSyncState(db, syncKey(SOURCE, 'last_error'), message);
+    publish({ phase: 'error', error: message, total: countSubmissions(db, SOURCE) });
     return state;
   }
+}
+
+/** SyncSource 适配器：CF 的 handle 校验沿用 user.status?count=1 */
+export function createCfSource(db: DatabaseSync, client: CfClient): SyncSource {
+  return {
+    id: SOURCE,
+    checkHandle: async (handle: string): Promise<CheckResult> => client.checkHandle(handle),
+    sync: (handle: string, onProgress: (p: SyncStateDto) => void) => syncOnce(db, handle, client, onProgress),
+  };
 }

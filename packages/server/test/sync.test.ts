@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { CfClient, CfError, PAGE_SIZE, parseSubmission } from '../src/sync/cf.ts';
-import { META_HANDLE, syncOnce } from '../src/sync/job.ts';
-import { countOffsite, countRatingContests, countSubmissions, getMeta, initSchema } from '../src/db.ts';
+import { syncOnce } from '../src/sync/job.ts';
+import {
+  countOffsite,
+  countRatingContests,
+  countSubmissions,
+  getMeta,
+  handleMetaKey,
+  initSchema,
+  insertSubmissions,
+  loadAcEvents,
+  upsertRatingHistory,
+} from '../src/db.ts';
 
-const TS = Math.floor(new Date(2026, 8, 1, 12).getTime() / 1000);
+/** 上海日历的正午（04:00Z）：夹具不依赖运行机时区 */
+const TS = Math.floor(Date.UTC(2026, 8, 1, 4) / 1000);
 
 const sub = (id: number, over: Record<string, unknown> = {}) => ({
   id,
@@ -77,7 +88,7 @@ describe('全量同步：分页循环', () => {
     expect(state.stored).toBe(PAGE_SIZE + 3);
     expect(state.total).toBe(PAGE_SIZE + 3);
     expect(state.ratingContests).toBe(1);
-    expect(countSubmissions(db)).toBe(PAGE_SIZE + 3);
+    expect(countSubmissions(db, 'cf')).toBe(PAGE_SIZE + 3);
     expect(f.urls.filter((u) => u.includes('user.status'))).toHaveLength(2);
     expect(f.urls.some((u) => u.includes('user.rating'))).toBe(true);
     db.close();
@@ -102,7 +113,7 @@ describe('增量同步：遇到已存 id 即停', () => {
         : ok(Number(new URL(url).searchParams.get('from')) === 1 ? pageOne : pageTwo),
     );
     await syncOnce(db, 'tester', full.client);
-    const before = countSubmissions(db);
+    const before = countSubmissions(db, 'cf');
 
     // 新→旧：页首 2 条是新的，后面全是已存 id；凑满一页以证明靠「见存即停」退出
     const mixed = [sub(400001), sub(400002), ...pageOne.slice(0, PAGE_SIZE - 2)];
@@ -111,7 +122,7 @@ describe('增量同步：遇到已存 id 即停', () => {
 
     expect(state.pages).toBe(1);
     expect(state.stored).toBe(2);
-    expect(countSubmissions(db)).toBe(before + 2);
+    expect(countSubmissions(db, 'cf')).toBe(before + 2);
     expect(inc.urls.filter((u) => u.includes('user.status'))).toHaveLength(1);
     db.close();
   });
@@ -123,8 +134,8 @@ describe('增量同步：遇到已存 id 即停', () => {
     await syncOnce(db, 'tester', first.client);
     const state = await syncOnce(db, 'tester', second.client);
     expect(state.stored).toBe(0);
-    expect(countSubmissions(db)).toBe(3);
-    expect(countRatingContests(db)).toBe(2);
+    expect(countSubmissions(db, 'cf')).toBe(3);
+    expect(countRatingContests(db, 'cf')).toBe(2);
     db.close();
   });
 });
@@ -158,7 +169,7 @@ describe('实测坑位', () => {
     );
     const state = await syncOnce(db, 'tester', f.client);
     expect(state.offsite).toBe(2);
-    expect(countOffsite(db)).toBe(2);
+    expect(countOffsite(db, 'cf')).toBe(2);
     db.close();
   });
 });
@@ -170,7 +181,7 @@ describe('本地库只归属一个 handle', () => {
       url.includes('user.rating') ? ok([ratingRow(2262, 3857)]) : ok([sub(1, { verdict: 'OK' }), sub(2, { verdict: 'OK' })]),
     );
     await syncOnce(db, 'Benq', benq.client);
-    expect(countSubmissions(db)).toBe(2);
+    expect(countSubmissions(db, 'cf')).toBe(2);
 
     const me = makeClient((url) =>
       url.includes('user.rating') ? ok([ratingRow(2262, 1278)]) : ok([sub(900), sub(901), sub(902)]),
@@ -182,8 +193,10 @@ describe('本地库只归属一个 handle', () => {
     const ids = (db.prepare('SELECT id FROM submissions ORDER BY id').all() as { id: number }[]).map((r) => Number(r.id));
     expect(ids).toEqual([900, 901, 902]);
     // 同一 contest_id 不再被两个人的 rating 互相覆盖
-    expect(countRatingContests(db)).toBe(1);
-    expect(db.prepare('SELECT new_rating FROM rating_history WHERE contest_id = 2262').get()).toEqual({ new_rating: 1278 });
+    expect(countRatingContests(db, 'cf')).toBe(1);
+    expect(db.prepare("SELECT new_rating FROM rating_history WHERE source = 'cf' AND contest_key = '2262'").get()).toEqual({
+      new_rating: 1278,
+    });
     db.close();
   });
 
@@ -199,8 +212,8 @@ describe('本地库只归属一个 handle', () => {
 
     expect(state.phase).toBe('error');
     expect(state.resetNote).toContain('Benq');
-    expect(countSubmissions(db)).toBe(2);
-    expect(getMeta(db, META_HANDLE)).toBe('Benq');
+    expect(countSubmissions(db, 'cf')).toBe(2);
+    expect(getMeta(db, handleMetaKey('cf'))).toBe('Benq');
     db.close();
   });
 
@@ -212,7 +225,7 @@ describe('本地库只归属一个 handle', () => {
     const state = await syncOnce(db, 'jywlq', second.client);
     expect(state.resetNote).toBeNull();
     expect(state.stored).toBe(0);
-    expect(countSubmissions(db)).toBe(2);
+    expect(countSubmissions(db, 'cf')).toBe(2);
     db.close();
   });
 
@@ -221,7 +234,7 @@ describe('本地库只归属一个 handle', () => {
     const f = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1)])));
     const state = await syncOnce(db, 'jywlq', f.client);
     expect(state.resetNote).toBeNull();
-    expect(countSubmissions(db)).toBe(1);
+    expect(countSubmissions(db, 'cf')).toBe(1);
     db.close();
   });
 
@@ -229,12 +242,37 @@ describe('本地库只归属一个 handle', () => {
     const db = mem();
     const f = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
     await syncOnce(db, 'Benq', f.client);
-    db.prepare("DELETE FROM meta WHERE k = 'cf_handle'").run();
+    db.prepare('DELETE FROM meta WHERE k = ?').run(handleMetaKey('cf'));
 
     const g = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow(2270)]) : ok([sub(500)])));
     const state = await syncOnce(db, 'jywlq', g.client);
     expect(state.resetNote).toContain('无法归属');
-    expect(countSubmissions(db)).toBe(1);
+    expect(countSubmissions(db, 'cf')).toBe(1);
+    db.close();
+  });
+
+  it('换 CF handle 只清 CF 域：AT 的提交与曲线原样留着（docs/09 §3.3）', async () => {
+    const db = mem();
+    const first = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
+    await syncOnce(db, 'Benq', first.client);
+
+    // 另一源的数据与归属标记
+    insertSubmissions(db, 'at', [
+      { id: 900, contestId: null, problemKey: 'at:abc300_a', problemName: null, problemRating: null, problemTagsJson: null, verdict: 'OK', language: 'C++20', participantType: null, createdTs: TS, relativeTs: null },
+    ]);
+    upsertRatingHistory(db, 'at', [
+      { contestKey: 'abc300', contestName: 'AtCoder Beginner Contest 300', rank: 198, oldRating: 1200, newRating: 1345, isRated: true, performance: 1377, updatedTs: TS },
+    ]);
+
+    const second = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow(2270, 1278)]) : ok([sub(700)])));
+    await syncOnce(db, 'jywlq', second.client);
+
+    expect(countSubmissions(db, 'at')).toBe(1);
+    expect(countRatingContests(db, 'at')).toBe(1);
+    expect(loadAcEvents(db, 'at')).toEqual([{ day: '2026-09-01', problemKey: 'at:abc300_a' }]);
+    expect(getMeta(db, handleMetaKey('at'))).toBeNull(); // AT 还没配过 handle，CF 的换人不该替它写
+    expect(getMeta(db, handleMetaKey('cf'))).toBe('jywlq');
+    expect(countSubmissions(db, 'cf')).toBe(1);
     db.close();
   });
 });
@@ -247,7 +285,7 @@ describe('失败与错误文案', () => {
     expect(state.phase).toBe('error');
     expect(state.error).toContain('handle not found of type [user]');
     expect(f.urls).toHaveLength(1);
-    expect(countSubmissions(db)).toBe(0);
+    expect(countSubmissions(db, 'cf')).toBe(0);
     db.close();
   });
 

@@ -4,19 +4,29 @@ import { parseConfig } from '../src/config.ts';
 describe('vault/config.json 读不懂时不崩', () => {
   it('坏 JSON 退回默认值', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(parseConfig('{ 这不是 json')).toEqual({ cfHandle: '', port: 7788 });
+    expect(parseConfig('{ 这不是 json')).toEqual({ cfHandle: '', atHandle: '', port: 7788 });
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it('字段类型不对也退回，并给出提示', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(parseConfig('{"port":"七七八八"}')).toEqual({ cfHandle: '', port: 7788 });
+    expect(parseConfig('{"port":"七七八八"}')).toEqual({ cfHandle: '', atHandle: '', port: 7788 });
     spy.mockRestore();
   });
 
   it('缺字段补默认、多余字段忽略', () => {
-    expect(parseConfig('{"cfHandle":"jywlq"}')).toEqual({ cfHandle: 'jywlq', port: 7788 });
+    expect(parseConfig('{"cfHandle":"jywlq"}')).toEqual({ cfHandle: 'jywlq', atHandle: '', port: 7788 });
     expect(parseConfig('{"cfHandle":"a","port":7788,"whatever":1}').port).toBe(7788);
+  });
+
+  it('切片 2 新增的 atHandle：缺省补空串，带了就原样读', () => {
+    expect(parseConfig('{"cfHandle":"a","atHandle":"chokudai"}')).toEqual({
+      cfHandle: 'a',
+      atHandle: 'chokudai',
+      port: 7788,
+    });
+    // 老配置文件没有 atHandle 这一行，也必须能读
+    expect(parseConfig('{"cfHandle":"a","port":7788}').atHandle).toBe('');
   });
 });

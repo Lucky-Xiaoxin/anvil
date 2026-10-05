@@ -1,13 +1,14 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { signedDelta, type RatingPointDto } from '@anvil/shared';
 import { useTip } from '../tip.tsx';
 
-const W = 660;
+/** 高度与留白照视觉基线；宽度按容器实测 —— 整行后固定 viewBox 会把折线拉成胖图 */
 const H = 168;
 const PL = 46;
 const PR = 56;
 const PT = 28;
 const PB = 16;
+const FALLBACK_W = 660;
 
 /** 横轴取 4 个均匀点、按月份去重；下标一律钳在数组内（只打过 1 场的新号会走到这里） */
 export function axisIndexes(series: readonly RatingPointDto[]): number[] {
@@ -21,8 +22,27 @@ export function axisIndexes(series: readonly RatingPointDto[]): number[] {
   return out;
 }
 
-export function RatingChart({ series }: { series: RatingPointDto[] }) {
+/** AT 多一行名次与 Performance（CF 上游没有这两个字段 → 不出这一行） */
+export function placeLine(p: RatingPointDto): string | undefined {
+  if (p.place == null && p.performance == null) return undefined;
+  return `第 ${p.place ?? '—'} 名 · Perf ${p.performance ?? '—'}`;
+}
+
+export function RatingChart({ series, withPlace = false }: { series: RatingPointDto[]; withPlace?: boolean }) {
   const { show, hide } = useTip();
+  const host = useRef<HTMLDivElement | null>(null);
+  const [W, setW] = useState(FALLBACK_W);
+
+  useEffect(() => {
+    const el = host.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const w = Math.round(el.clientWidth) || FALLBACK_W;
+      setW((prev) => (Math.abs(prev - w) > 1 ? w : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const g = useMemo(() => {
     const n = Math.max(1, series.length - 1);
@@ -43,7 +63,7 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
     for (let v = min; v <= max; v += step) if (v > min && v < max) grid.push(v);
     const axis = axisIndexes(series);
     return { X, Y, pi, grid, span, last, axis };
-  }, [series]);
+  }, [series, W]);
 
   if (series.length === 0) return null;
 
@@ -55,7 +75,7 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
 
   return (
     <>
-      <div className="chart">
+      <div className="chart" ref={host}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           role="img"
@@ -87,7 +107,7 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
             fill="rgba(76,201,240,.035)"
           />
 
-          {/* 分段着色：涨 = 数据蓝，跌 = 琥珀 */}
+          {/* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/09 §7） */}
           {series.slice(0, -1).map((p, s) => {
             const up = series[s + 1]!.newRating >= p.newRating;
             return (
@@ -163,8 +183,10 @@ export function RatingChart({ series }: { series: RatingPointDto[] }) {
                   date: `${p.contestName} · ${p.ts}`,
                   value: `${p.newRating}${i === 0 ? ' · 起点' : ''}${i === g.pi ? ' · 峰值' : ''}`,
                   zero: false,
+                  valueClass: i === 0 ? undefined : p.delta >= 0 ? 'is-up' : 'is-down',
                   delta: i === 0 ? undefined : signedDelta(p.delta),
                   deltaUp: p.delta >= 0,
+                  sub: withPlace ? placeLine(p) : undefined,
                 });
               }}
               onMouseLeave={hide}

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { StatusDto, SyncStateDto } from '@anvil/shared';
-import { ApiError, saveHandle } from '../api.ts';
+import { ApiError, saveHandles } from '../api.ts';
 import { fmtInt, messageOf } from '../format.ts';
 import { Icon } from './ui.tsx';
 
@@ -11,8 +11,8 @@ interface Props {
   /** 同步进度由 App 拥有：切走再回来也还对得上 */
   sync: SyncStateDto | null;
   onStatus: (status: StatusDto) => void;
-  /** 起跑并轮询到落定，返回最后一帧状态 */
-  onRun: () => Promise<SyncStateDto>;
+  /** 起跑并轮询到落定，返回最后一帧状态；已经在跑则返回 null */
+  onRun: () => Promise<SyncStateDto | null>;
   onEnterDashboard: () => void;
 }
 
@@ -60,7 +60,7 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
     setPhase('checking');
     setCheckErr(null);
     try {
-      onStatus(await saveHandle(name));
+      onStatus(await saveHandles({ cfHandle: name }));
       if (!alive.current) return;
       setPhase('ready');
     } catch (err) {
@@ -77,6 +77,10 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
     try {
       const state = await onRun();
       if (!alive.current) return;
+      if (!state) {
+        setPhase('ready');
+        return;
+      }
       if (state.phase === 'error') {
         setSyncErr(state.error ?? '同步失败');
         setPhase('ready');
@@ -115,7 +119,7 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
     log.push({
       mark: '→',
       cls: 'blue',
-      text: <>哨兵值 relativeTimeSeconds=2147483647 → <b>NULL</b>（场外提交 {fmtInt(shown.offsite)} 条）</>,
+      text: <>哨兵值 relativeTimeSeconds=2147483647 → <b>NULL</b>（场外提交 {fmtInt(shown.offsite ?? 0)} 条）</>,
     });
   }
   if (shown && shown.phase === 'done') {

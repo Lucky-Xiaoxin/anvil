@@ -39,8 +39,9 @@ export function loadConfig(): VaultConfig {
   return parseConfig(readFileSync(configFile, 'utf8'));
 }
 
-export function saveHandle(handle: string): VaultConfig {
-  const cfg = { ...loadConfig(), cfHandle: handle };
+/** 分源保存：带哪个改哪个，没带的保持原样（docs/09 §4） */
+export function saveHandles(patch: { cfHandle?: string; atHandle?: string }): VaultConfig {
+  const cfg = { ...loadConfig(), ...patch };
   writeConfig(cfg);
   return cfg;
 }

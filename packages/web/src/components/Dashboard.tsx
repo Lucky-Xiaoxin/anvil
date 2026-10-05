@@ -1,6 +1,6 @@
-import type { CSSProperties } from 'react';
-import { rankColorFor, type DashboardDto, type StatusDto } from '@anvil/shared';
-import { fmtInt } from '../format.ts';
+import type { SyncSourceId, StatusDto } from '@anvil/shared';
+import { rankColorFor, type DashboardDto } from '@anvil/shared';
+import { fmtInt, relativeTime, shortStamp } from '../format.ts';
 import { ActivityGrid } from './ActivityGrid.tsx';
 import { RatingChart } from './RatingChart.tsx';
 import { Delta, Icon, MonthlyBars, Num, StreakTicks } from './ui.tsx';
@@ -10,7 +10,7 @@ export interface Notice {
   text: string;
 }
 
-const sc = (v: string): CSSProperties => ({ '--sc': v }) as CSSProperties;
+const NAME: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
 
 export function LockedMaster({ wide = false }: { wide?: boolean }) {
   return (
@@ -67,43 +67,92 @@ export function NoticeBar(notice: Notice) {
   );
 }
 
+/** 源异常才出现的降级条：一句话只讲"现在看到的是缓存"，行末留一个动作 */
+function DegradeBar({ source, src, onSync }: { source: SyncSourceId; src: StatusDto['sources']['at']; onSync: () => void }) {
+  const cacheLine =
+    src.lastSyncAt === null ? '还没有可用缓存' : `显示本地缓存（${shortStamp(src.lastSyncAt)}）· 取不到的槽位显示 —`;
+
+  if (src.status === 'down') {
+    return (
+      <div className="alert alert--warn rise" role="status">
+        <Icon id="i-plug" />
+        <div>
+          <b>{NAME[source]} 同步失败</b> · {cacheLine}
+          <br />
+          {src.error}
+        </div>
+        <button className="alert__x" onClick={onSync}>
+          重试
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="alert alert--warn rise" role="status">
+      <Icon id="i-warn" />
+      <div>
+        <b>
+          缓存于 {src.lastSyncAt === null ? '—' : shortStamp(src.lastSyncAt)}（{relativeTime(src.lastSyncAt)}）
+        </b>{' '}
+        · {source === 'at' ? 'AT 不自动同步，' : ''}需要你点一次同步
+      </div>
+      <button className="alert__x" onClick={onSync}>
+        立即同步
+      </button>
+    </div>
+  );
+}
+
 interface Props {
+  source: SyncSourceId;
   dash: DashboardDto;
   today: Date;
   notice?: Notice | null;
+  /** 首次出现才播格子 stagger 与数字 count-up；换屏回来时图里已是终态 */
+  firstPaint: boolean;
+  srcStatus: StatusDto['sources']['at'] | null;
+  onSync: () => void;
 }
 
-export function Dashboard({ dash, today, notice }: Props) {
+export function Dashboard({ source, dash, today, notice, firstPaint, srcStatus, onSync }: Props) {
   const { activity, stats, rating } = dash;
   const currentMonth = stats.months[stats.months.length - 1];
+  const rankColor = rating ? rankColorFor(rating.current, source) : undefined;
+  const animate = firstPaint;
+  const warn =
+    srcStatus && (srcStatus.status === 'down' || srcStatus.status === 'stale') ? (
+      <DegradeBar source={source} src={srcStatus} onSync={onSync} />
+    ) : null;
 
   return (
-    <div className="content">
+    <div className="content" id={`content-${source}`} role="tabpanel">
       {notice ? <NoticeBar {...notice} /> : null}
+      {warn}
 
       <div className="grid-4">
-        <div className="stat" style={sc('var(--heat-3)')}>
+        <div className="stat">
           <div className="label stat__label">总过题数 · 去重</div>
           <div className="stat__num">
-            <Num to={stats.totalSolved} />
+            <Num to={stats.totalSolved} instant={!animate} />
             <span className="stat__unit">题</span>
           </div>
+          {source === 'at' ? <div className="stat__sub2">首次 AC 计一道</div> : null}
         </div>
 
-        <div className="stat" style={sc('var(--accent-2)')}>
+        <div className="stat">
           <div className="label label--blue stat__label">当月过题</div>
           <div className="stat__num stat__num--blue">
-            <Num to={currentMonth ? currentMonth.solved : null} />
+            <Num to={currentMonth ? currentMonth.solved : null} instant={!animate} />
             <span className="stat__unit">题</span>
           </div>
           <MonthlyBars months={stats.months} />
         </div>
 
-        <div className="stat" style={sc('var(--accent-2)')}>
-          <div className="label label--blue stat__label">CF Rating</div>
-          <div className="stat__num stat__num--blue">
-            <Num to={rating ? rating.current : null} />
-            <span className="stat__unit" style={rating ? { color: rankColorFor(rating.current) } : undefined}>
+        <div className="stat">
+          <div className="label stat__label">{source === 'at' ? 'AT Rating' : 'CF Rating'}</div>
+          <div className="stat__num" style={rankColor ? { color: rankColor } : undefined}>
+            <Num to={rating ? rating.current : null} instant={!animate} />
+            <span className="stat__unit" style={rankColor ? { color: rankColor } : undefined}>
               {rating ? rating.rankLabel : '—'}
             </span>
           </div>
@@ -114,12 +163,13 @@ export function Dashboard({ dash, today, notice }: Props) {
               {rating ? rating.lastContestShort : '—'}
             </span>
           </div>
+          {stats.entryCount ? <div className="stat__sub2">{stats.entryCount}</div> : null}
         </div>
 
-        <div className="stat" style={sc('var(--accent)')}>
+        <div className="stat">
           <div className="label label--accent stat__label">连续训练</div>
           <div className="stat__num stat__num--hot">
-            <Num to={stats.streak.days} />
+            <Num to={stats.streak.days} instant={!animate} />
             <span className="stat__unit">天</span>
           </div>
           <div className="stat__sub">{stats.streak.sub}</div>
@@ -129,25 +179,45 @@ export function Dashboard({ dash, today, notice }: Props) {
 
       <div className="card card--pad0 rise">
         <div className="card__head">
-          <span className="label label--accent">Activity</span>
-          <h3 className="card__title">活跃格子图</h3>
+          <span className="label label--pf">Activity</span>
+          <h3 className="card__title">活跃格子图 · {NAME[source]}</h3>
           <span className="spacer" />
           <span className="card__note">
             近 53 周 <b>{fmtInt(stats.activityTotal)}</b> 题次 · 生涯去重 <b>{fmtInt(stats.totalSolved)}</b> 题
           </span>
           <span className="legend" aria-hidden="true" style={{ marginLeft: 14 }}>
             少
-            <i style={{ background: 'var(--heat-0)' }} />
-            <i style={{ background: 'var(--heat-1)' }} />
-            <i style={{ background: 'var(--heat-2)' }} />
-            <i style={{ background: 'var(--heat-3)' }} />
-            <i style={{ background: 'var(--heat-4)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.3)' }} />
+            {source === 'at'
+              ? ['#17262B', '#1E4A50', '#0E6A6E', '#0E9EA4', 'var(--pf-at)'].map((c, i) => (
+                  <i
+                    key={c}
+                    style={{
+                      background: c,
+                      boxShadow: i === 4 ? 'inset 0 1px 0 rgba(255,255,255,.3)' : undefined,
+                    }}
+                  />
+                ))
+              : [0, 1, 2, 3, 4].map((l) => (
+                  <i
+                    key={l}
+                    style={{
+                      background: `var(--heat-${l})`,
+                      boxShadow: l === 4 ? 'inset 0 1px 0 rgba(255,255,255,.3)' : undefined,
+                    }}
+                  />
+                ))}
             多
           </span>
         </div>
         <div className="agrid-body">
           <div className="agrid-scroll">
-            <ActivityGrid activity={activity} today={today} totalLabel={stats.activityTotal} />
+            <ActivityGrid
+              activity={activity}
+              today={today}
+              totalLabel={stats.activityTotal}
+              alt={source === 'at'}
+              stagger={animate}
+            />
           </div>
           <div className="readout">
             <div className="ro">
@@ -166,31 +236,29 @@ export function Dashboard({ dash, today, notice }: Props) {
           </div>
         </div>
         <div className="afoot">
-          <span className="card__note">日格 = 当日 AC 去重题数</span>
+          <span className="card__note">日格 = 当日 AC 去重题数 · 两源共用同一把阈值</span>
         </div>
       </div>
 
-      <div className="row-split">
-        <div className="card rise" style={{ paddingBottom: 18 }}>
-          <div className="card__head" style={{ padding: '0 0 4px' }}>
-            <span className="label label--blue">Rating</span>
-            <h3 className="card__title">近 {rating ? fmtInt(rating.count) : '—'} 场</h3>
-            <span className="spacer" />
-            <span className="card__note">
-              <b style={{ color: 'var(--text-dim)', fontWeight: 400 }}>{rating ? rating.first : '—'}</b> →{' '}
-              <b>{rating ? rating.current : '—'}</b> ·{' '}
-              <span style={{ fontSize: '10.5px' }}>
-                <Delta text={rating?.totalDelta} tone={rating?.totalDeltaTone} />
-              </span>
+      <div className="card rise" style={{ paddingBottom: rating?.note ? 0 : 18 }}>
+        <div className="card__head" style={{ padding: '0 0 4px' }}>
+          <span className="label label--pf">Rating</span>
+          <h3 className="card__title">{source === 'at' ? `全 ${rating ? fmtInt(rating.count) : '—'} 场 rated` : `近 ${rating ? fmtInt(rating.count) : '—'} 场`}</h3>
+          <span className="spacer" />
+          <span className="card__note">
+            <b style={{ color: 'var(--text-dim)', fontWeight: 400 }}>{rating ? rating.first : '—'}</b> →{' '}
+            <b>{rating ? rating.current : '—'}</b> ·{' '}
+            <span style={{ fontSize: '10.5px' }}>
+              <Delta text={rating?.totalDelta} tone={rating?.totalDeltaTone} />
             </span>
+          </span>
+        </div>
+        {rating ? <RatingChart series={rating.series} withPlace={source === 'at'} /> : <p className="hint">还没有 rating 记录。</p>}
+        {rating?.note ? (
+          <div className="card__foot">
+            <span>{rating.note}</span>
           </div>
-          {rating ? <RatingChart series={rating.series} /> : <p className="hint">还没有 rating 记录。</p>}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-          <LockedMaster />
-          <LockedVp />
-        </div>
+        ) : null}
       </div>
     </div>
   );
@@ -204,10 +272,11 @@ interface ColdProps {
   onGoSettings: () => void;
 }
 
-/** 未配置 handle：空态 + 幽灵格子图 + 两张未解锁 */
+/** 一个 handle 都没配：空态 + 幽灵格子图 + 两张未解锁 */
 export function ColdStart({ dash, status, today, notice, onGoSettings }: ColdProps) {
+  const total = status.sources.cf.counts.submissions + status.sources.at.counts.submissions;
   return (
-    <div className="content">
+    <div className="content" id="content-cf" role="tabpanel">
       {notice ? <NoticeBar {...notice} /> : null}
       <div className="card rise" style={{ padding: 'var(--sp-3)' }}>
         <div className="empty-hero">
@@ -244,9 +313,9 @@ export function ColdStart({ dash, status, today, notice, onGoSettings }: ColdPro
               开始设置
             </button>
           </div>
-          {status.counts.submissions > 0 ? (
+          {total > 0 ? (
             <p className="hint">
-              本地已有 <b className="num">{fmtInt(status.counts.submissions)}</b> 条提交 · 配好 handle 直接看图。
+              本地已有 <b className="num">{fmtInt(total)}</b> 条提交 · 配好 handle 直接看图。
             </p>
           ) : null}
         </div>
@@ -274,6 +343,47 @@ export function ColdStart({ dash, status, today, notice, onGoSettings }: ColdPro
       <div className="grid-4" style={{ gridTemplateColumns: 'repeat(2,minmax(0,1fr))' }}>
         <LockedMaster wide />
         <LockedVp wide />
+      </div>
+    </div>
+  );
+}
+
+/** 该源没配 handle：空态 + 去设置 CTA（docs/09 §1.3） */
+export function Unconfigured({ source, onGoSettings }: { source: SyncSourceId; onGoSettings: () => void }) {
+  return (
+    <div className="content" id={`content-${source}`} role="tabpanel">
+      <div className="card rise" style={{ padding: 'var(--sp-3)', maxWidth: 720 }}>
+        <span className="label label--pf">Unconfigured</span>
+        <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 12 }}>
+          还没填 {NAME[source]} handle
+        </h3>
+        <p className="dim" style={{ fontSize: 13, lineHeight: 1.75, marginTop: 10 }}>
+          填好之后点一次同步，这一屏的过题、活跃格子与 rating 曲线就都是它的了。不要密码、不要 token。
+        </p>
+        <div style={{ marginTop: 'var(--sp-3)' }}>
+          <button className="btn btn--primary btn--lg" onClick={onGoSettings}>
+            <Icon id="i-arrow" />
+            去设置
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** XCPC 占位屏：一句状态 + 一句预告，无 CTA（docs/09 §1.4） */
+export function XcpcPlaceholder() {
+  return (
+    <div className="content" id="content-xcpc" role="tabpanel">
+      <div className="card rise" style={{ padding: 'var(--sp-3)', maxWidth: 720 }}>
+        <span className="label label--pf">Coming soon</span>
+        <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 12 }}>XCPC 还没接进来</h3>
+        <p className="dim" style={{ fontSize: 13, lineHeight: 1.75, marginTop: 10 }}>
+          rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/09</code> §9），待接入。
+        </p>
+        <p className="hint" style={{ marginTop: 10 }}>
+          本切片无此源的数据，顶栏同步按钮为灰态；tab 项的 rating 一律 <b>—</b>。
+        </p>
       </div>
     </div>
   );

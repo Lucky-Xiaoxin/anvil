@@ -14,7 +14,8 @@ import {
   type AcEvent,
 } from '@anvil/shared';
 
-const D = (y: number, m: number, d: number) => new Date(y, m - 1, d);
+/** 上海日历的正午（04:00Z）：夹具不依赖运行机时区 */
+const D = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d, 4));
 const ev = (day: string, problemKey = 'cf:1:A'): AcEvent => ({ day, problemKey });
 
 describe('活跃格子 5 档分界', () => {

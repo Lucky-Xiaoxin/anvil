@@ -1,4 +1,4 @@
-import type { DashboardDto, StatusDto, SyncStateDto } from '@anvil/shared';
+import type { DashboardDto, SourceId, StatusDto, SyncSourceId, SyncStatesDto } from '@anvil/shared';
 
 export class ApiError extends Error {
   readonly kind: string;
@@ -33,16 +33,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const json = (handle: string): RequestInit => ({
+const post = (body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ handle }),
+  body: JSON.stringify(body),
 });
 
 export const getStatus = (): Promise<StatusDto> => request<StatusDto>('/api/status');
-export const getDashboard = (): Promise<DashboardDto> => request<DashboardDto>('/api/dashboard');
-export const getSyncState = (): Promise<SyncStateDto> => request<SyncStateDto>('/api/sync/state');
-export const saveHandle = (handle: string): Promise<StatusDto> =>
-  request<StatusDto>('/api/config', json(handle));
-export const startSync = (): Promise<SyncStateDto> =>
-  request<SyncStateDto>('/api/sync', { method: 'POST' });
+export const getDashboard = (source: 'cf' | 'at'): Promise<DashboardDto> =>
+  request<DashboardDto>(`/api/dashboard?source=${source}`);
+export const getSyncStates = (): Promise<SyncStatesDto> => request<SyncStatesDto>('/api/sync/state');
+export const saveHandles = (patch: { cfHandle?: string; atHandle?: string }): Promise<StatusDto> =>
+  request<StatusDto>('/api/config', post(patch));
+export const startSync = (source: SyncSourceId): Promise<SyncStatesDto> => request<SyncStatesDto>('/api/sync', post({ source }));
+
+/** 源显示名：tab 条、顶栏按钮与错误文案共用一份 */
+export const SOURCE_NAME: Record<SourceId, string> = { cf: 'Codeforces', at: 'AtCoder', xcpc: 'XCPC' };

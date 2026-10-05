@@ -1,5 +1,6 @@
 import { cfEnvelopeSchema } from '@anvil/shared';
 import type { RatingInput, SubmissionRow } from '../db.ts';
+import type { CheckResult } from './source.ts';
 
 export const API_BASE = 'https://codeforces.com/api';
 export const PAGE_SIZE = 10000;
@@ -135,8 +136,20 @@ export class CfClient {
   }
 
   /** 只发一条请求确认 handle 存在 */
-  async checkHandle(handle: string): Promise<void> {
-    await this.call<unknown>('user.status', { handle, count: 1 });
+  async checkHandle(handle: string): Promise<CheckResult> {
+    try {
+      await this.call<unknown>('user.status', { handle, count: 1 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof CfError) {
+        return {
+          ok: false,
+          kind: err.kind === 'not-found' ? 'not-found' : 'unavailable',
+          message: `${err.message}${err.detail ? `（${err.detail}）` : ''}`,
+        };
+      }
+      return { ok: false, kind: 'unavailable', message: `校验失败：${reasonOf(err)}` };
+    }
   }
 }
 
@@ -161,11 +174,15 @@ export function parseSubmission(sub: CfSubmissionRaw): SubmissionRow {
 
 export function parseRating(r: CfRatingRaw): RatingInput {
   return {
-    contestId: r.contestId,
+    // CF 的 contest_id 落进 source 化的 rating_history 时转成字符串键（docs/09 §3.1）
+    contestKey: String(r.contestId),
     contestName: r.contestName,
     rank: r.rank,
     oldRating: r.oldRating,
     newRating: r.newRating,
+    isRated: true,
+    // CF 的 user.rating 不给 Performance
+    performance: null,
     updatedTs: r.ratingUpdateTimeSeconds,
   };
 }

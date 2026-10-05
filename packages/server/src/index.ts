@@ -1,22 +1,30 @@
 import { spawn } from 'node:child_process';
 import Fastify from 'fastify';
-import { dbFile, loadConfig, portOf, saveHandle, webDistDir } from './config.ts';
+import { dbFile, loadConfig, portOf, saveHandles, webDistDir } from './config.ts';
 import { openDatabase } from './db.ts';
 import { registerApi } from './api.ts';
 import { registerStatic } from './static.ts';
+import { AtClient, createAtSource } from './sync/at.ts';
 import { CfClient } from './sync/cf.ts';
+import { createCfSource } from './sync/job.ts';
 import { initSnapshot } from './sync/runner.ts';
 
 const config = loadConfig();
 const db = openDatabase(dbFile());
-const client = new CfClient();
+const sources = {
+  cf: createCfSource(db, new CfClient()),
+  at: createAtSource(db, new AtClient()),
+};
 
 const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
 registerApi(app, {
   db,
-  client,
-  getHandle: () => loadConfig().cfHandle,
-  setHandle: (handle) => saveHandle(handle),
+  sources,
+  getHandles: () => {
+    const c = loadConfig();
+    return { cf: c.cfHandle, at: c.atHandle };
+  },
+  setHandles: (patch) => saveHandles(patch),
 });
 registerStatic(app, webDistDir);
 
