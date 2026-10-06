@@ -64,7 +64,15 @@ export function TipProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.addEventListener('scroll', hide, true);
-    return () => window.removeEventListener('scroll', hide, true);
+    /*
+     * 锚点被卸载时不会补发 mouseleave：hover 着 tab 条直接点侧栏「设置」，tab 条整个消失，
+     * 浮层就一直飘在设置页上。浮层本身没有可点内容，所以任何一次点击都先收掉它。
+     */
+    document.addEventListener('click', hide, true);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      document.removeEventListener('click', hide, true);
+    };
   }, [hide]);
 
   return (
