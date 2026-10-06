@@ -82,14 +82,16 @@ export function buildStatus(
   };
 }
 
-/** XCPC 的错误分派：查无此档 404、上游不在线 502、正在忙 409（docs/14 §4） */
+/**
+ * XCPC 的错误分派：查无此档 404、上游不在线 502、正在忙 409（docs/14 §4）。
+ * `detail` 是路径 / key / 主机名这类开发信息，留在错误对象里供日志用，不进界面文案。
+ */
 function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof XcpcError) {
     const code = err.kind === 'not-found' ? 404 : err.kind === 'busy' ? 409 : 502;
-    const withCode = err.detail === '' ? err.message : `${err.message}（${err.detail}）`;
-    return reply.code(code).send({ error: { kind: err.kind, message: withCode } });
+    return reply.code(code).send({ error: { kind: err.kind, message: err.message } });
   }
-  return reply.code(502).send({ error: { kind: 'unavailable', message: `XCPC 快照拉取失败：${String(err)}` } });
+  return reply.code(502).send({ error: { kind: 'unavailable', message: `拉取失败：${String(err)}` } });
 }
 
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {

@@ -31,8 +31,6 @@ export const XCPC_STALE_AFTER_DAYS = 10;
 export const SEARCH_TIMEOUT_MS = 20_000;
 /** 详情分片实测单片 1.8MB，超时放宽（docs/14 §2.2） */
 export const DETAIL_TIMEOUT_MS = 60_000;
-export const BUCKET_COUNT = 256;
-export const SCAN_CONCURRENCY = 16;
 export const MAX_RESULTS = 8;
 export const MAX_RETRIES = 1;
 /** 缺 key 时保留旧数据，这条就是那条错误原文（docs/14 §4） */
@@ -68,7 +66,7 @@ function readJson(text: string, what: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    throw new XcpcError('unavailable', `XCPC 快照返回的不是 JSON（${what}）`, 'bad-json');
+    throw new XcpcError('unavailable', '快照返回的不是 JSON', what);
   }
 }
 
@@ -87,53 +85,6 @@ export function bucketOf(query: string): string {
 /** 详情分片 = md5(key)[:2]（docs/14 §2） */
 export function shardOf(key: string): string {
   return md5hex(key).slice(0, 2);
-}
-
-/* ---------- 声母（复刻 xcpcrating web/src/lib/pinyin.ts，docs/14 §2.2） ---------- */
-
-/** 23 个代表字：每个声母档的第一字，用二分找出查询字符落在哪一档 */
-const REPRESENTATIVES = [...'阿波擦搭鹅发嘎哈击喀垃妈拿哦啪期然撒塌挖昔压杂'];
-const LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'w', 'x', 'y', 'z'];
-const CJK_MIN = 19968;
-const CJK_MAX = 40959;
-
-const collator = new Intl.Collator('zh-Hans-u-co-pinyin', { sensitivity: 'base' });
-const initialMemo = new Map<string, string | null>();
-
-/** 单字声母：不在 CJK 基本区的一律 null（docs/14 §2.2） */
-export function initialOf(ch: string): string | null {
-  const hit = initialMemo.get(ch);
-  if (hit !== undefined) return hit;
-  const code = ch.codePointAt(0) ?? 0;
-  let out: string | null = null;
-  if (code >= CJK_MIN && code <= CJK_MAX) {
-    let lo = 0;
-    let hi = REPRESENTATIVES.length - 1;
-    let ans = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (collator.compare(REPRESENTATIVES[mid]!, ch) <= 0) {
-        ans = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    out = LETTERS[ans]!;
-  }
-  initialMemo.set(ch, out);
-  return out;
-}
-
-/** 中文名 → 声母串；码点不在 CJK 基本区的 `[a-z0-9]` 原样保留，其余丢弃 */
-export function initials(input: string): string {
-  let out = '';
-  for (const ch of input.toLowerCase()) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (code >= CJK_MIN && code <= CJK_MAX) out += initialOf(ch) ?? '';
-    else if (/^[a-z0-9]$/.test(ch)) out += ch;
-  }
-  return out;
 }
 
 /* ---------- 原始响应形状 ---------- */
@@ -180,8 +131,9 @@ function toEntry(raw: unknown): SearchEntry | null {
   return { key, name, org, contests: Number.isFinite(n) ? n : 0, hay: hayOf(name, org) };
 }
 
+/** 检索面只有姓名与校名两段（拼音不做，见 docs/14 §2.2 修订） */
 function hayOf(name: string, org: string): string {
-  return `${name}${HAY_SEP}${org}${HAY_SEP}${initials(name)}${HAY_SEP}${initials(org)}`.toLowerCase();
+  return `${name}${HAY_SEP}${org}`.toLowerCase();
 }
 
 function num(input: unknown): number {
@@ -201,16 +153,33 @@ function str(input: unknown): string {
 
 /* ---------- DTO 映射：官方单口径，服务端做完这一层（docs/14 §4） ---------- */
 
+/** 上游只有四档 tier，实测存在缺失行；没见过的值不硬套一档，交回 null → 界面「—」 */
+function tierOf(input: unknown): XcpcTier | null {
+  const v = str(input);
+  return (TIERS as readonly string[]).includes(v) ? (v as XcpcTier) : null;
+}
+
+/**
+ * 网络赛标签。`preliminary` 在 contestId 里是"预赛 / 初赛"的通用词 —— 单看它会把
+ * 「广东省赛邀请赛预赛」「安徽初赛」也标成网络赛，所以必须再让标题表态（网络 / Online）。
+ */
+function isOnline(contestId: string, title: string): boolean {
+  return contestId.includes('preliminary') && (/网络/.test(title) || /\bonline\b/i.test(title));
+}
+
 function toHistoryRow(raw: XcpcRawHistory): XcpcHistoryRow {
   const star = raw.official === false;
+  const contestId = str(raw.contestId);
+  const title = str(raw.title);
   // 打星行上游的官方套装本来就是 null，这里再压一次：口径只有一条，别让半套脏数据进界面
   const official = (value: unknown): number | null => (star ? null : numOrNull(value));
   return {
-    contestId: str(raw.contestId),
-    title: str(raw.title),
+    contestId,
+    title,
     startAt: str(raw.startAt),
     teamName: str(raw.teamName),
-    tier: str(raw.tier) as XcpcTier,
+    tier: tierOf(raw.tier),
+    online: isOnline(contestId, title),
     // solved 不是官方榜单字段，打星行照给真实值（docs/14 §2.3）
     solved: num(raw.solved),
     star,
@@ -305,20 +274,21 @@ export class XcpcClient {
           headers: { 'user-agent': USER_AGENT },
         });
         const text = await res.text();
-        if (res.status === 429 || res.status >= 500) transient = `heimaom HTTP ${res.status}`;
+        if (res.status === 429 || res.status >= 500) transient = `HTTP ${res.status}`;
         else return { status: res.status, text };
       } catch (err) {
         transient = reasonOf(err);
       }
       if (attempt >= MAX_RETRIES) {
-        throw new XcpcError('unavailable', `XCPC 快照暂不可达（已重试 ${MAX_RETRIES} 次）：${transient}`, url.slice('https://'.length));
+        // 只报原因，不报主机名 —— 界面要把这句直接当第二行显示（docs/14 §5.5）
+        throw new XcpcError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`, url);
       }
     }
   }
 
   private async jsonAt(path: string, timeoutMs: number): Promise<unknown> {
     const res = await this.send(path, timeoutMs);
-    if (res.status === 404) throw new XcpcError('not-found', 'XCPC 快照里没有这个文件', path);
+    if (res.status === 404) throw new XcpcError('not-found', '快照里没有这个文件', path);
     return readJson(res.text, path);
   }
 
@@ -326,7 +296,7 @@ export class XcpcClient {
   async meta(): Promise<{ generatedAt: string }> {
     const raw = (await this.jsonAt('meta.json', SEARCH_TIMEOUT_MS)) as { generatedAt?: unknown };
     const generatedAt = str(raw?.generatedAt);
-    if (generatedAt === '') throw new XcpcError('unavailable', 'XCPC 快照的 meta.json 没有 generatedAt', 'meta.json');
+    if (generatedAt === '') throw new XcpcError('unavailable', '快照的 meta.json 没有 generatedAt', 'meta.json');
     return { generatedAt };
   }
 
@@ -375,40 +345,20 @@ export class XcpcClient {
   async playerDetail(key: string): Promise<unknown> {
     const shard = await this.shard(shardOf(key));
     const detail = shard[key];
-    if (detail === undefined) throw new XcpcError('not-found', 'XCPC 快照的分片里没有这个档案 key', key);
+    if (detail === undefined) throw new XcpcError('not-found', '快照里没有这个档案', key);
     return detail;
   }
 
   /**
-   * 站点两段式（docs/14 §2.2）：主桶命中就收工；只有纯拉丁 2–6 位（声母串）在无命中时兜底全扫，
-   * 全扫是站点自身的常规行为，失败桶按空跳过、不因此判不可达。
+   * 一段式（docs/14 §2.2 修订版）：查询首字符进桶，桶内对「姓名 + 校名」做子串匹配。
+   * 固有边界：必须从姓名或校名的**第一个字**起头 —— 搜「邮电」找不到北京邮电大学。
+   * 不做全扫兜底：拼音检索已整体取消。
    */
   async search(query: string): Promise<XcpcSearchRow[]> {
     const qn = query.trim().toLowerCase();
     if (qn === '') return [];
-    const matched = (await this.bucket(bucketOf(qn))).filter((e) => e.hay.includes(qn)).slice(0, MAX_RESULTS);
-    if (matched.length > 0 || !/^[a-z]{2,6}$/.test(qn)) return matched.map(stripHay);
-    return (await this.scanAll(qn)).map(stripHay);
-  }
-
-  /** 16 并发扫 256 桶；按 key 去重，够 8 条就收手 */
-  private async scanAll(qn: string): Promise<SearchEntry[]> {
-    const out: SearchEntry[] = [];
-    const seen = new Set<string>();
-    const hex = Array.from({ length: BUCKET_COUNT }, (_, i) => i.toString(16).padStart(2, '0'));
-    for (let i = 0; i < hex.length && out.length < MAX_RESULTS; i += SCAN_CONCURRENCY) {
-      const batch = hex.slice(i, i + SCAN_CONCURRENCY);
-      const lists = await Promise.all(batch.map((b) => this.bucket(b).catch(() => [])));
-      for (const list of lists) {
-        for (const e of list) {
-          if (seen.has(e.key) || !e.hay.includes(qn)) continue;
-          seen.add(e.key);
-          out.push(e);
-          if (out.length >= MAX_RESULTS) return out;
-        }
-      }
-    }
-    return out;
+    const rows = (await this.bucket(bucketOf(qn))).filter((e) => e.hay.includes(qn));
+    return rows.slice(0, MAX_RESULTS).map(stripHay);
   }
 }
 
@@ -491,7 +441,7 @@ export async function claimXcpc(store: XcpcStore, client: XcpcClient, key: strin
       client.officialTotal(),
     ]);
     const player = toPlayerDto(detail);
-    if (player === null) throw new XcpcError('unavailable', 'XCPC 快照里这个档案读不出结构', key);
+    if (player === null) throw new XcpcError('unavailable', '这个档案读不出结构', key);
     const now = stamp();
     replaceXcpcPlayer(store.db, {
       key,

@@ -16,8 +16,6 @@ import {
   XcpcError,
   bucketOf,
   claimXcpc,
-  initialOf,
-  initials,
   refreshXcpc,
   shardOf,
   snapshotAgeDays,
@@ -139,54 +137,38 @@ describe('分桶键（docs/14 §2.1）', () => {
   });
 });
 
-describe('声母（docs/14 §2.2）', () => {
-  it('李→l 陈→c 佛→f', () => {
-    expect(initialOf('李')).toBe('l');
-    expect(initialOf('陈')).toBe('c');
-    expect(initialOf('佛')).toBe('f');
-  });
-
-  it('不在 CJK 基本区 → null', () => {
-    expect(initialOf('a')).toBeNull();
-    expect(initialOf('·')).toBeNull();
-  });
-
-  it('整串：中文名取声母，拉丁的 [a-z0-9] 原样留、其余丢弃', () => {
-    expect(initials('李鑫杰')).toBe('lxj');
-    expect(initials('佛山大学')).toBe('fsdx');
-    expect(initials('chi him kuan')).toBe('chihimkuan');
-    expect(initials('A1_b')).toBe('a1b');
-  });
-});
-
 /* ---------- 搜索 ---------- */
 
-describe('搜索两段式（docs/14 §2.2）', () => {
-  it('主桶命中就收工：只发一个桶请求', async () => {
+describe('搜索一段式（docs/14 §2.2 修订版：拼音检索已取消）', () => {
+  it('首字符进桶、桶内对姓名 + 校名做子串匹配：只发一个桶请求', async () => {
     const m = mock(claimRoutes());
     const out = await m.client.search('李');
     expect(out).toEqual([{ key: KEY, name: '李鑫杰', org: '佛山大学', contests: 3 }]);
     expect(m.calls).toEqual([bucketUrl('46')]);
   });
 
-  it('hay 里有声母：拼音串在同一桶里命中姓名', async () => {
-    const m = mock({ [bucketUrl('2d')]: [ROW] });
-    const out = await m.client.search('lxj');
-    expect(out.map((r) => r.key)).toEqual([KEY]);
-    // 校名声母也走同一条：fsdx → f 的桶
-    const m2 = mock({ [bucketUrl('8f')]: [ROW] });
-    expect((await m2.client.search('fsdx')).map((r) => r.key)).toEqual([KEY]);
+  it('校名同样能搜 —— 从校名第一个字起头', async () => {
+    const m = mock({ [bucketUrl('20')]: [ROW] });
+    expect((await m.client.search('佛山大学')).map((r) => r.key)).toEqual([KEY]);
   });
 
-  it('查询串先 trim + 小写，再取第一个码点进主桶', async () => {
+  it('固有边界：中间词搜不到（「邮电」进的是「邮」的桶，不是北京邮电大学）', async () => {
     const m = mock(claimRoutes());
-    expect(await m.client.search('  李  ')).toHaveLength(1);
-    expect(m.calls).toEqual([bucketUrl('46')]);
+    expect(await m.client.search('邮电')).toEqual([]);
+    expect(m.calls).toEqual([bucketUrl(bucketOf('邮'))]);
+  });
 
-    // 大写折进小写后落 l 的桶；给这一桶备好命中行，才不会顺带去兜底全扫
-    const m2 = mock({ ...claimRoutes(), [bucketUrl('2d')]: [ROW] });
-    expect(await m2.client.search(' LXJ ')).toHaveLength(1);
-    expect(m2.calls).toEqual([bucketUrl('2d')]);
+  it('拼音串不再触发 256 桶兜底全扫', async () => {
+    const m = mock({ [bucketUrl('2d')]: [ROW] });
+    expect(await m.client.search('lxj')).toEqual([]);
+    expect(m.calls.filter((u) => u.includes('/search/players/'))).toHaveLength(1);
+  });
+
+  it('查询串先 trim + 小写，再取第一个码点', async () => {
+    const latin = ['K9', 'Li Lei', '佛山大学', 1];
+    const m = mock({ [bucketUrl('2d')]: [latin] });
+    expect((await m.client.search('  LI LEI ')).map((r) => r.key)).toEqual(['K9']);
+    expect(m.calls).toEqual([bucketUrl('2d')]);
   });
 
   it('空串与纯空白不发请求', async () => {
@@ -196,33 +178,9 @@ describe('搜索两段式（docs/14 §2.2）', () => {
     expect(m.calls).toEqual([]);
   });
 
-  it('主桶空 + 纯拉丁 2–6 位 → 兜底扫满 256 桶', async () => {
-    const routes: Record<string, unknown> = { [bucketUrl('2d')]: [ROW] };
-    const m = mock(routes);
-    // 'lj' 的首字符桶 2d 里给一行，主桶就命中，走不到兜底 —— 换一个主桶没登记的拉丁串
-    const out = await m.client.search('zz');
-    expect(out).toEqual([]);
-    const buckets = new Set(m.calls.filter((u) => u.includes('/search/players/')));
-    expect(buckets.size).toBe(256);
-  });
-
-  it('超过 6 位不做兜底全扫', async () => {
-    const m = mock({});
-    expect(await m.client.search('abcdefg')).toEqual([]);
-    expect(m.calls.filter((u) => u.includes('/search/players/'))).toHaveLength(1);
-  });
-
   it('404 桶按空处理，不算不可达', async () => {
     const m = mock({});
     expect(await m.client.search('李')).toEqual([]);
-  });
-
-  it('兜底扫里跨桶同 key 只留一条', async () => {
-    const row = ['K1', 'qq名', 'A学', 1];
-    const m = mock({ [bucketUrl('00')]: [row], [bucketUrl('01')]: [row] });
-    const out = await m.client.search('qq');
-    expect(out).toHaveLength(1);
-    expect(out[0]!.key).toBe('K1');
   });
 
   it('结果上限 8 条', async () => {
@@ -231,16 +189,12 @@ describe('搜索两段式（docs/14 §2.2）', () => {
     expect(await m.client.search('李')).toHaveLength(8);
   });
 
-  it('主桶非 404 的硬失败 → 抛出，由路由转 502', async () => {
-    const m = mock({}, { fail: ['search/players'] });
-    await expect(m.client.search('李')).rejects.toBeInstanceOf(XcpcError);
-  });
-
-  it('兜底扫里的失败桶按空跳过，不整体失败', async () => {
-    const row = ['K1', 'zz名', 'A学', 2];
-    const m = mock({ [bucketUrl('01')]: [row] }, { fail: ['/search/players/00.json'] });
-    const out = await m.client.search('zz');
-    expect(out.map((r) => r.key)).toEqual(['K1']);
+  it('桶硬失败 → 抛出转 502；错误串只带原因，不带主机名与路径', async () => {
+    const m = mock({}, { serverError: ['search/players'] });
+    const err = await m.client.search('李').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(XcpcError);
+    expect((err as XcpcError).message).toBe('HTTP 503 · 已重试 1 次');
+    expect((err as XcpcError).message).not.toContain('heimaom');
   });
 });
 
@@ -266,6 +220,35 @@ describe('官方单口径映射（docs/14 §4）', () => {
       firstATime: 21.03,
     });
     expect(first.rankPercent).toBeCloseTo(51.293103448275865, 9);
+  });
+
+  /** 真实样本自带对照：省赛那条不是网络赛，两场 EC 网络预选赛是 */
+  it('网络赛标签 = contestId 含 preliminary 且标题表态（网络 / Online）', () => {
+    const online = (contestId: string, title: string): boolean => {
+      const base = (FIX.detail.history as Record<string, unknown>[])[0]!;
+      const detail = { ...FIX.detail, history: [{ ...base, contestId, title }] };
+      return toPlayerDto(detail)!.history[0]!.online;
+    };
+    expect(online('ccpc__ccpc2022__ccpc2022preliminary', '2022 年中国大学生程序设计竞赛网络预选赛')).toBe(true);
+    expect(online('icpc__icpc2022__icpc2022preliminary-2', 'The 2022 ICPC Asia Regionals Online Contest (II)')).toBe(true);
+    // 这两条是真实数据里的误伤样本：id 带 preliminary，但那是"预赛 / 初赛"
+    expect(online('ccpc__ccpc2025__ccpc2025invitational-guangdong-preliminary', '2025 年（第二十二届）广东省大学生程序设计竞赛邀请赛（广东）预赛')).toBe(false);
+    expect(online('provincial__ah__ahcpc2026preliminary', '2026年安徽省机器人大赛——算法设计赛道 初赛')).toBe(false);
+    expect(online('provincial__gd__gdcpc23rd', '广东省第二十三届大学生程序设计竞赛')).toBe(false);
+
+    const real = toPlayerDto(FIX.detail)!.history;
+    expect(real.map((r) => r.online)).toEqual([false, true, true]);
+  });
+
+  it('tier 只认四档，缺失或不认识的值 → null（界面给 —，不硬套一档）', () => {
+    const tierOf = (tier: unknown): unknown => {
+      const base = (FIX.detail.history as Record<string, unknown>[])[0]!;
+      return toPlayerDto({ ...FIX.detail, history: [{ ...base, tier }] })!.history[0]!.tier;
+    };
+    expect(tierOf('provincial')).toBe('provincial');
+    expect(tierOf(null)).toBeNull();
+    expect(tierOf(undefined)).toBeNull();
+    expect(tierOf('preliminary')).toBeNull();
   });
 
   it('打星行：star 为真、官方套装整组 null，过题数照给', () => {

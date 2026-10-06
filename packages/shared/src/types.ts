@@ -184,7 +184,14 @@ export interface XcpcHistoryRow {
   /** 上游原样 +08:00 ISO 串；日期取前 10 位，不做时区换算 */
   startAt: string;
   teamName: string;
-  tier: XcpcTier;
+  /** 上游只有四档 tier，但真实数据里存在缺失行 → null → 界面给「—」 */
+  tier: XcpcTier | null;
+  /**
+   * 网络赛。上游把网络预选赛归进 `regional`，所以这不是第五档 tier，而是**并列的一枚标签**。
+   * 判据 = contestId 含 `preliminary` 且标题含「网络」/ `Online`：单看 contestId 会把
+   * 「广东省赛预赛」「安徽初赛」也标成网络赛（实测该分片 189 条里 7 条是这种）。
+   */
+  online: boolean;
   solved: number;
   star: boolean;
   rank: number | null;
