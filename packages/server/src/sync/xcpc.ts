@@ -100,7 +100,8 @@ const CJK_MAX = 40959;
 const collator = new Intl.Collator('zh-Hans-u-co-pinyin', { sensitivity: 'base' });
 const initialMemo = new Map<string, string | null>();
 
-function initialOf(ch: string): string | null {
+/** 单字声母：不在 CJK 基本区的一律 null（docs/14 §2.2） */
+export function initialOf(ch: string): string | null {
   const hit = initialMemo.get(ch);
   if (hit !== undefined) return hit;
   const code = ch.codePointAt(0) ?? 0;
