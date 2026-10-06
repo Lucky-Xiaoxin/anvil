@@ -42,6 +42,9 @@ const ROUND = ' · ';
 /** 涨蓝跌琥珀的读法与 CF / AT 的曲线一致 */
 const tone = (delta: number | null): number => (delta === null ? 0 : delta);
 
+/** 分一律取整显示，差值也一样 —— 上游是浮点，直接减会读出 −40.99999999999985 */
+const deltaText = (delta: number | null): string | undefined => (delta === null ? undefined : signedDelta(Math.round(delta)));
+
 /** 罚时比 / 首 A / 末小时：不是官方榜字段，打星行也有前两个 */
 function penaltyLine(row: XcpcHistoryRow, withLastHour: boolean): string | null {
   if (row.dirt === null && row.firstATime === null) return null;
@@ -248,7 +251,7 @@ function pointTip(point: TimelinePoint): TipSpec {
   return {
     date,
     value: fmt(row.ratingAfter),
-    delta: delta === null ? undefined : signedDelta(delta),
+    delta: deltaText(delta),
     deltaUp: isUp(delta),
     valueClass: isUp(delta) ? 'is-up' : 'is-down',
     sub,
@@ -508,7 +511,7 @@ function chronTip(row: XcpcHistoryRow, point: TimelinePoint): TipSpec {
   return {
     date,
     value: fmt(row.ratingAfter),
-    delta: point.delta === null ? undefined : signedDelta(point.delta),
+    delta: deltaText(point.delta),
     deltaUp: isUp(point.delta),
     valueClass: isUp(point.delta) ? 'is-up' : 'is-down',
     sub,
@@ -624,7 +627,7 @@ function FragmentChapter({
             ) : (
               <>
                 <b className="num">{fmt(row.ratingAfter)}</b>
-                {point.delta === null ? null : <Delta text={signedDelta(point.delta)} tone={tone(point.delta)} />}
+                {point.delta === null ? null : <Delta text={deltaText(point.delta)} tone={tone(point.delta)} />}
               </>
             )}
           </td>
@@ -703,7 +706,7 @@ export function XcpcDossier({ profile, status, firstPaint, notice, onSync }: Pro
             <span className="sect__rule" aria-hidden="true" />
             <span className="card__note">
               <b style={{ color: 'var(--text-dim)', fontWeight: 400 }}>{fmt(tl.first)}</b> → <b>{fmt(tl.last)}</b> ·{' '}
-              <Delta text={tl.totalDelta === null ? null : signedDelta(tl.totalDelta)} tone={tl.totalDelta} />
+              <Delta text={deltaText(tl.totalDelta)} tone={tl.totalDelta} />
             </span>
           </div>
           <Ridge tl={tl} animate={animate} />

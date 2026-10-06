@@ -147,7 +147,7 @@ export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, showS
         </div>
       ) : null}
 
-      {phase === 'results' && error === null && results.length > 0 ? (
+      {(phase === 'results' || phase === 'confirm') && error === null && results.length > 0 ? (
         <div className="srchres">
           {results.map((row) => (
             <button
