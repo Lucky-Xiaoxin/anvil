@@ -372,21 +372,3 @@ export function Unconfigured({ source, onGoSettings }: { source: SyncSourceId; o
     </div>
   );
 }
-
-/** XCPC 占位屏：一句状态 + 一句预告，无 CTA（docs/09 §1.4） */
-export function XcpcPlaceholder() {
-  return (
-    <div className="content" id="content-xcpc" role="tabpanel">
-      <div className="card rise" style={{ padding: 'var(--sp-3)', maxWidth: 720 }}>
-        <span className="label label--pf">Coming soon</span>
-        <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 12 }}>XCPC 还没接进来</h3>
-        <p className="dim" style={{ fontSize: 13, lineHeight: 1.75, marginTop: 10 }}>
-          rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/09</code> §9），待接入。
-        </p>
-        <p className="hint" style={{ marginTop: 10 }}>
-          本切片无此源的数据，顶栏同步按钮为灰态；tab 项的 rating 一律 <b>—</b>。
-        </p>
-      </div>
-    </div>
-  );
-}

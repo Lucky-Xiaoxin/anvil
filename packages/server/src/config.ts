@@ -46,6 +46,13 @@ export function saveHandles(patch: { cfHandle?: string; atHandle?: string }): Va
   return cfg;
 }
 
+/** 认领 / 换人写的就是这一个键；'' = 未认领（docs/14 §3） */
+export function saveXcpcPlayerKey(key: string): VaultConfig {
+  const cfg = { ...loadConfig(), xcpcPlayerKey: key };
+  writeConfig(cfg);
+  return cfg;
+}
+
 export function portOf(cfg: VaultConfig): number {
   const fromEnv = Number(process.env.ANVIL_PORT);
   return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : cfg.port;

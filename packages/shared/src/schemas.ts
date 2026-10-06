@@ -25,10 +25,18 @@ export const syncBodySchema = z.object({ source: z.enum(['cf', 'at']).default('c
 
 export const dashboardQuerySchema = z.object({ source: z.enum(['cf', 'at', 'xcpc']).default('cf') });
 
+/** 认领与换人都是「给一个档案 key」；key 是上游的 `名@校` 原串，不做字符集限制 */
+export const xcpcClaimBodySchema = z.object({ key: z.string().trim().min(1, 'key 不能为空').max(200, 'key 太长') });
+
+/** 搜索词：空串合法（服务端按站点行为返回 []，不发请求） */
+export const xcpcQuerySchema = z.object({ q: z.string().max(64).default('') });
+
 export const vaultConfigSchema = z.object({
   cfHandle: z.string().default(''),
   atHandle: z.string().default(''),
   port: z.number().int().positive().default(7788),
+  /** 认领的 XCPC 档案 key；'' = 未认领 */
+  xcpcPlayerKey: z.string().default(''),
 });
 
 /** CF 官方接口信封：非 OK 时 comment 里是可读原因 */

@@ -19,8 +19,8 @@ export interface TipData {
   /** 方向读数（rating 涨跌）：单独上色，主读数保持琥珀 */
   delta?: string;
   deltaUp?: boolean;
-  /** 第三行：口径 / 原因（源状态、名次与 Perf 这类附注） */
-  sub?: string;
+  /** 第三行起：口径 / 原因（源状态、名次与 Perf 这类附注）。阶梯与编年要给到四行 */
+  sub?: string | string[];
   /** 主读数换档：折线 tooltip 分数按方向上色，与线段同色 */
   valueClass?: string;
   /** 强制在锚点下方弹出（此时 y 传锚点底缘）：顶部 tab 条用它 —— 上方放不下，而按默认
@@ -64,7 +64,15 @@ export function TipProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.addEventListener('scroll', hide, true);
-    return () => window.removeEventListener('scroll', hide, true);
+    /*
+     * 锚点被卸载时不会补发 mouseleave：hover 着 tab 条直接点侧栏「设置」，tab 条整个消失，
+     * 浮层就一直飘在设置页上。浮层本身没有可点内容，所以任何一次点击都先收掉它。
+     */
+    document.addEventListener('click', hide, true);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      document.removeEventListener('click', hide, true);
+    };
   }, [hide]);
 
   return (
@@ -83,7 +91,13 @@ export function TipProvider({ children }: { children: ReactNode }) {
             {tip.value}
             {tip.delta ? <b className={tip.deltaUp ? 'is-up' : undefined}>{tip.delta}</b> : null}
           </div>
-          {tip.sub ? <div className="tip__x">{tip.sub}</div> : null}
+          {tip.sub
+            ? (Array.isArray(tip.sub) ? tip.sub : [tip.sub]).map((line, i) => (
+                <div className="tip__x" key={i}>
+                  {line}
+                </div>
+              ))
+            : null}
         </div>
       )}
     </TipCtx.Provider>

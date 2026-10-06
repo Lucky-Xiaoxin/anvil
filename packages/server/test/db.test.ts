@@ -95,8 +95,8 @@ function seedV1(db: DatabaseSync, subs: readonly SubmissionRow[]): void {
 const names = (db: DatabaseSync, sql: string): string[] =>
   (db.prepare(sql).all() as { name: string }[]).map((r) => r.name).sort();
 
-describe('Schema v2 DDL', () => {
-  it('重复 init 不炸，schema_version 落 2', () => {
+describe('Schema v3 DDL', () => {
+  it('重复 init 不炸，schema_version 落 3', () => {
     const db = mem();
     expect(() => initSchema(db)).not.toThrow();
     expect(() => initSchema(db)).not.toThrow();
@@ -112,6 +112,7 @@ describe('Schema v2 DDL', () => {
       'rating_history',
       'submissions',
       'sync_state',
+      'xcpc_players',
     ]);
     expect(names(db, "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")).toEqual([
       'idx_sub_problem',
@@ -184,13 +185,14 @@ describe('v1 → v2 迁移', () => {
     expect(getSyncState(db, syncKey('cf', 'last_error'))).toBe('上次网络不通');
     expect(getSyncState(db, 'last_sync_at')).toBeNull();
     expect(getMeta(db, handleMetaKey('cf'))).toBe('jywlq');
-    expect(db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get()).toEqual({ v: '2' });
+    expect(db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get()).toEqual({ v: '3' });
     // 老表不留在库里
     expect(names(db, "SELECT name FROM sqlite_master WHERE type='table'")).toEqual([
       'meta',
       'rating_history',
       'submissions',
       'sync_state',
+      'xcpc_players',
     ]);
     db.close();
   });
@@ -219,6 +221,7 @@ describe('v1 → v2 迁移', () => {
       'rating_history',
       'submissions',
       'sync_state',
+      'xcpc_players',
     ]);
     db.close();
   });

@@ -13,6 +13,7 @@ import {
   upsertRatingHistory,
 } from '../src/db.ts';
 import type { CheckResult, SyncSource } from '../src/sync/source.ts';
+import { XcpcClient } from '../src/sync/xcpc.ts';
 import { initSnapshot } from '../src/sync/runner.ts';
 
 const NOW = Math.floor(Date.UTC(2026, 9, 4, 4) / 1000);
@@ -70,16 +71,24 @@ let app: FastifyInstance;
 let handles: { cf: string; at: string };
 let cf: Stub;
 let at: Stub;
+let xcpcKey: string;
+
+/** 单测禁止打真实网络（技术锁）：API 测试不碰 XCPC 取数，客户端只当占位 */
+const offlineFetch = (async () => {
+  throw new Error('单测不该出网');
+}) as unknown as typeof fetch;
 
 async function boot(opts: {
   handles?: { cf: string; at: string };
   cfCheck?: CheckResult;
   atCheck?: CheckResult;
   hangAt?: boolean;
+  xcpcKey?: string;
 } = {}): Promise<void> {
   db = new DatabaseSync(':memory:');
   initSchema(db);
   handles = opts.handles ?? { cf: '', at: '' };
+  xcpcKey = opts.xcpcKey ?? '';
   cf = makeStub('cf', opts.cfCheck ?? { ok: true }, false);
   at = makeStub('at', opts.atCheck ?? { ok: true }, opts.hangAt ?? false);
   app = Fastify();
@@ -90,6 +99,14 @@ async function boot(opts: {
     setHandles: (patch) => {
       if (patch.cfHandle !== undefined) handles.cf = patch.cfHandle;
       if (patch.atHandle !== undefined) handles.at = patch.atHandle;
+    },
+    xcpc: {
+      db,
+      getKey: () => xcpcKey,
+      setKey: (key) => {
+        xcpcKey = key;
+      },
+      client: new XcpcClient({ fetchImpl: offlineFetch }),
     },
   });
   // 与 index.ts 一样：进程起来先把两源快照对齐到库里的读数
@@ -302,12 +319,12 @@ describe('GET /api/dashboard 按源寻址', () => {
     db.close();
   });
 
-  it('XCPC 还没实现 → 501，并说明契约已冻结', async () => {
+  it('XCPC 不做仪表盘聚合：档案走 /api/xcpc，这里给 501', async () => {
     await boot();
     const res = await get('/api/dashboard?source=xcpc');
     expect(res.statusCode).toBe(501);
     expect(res.json().error).toMatchObject({ kind: 'not-implemented' });
-    expect(res.json().error.message).toContain('契约已冻结');
+    expect(res.json().error.message).toContain('/api/xcpc');
     db.close();
   });
 

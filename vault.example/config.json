@@ -1,5 +1,6 @@
 {
   "cfHandle": "",
   "atHandle": "",
-  "port": 7788
+  "port": 7788,
+  "xcpcPlayerKey": ""
 }

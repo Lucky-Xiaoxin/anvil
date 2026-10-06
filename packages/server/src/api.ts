@@ -2,12 +2,14 @@ import {
   configBodySchema,
   dashboardQuerySchema,
   syncBodySchema,
+  xcpcClaimBodySchema,
+  xcpcQuerySchema,
   type SourceState,
   type SourceStatusDto,
   type StatusDto,
   type SyncSourceId,
 } from '@anvil/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   countDistinctOkProblems,
@@ -19,6 +21,7 @@ import {
 import { buildDashboard } from './dashboard.ts';
 import { isRunning, startSync, syncSnapshot } from './sync/runner.ts';
 import type { SyncSource } from './sync/source.ts';
+import { XcpcError, claimXcpc, refreshXcpc, xcpcProfile, xcpcStatus, type XcpcClient, type XcpcStore } from './sync/xcpc.ts';
 
 export interface ApiContext {
   db: DatabaseSync;
@@ -26,6 +29,8 @@ export interface ApiContext {
   /** 按源取 handle（vault/config.json 的 cfHandle / atHandle） */
   getHandles: () => Record<SyncSourceId, string>;
   setHandles: (patch: { cfHandle?: string; atHandle?: string }) => void;
+  /** XCPC 不跑 /api/sync runner：认领态在 config、档案在 xcpc_players，取数客户端可注入便于测 */
+  xcpc: XcpcStore & { client: XcpcClient };
 }
 
 const LABEL: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
@@ -58,7 +63,12 @@ export function sourceStatus(db: DatabaseSync, id: SyncSourceId, handle: string,
   };
 }
 
-export function buildStatus(db: DatabaseSync, handles: Record<SyncSourceId, string>, now = Date.now()): StatusDto {
+export function buildStatus(
+  db: DatabaseSync,
+  handles: Record<SyncSourceId, string>,
+  xcpc: XcpcStore,
+  now = Date.now(),
+): StatusDto {
   const cf = sourceStatus(db, 'cf', handles.cf, now);
   const at = sourceStatus(db, 'at', handles.at, now);
   // 顶层四字段 = CF 源原样镜像，切片 1 的调用方不用改（docs/09 §4）
@@ -68,11 +78,24 @@ export function buildStatus(db: DatabaseSync, handles: Record<SyncSourceId, stri
     lastSyncAt: cf.lastSyncAt,
     counts: cf.counts,
     sources: { cf, at },
+    xcpc: xcpcStatus(xcpc, now),
   };
 }
 
+/**
+ * XCPC 的错误分派：查无此档 404、上游不在线 502、正在忙 409（docs/14 §4）。
+ * `detail` 是路径 / key / 主机名这类开发信息，留在错误对象里供日志用，不进界面文案。
+ */
+function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
+  if (err instanceof XcpcError) {
+    const code = err.kind === 'not-found' ? 404 : err.kind === 'busy' ? 409 : 502;
+    return reply.code(code).send({ error: { kind: err.kind, message: err.message } });
+  }
+  return reply.code(502).send({ error: { kind: 'unavailable', message: `拉取失败：${String(err)}` } });
+}
+
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
-  app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles()));
+  app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles(), ctx.xcpc));
 
   app.post('/api/config', async (request, reply) => {
     const parsed = configBodySchema.safeParse(request.body ?? {});
@@ -101,7 +124,11 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
       else saved.atHandle = next;
     }
     if (Object.keys(saved).length > 0) ctx.setHandles(saved);
-    return buildStatus(ctx.db, { cf: saved.cfHandle ?? handles.cf, at: saved.atHandle ?? handles.at });
+    return buildStatus(
+      ctx.db,
+      { cf: saved.cfHandle ?? handles.cf, at: saved.atHandle ?? handles.at },
+      ctx.xcpc,
+    );
   });
 
   app.post('/api/sync', async (request, reply) => {
@@ -119,6 +146,55 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
 
   app.get('/api/sync/state', async () => syncSnapshot());
 
+  /* ---- XCPC（docs/14 §4）：认领制，不进 /api/sync runner ---- */
+
+  app.get('/api/xcpc', async (_request, reply) => {
+    const profile = xcpcProfile(ctx.xcpc);
+    if (profile === null) {
+      return reply.code(404).send({ error: { kind: 'unclaimed', message: '还没有认领 XCPC 选手档案' } });
+    }
+    return profile;
+  });
+
+  app.get('/api/xcpc/search', async (request, reply) => {
+    const parsed = xcpcQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { kind: 'invalid', message: '搜索词太长了' } });
+    }
+    try {
+      return { results: await ctx.xcpc.client.search(parsed.data.q) };
+    } catch (err) {
+      return sendXcpcError(reply, err);
+    }
+  });
+
+  app.post('/api/xcpc/claim', async (request, reply) => {
+    const parsed = xcpcClaimBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: { kind: 'invalid', message: parsed.error.issues[0]?.message ?? 'key 不合法' } });
+    }
+    try {
+      return await claimXcpc(ctx.xcpc, ctx.xcpc.client, parsed.data.key);
+    } catch (err) {
+      return sendXcpcError(reply, err);
+    }
+  });
+
+  app.post('/api/xcpc/refresh', async (_request, reply) => {
+    if (ctx.xcpc.getKey() === '') {
+      return reply
+        .code(400)
+        .send({ error: { kind: 'invalid', message: '还没有认领 XCPC 档案，认领后才能拉快照' } });
+    }
+    try {
+      return await refreshXcpc(ctx.xcpc, ctx.xcpc.client);
+    } catch (err) {
+      return sendXcpcError(reply, err);
+    }
+  });
+
   app.get('/api/dashboard', async (request, reply) => {
     const parsed = dashboardQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) {
@@ -127,7 +203,7 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
     if (parsed.data.source === 'xcpc') {
       return reply
         .code(501)
-        .send({ error: { kind: 'not-implemented', message: 'XCPC 还没接进来 · 契约已冻结（docs/09 §9）' } });
+        .send({ error: { kind: 'not-implemented', message: 'XCPC 没有提交粒度 · 档案走 /api/xcpc（docs/14）' } });
     }
     return buildDashboard(ctx.db, parsed.data.source);
   });

@@ -1,7 +1,8 @@
 import type { KeyboardEvent, MutableRefObject } from 'react';
-import { rankColorFor, type SourceId, type SourceState, type StatusDto, type SyncSourceId } from '@anvil/shared';
+import { rankColorFor, type SourceState, type SourceId, type StatusDto, type SyncSourceId } from '@anvil/shared';
 import { SOURCE_NAME } from '../api.ts';
 import { fmtInt, fullStamp, relativeTime } from '../format.ts';
+import { snapshotDate, snapshotDaysAgo } from './xcpc/derive.ts';
 import { useTip } from '../tip.tsx';
 
 const ORDER: SourceId[] = ['cf', 'at', 'xcpc'];
@@ -28,37 +29,84 @@ interface Tip {
   sub?: string;
 }
 
-function tipOf(status: StatusDto | null, id: SourceId): Tip {
-  if (id === 'xcpc') {
+interface TabView {
+  /** 次行读数：CF / AT 是当前 rating，XCPC 是官方榜分取整 */
+  rating: string;
+  color?: string;
+  unset: boolean;
+  dot: SourceState;
+  tip: Tip;
+}
+
+/** XCPC 走认领而非 handle：分数用平台色而不走段位色，读数线是「档案 + 快照」两钟口径 */
+function xcpcView(status: StatusDto | null): TabView {
+  const x = status?.xcpc ?? null;
+  if (x === null || !x.claimed) {
     return {
-      date: 'XCPC · 未接入',
-      value: '待接入 · 契约已冻结（docs/09 §9）',
-      valueClass: 'is-mute',
-      sub: '本切片不实现同步',
+      rating: '—',
+      unset: true,
+      dot: 'idle',
+      tip: { date: 'XCPC', value: '未认领', valueClass: 'is-mute' },
     };
   }
+  const days = snapshotDaysAgo(x.snapshotAt);
+  const valueClass = x.status === 'down' ? 'is-bad' : x.status === 'stale' ? 'is-warn' : 'is-dim';
+  return {
+    rating: x.officialRating === null ? '—' : fmtInt(Math.round(x.officialRating)),
+    color: 'var(--pf-xcpc)',
+    unset: false,
+    dot: x.status,
+    tip: {
+      date: `XCPC · ${x.key ?? ''}`,
+      value: `数据版本 ${snapshotDate(x.snapshotAt)}${days === null ? '' : ` · 生成 ${days} 天前`}`,
+      valueClass,
+      sub: `上次同步 ${x.fetchedAt === null ? '从未' : fullStamp(x.fetchedAt)} · 来源 xcpcrating 社区快照（非官方）`,
+    },
+  };
+}
+
+function syncView(status: StatusDto | null, id: SyncSourceId): TabView {
   const s = status?.sources[id];
   const name = SOURCE_NAME[id];
-  if (!s || !s.configured) return { date: `${name} · 未配置`, value: '还没有填 handle · 点进去填一个', valueClass: 'is-mute' };
-  if (s.lastSyncAt === null) return { date: `${name} · @${s.handle}`, value: '还没有同步过', valueClass: 'is-mute' };
-
-  const stamp = fullStamp(s.lastSyncAt);
-  if (s.status === 'down') {
-    return { date: `${name} · @${s.handle}`, value: `同步失败 · 显示本地缓存 ${stamp}`, valueClass: 'is-bad', sub: s.error ?? undefined };
-  }
-  if (s.status === 'stale') {
+  if (!s || !s.configured) {
     return {
-      date: `${name} · @${s.handle}`,
-      value: `缓存于 ${stamp} · 已 ${relativeTime(s.lastSyncAt)}`,
-      valueClass: 'is-warn',
-      sub: id === 'at' ? 'AT 不自动同步 · 需要你点一次' : `${fmtInt(s.counts.submissions)} 条提交 · ${fmtInt(s.counts.problems)} 题`,
+      rating: '—',
+      unset: true,
+      dot: 'idle',
+      tip: { date: `${name} · 未配置`, value: '还没有填 handle · 点进去填一个', valueClass: 'is-mute' },
     };
   }
+  if (s.lastSyncAt === null) {
+    return {
+      rating: s.rating === null ? '—' : String(s.rating),
+      color: s.rating === null ? undefined : rankColorFor(s.rating, id),
+      unset: false,
+      dot: s.status,
+      tip: { date: `${name} · @${s.handle}`, value: '还没有同步过', valueClass: 'is-mute' },
+    };
+  }
+
+  const stamp = fullStamp(s.lastSyncAt);
+  const sub =
+    id === 'at' ? 'AT 不自动同步 · 需要你点一次' : `${fmtInt(s.counts.submissions)} 条提交 · ${fmtInt(s.counts.problems)} 题`;
+  const tip =
+    s.status === 'down'
+      ? { date: `${name} · @${s.handle}`, value: `同步失败 · 显示本地缓存 ${stamp}`, valueClass: 'is-bad', sub: s.error ?? undefined }
+      : s.status === 'stale'
+        ? {
+            date: `${name} · @${s.handle}`,
+            value: `缓存于 ${stamp} · 已 ${relativeTime(s.lastSyncAt)}`,
+            valueClass: 'is-warn',
+            sub,
+          }
+        : { date: `${name} · @${s.handle}`, value: `数据更新于 ${stamp}`, valueClass: 'is-dim', sub };
+
   return {
-    date: `${name} · @${s.handle}`,
-    value: `数据更新于 ${stamp}`,
-    valueClass: 'is-dim',
-    sub: id === 'at' ? 'AT 不自动同步 · 需要你点一次' : `${fmtInt(s.counts.submissions)} 条提交 · ${fmtInt(s.counts.problems)} 题`,
+    rating: s.rating === null ? '—' : String(s.rating),
+    color: s.rating === null ? undefined : rankColorFor(s.rating, id),
+    unset: false,
+    dot: s.status,
+    tip,
   };
 }
 
@@ -78,17 +126,15 @@ export function SourceTabs({ current, status, onSelect, tabRefs }: Props) {
   return (
     <div className="srctabs" role="tablist" aria-label="数据源切换" onKeyDown={onKeyDown}>
       {ORDER.map((id) => {
-        const src = id === 'xcpc' ? null : status?.sources[id as SyncSourceId];
-        const unset = id === 'xcpc' || !src?.configured;
-        const rating = src?.rating ?? null;
-        const tip = tipOf(status, id);
+        const view = id === 'xcpc' ? xcpcView(status) : syncView(status, id);
+        const tip = view.tip;
         return (
           <button
             key={id}
             ref={(el) => {
               tabRefs.current[id] = el;
             }}
-            className={`srctab pf-${id}${unset ? ' is-unset' : ''}`}
+            className={`srctab pf-${id}${view.unset ? ' is-unset' : ''}`}
             role="tab"
             aria-selected={current === id}
             aria-controls={`content-${id}`}
@@ -102,11 +148,10 @@ export function SourceTabs({ current, status, onSelect, tabRefs }: Props) {
             onClick={() => onSelect(id)}
           >
             <span className="srctab__name">{SOURCE_NAME[id]}</span>
-            <span className="srctab__rating" style={rating === null ? undefined : { color: rankColorFor(rating, id as SyncSourceId) }}>
-              {rating === null ? '—' : rating}
+            <span className="srctab__rating" style={view.color === undefined ? undefined : { color: view.color }}>
+              {view.rating}
             </span>
-            {id === 'xcpc' ? <span className="srctab__pending">待接入</span> : null}
-            <i className={`dot ${DOT[src?.status ?? 'idle']}`} />
+            <i className={`dot ${DOT[view.dot]}`} />
           </button>
         );
       })}

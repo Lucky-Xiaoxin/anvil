@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { rankColorFor, type StatusDto, type SyncSourceId, type SyncStatesDto } from '@anvil/shared';
+import { rankColorFor, type SourceId, type StatusDto, type SyncSourceId, type SyncStatesDto, type XcpcProfileDto } from '@anvil/shared';
 import { ApiError, saveHandles, SOURCE_NAME } from '../api.ts';
 import { fmtInt, fullStamp, messageOf, relativeTime } from '../format.ts';
+import { snapshotDate, snapshotDaysAgo } from './xcpc/derive.ts';
+import { XcpcPicker } from './xcpc/XcpcClaim.tsx';
 import { Icon } from './ui.tsx';
 
 const KEYS: Record<SyncSourceId, 'cfHandle' | 'atHandle'> = { cf: 'cfHandle', at: 'atHandle' };
@@ -16,10 +18,15 @@ const STATE_TEXT: Record<string, string> = {
 interface Props {
   status: StatusDto;
   states: SyncStatesDto | null;
-  busy: Record<SyncSourceId, boolean>;
+  busy: Record<SourceId, boolean>;
+  /** 场数与奖牌只在档案里，status 不带 */
+  xcpc: XcpcProfileDto | null;
   onStatus: (status: StatusDto) => void;
   /** 起跑并轮询到落定 */
   onRun: (source: SyncSourceId) => Promise<void>;
+  /** XCPC 的「同步」= 拉快照 */
+  onRunXcpc: () => Promise<void>;
+  onClaimed: (profile: XcpcProfileDto) => void;
 }
 
 function Row({ source, status, states, busy, onStatus, onRun }: Props & { source: SyncSourceId }) {
@@ -146,7 +153,95 @@ function Row({ source, status, states, busy, onStatus, onRun }: Props & { source
   );
 }
 
-/** 设置页两行：CF / AT，各含 handle 输入、校验、源状态、上次同步、单源同步按钮（docs/09 §3.2） */
+/** 设置页的 XCPC 行：认领态 + 行内搜索换人，同款搜索组件（docs/14 §1.4 / §5.5） */
+function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
+  const x = status.xcpc;
+  const [open, setOpen] = useState(false);
+  const running = busy.xcpc;
+  const days = snapshotDaysAgo(x.snapshotAt);
+
+  return (
+    <div className="srcrow">
+      <div className="srcrow__head">
+        <i className={`dot ${DOT[x.status] ?? 'dot--idle'}`} />
+        <span className="srcrow__name">{SOURCE_NAME.xcpc}</span>
+        {x.officialRating !== null ? (
+          <span className="srcrow__meta" style={{ color: 'var(--pf-xcpc)' }}>
+            {fmtInt(Math.round(x.officialRating))}
+          </span>
+        ) : null}
+        <span className="srcrow__spacer" />
+        <button
+          className={`btn btn--sm${running ? ' is-busy' : ''}`}
+          disabled={!x.claimed || running}
+          title={x.claimed ? undefined : '认领后才能拉快照'}
+          onClick={() => void onRunXcpc()}
+        >
+          <Icon id="i-sync" />
+          {running ? '拉取中…' : '同步本源'}
+        </button>
+      </div>
+
+      <div className="field__row" style={{ alignItems: 'center' }}>
+        <span className="setrow__v">
+          {x.claimed && xcpc !== null ? (
+            <>
+              当前档案 <code>{xcpc.player.key}</code>
+              <span className="mute"> · {xcpc.player.contests} 场</span>
+            </>
+          ) : x.claimed ? (
+            <>
+              当前档案 <code>{x.key}</code>
+            </>
+          ) : (
+            <>
+              未认领<span className="mute"> · 搜姓名或学校</span>
+            </>
+          )}
+        </span>
+        <button className="btn btn--sm" style={{ marginLeft: 'auto', flex: '0 0 auto' }} onClick={() => setOpen((v) => !v)}>
+          <Icon id={open ? 'i-x' : 'i-search'} />
+          {open ? '收起' : x.claimed ? '搜索换人' : '搜索认领'}
+        </button>
+      </div>
+
+      {open ? (
+        <div className="setpanel">
+          <XcpcPicker
+            ariaLabel="搜索 XCPC 选手"
+            swapHint="重名不特殊处理 · 候选里对照学校"
+            onClaimed={(profile) => {
+              onClaimed(profile);
+              setOpen(false);
+            }}
+          />
+        </div>
+      ) : null}
+
+      <div className="srcrow__meta">
+        <span>{x.claimed ? (STATE_TEXT[x.status] ?? '未同步过') : '未认领档案'}</span>
+        <span>·</span>
+        <span>
+          数据版本 <b>{snapshotDate(x.snapshotAt)}</b>
+          {days === null ? '' : `（生成 ${days} 天前）`}
+        </span>
+        <span>·</span>
+        <span>
+          上次同步 <b>{x.fetchedAt === null ? '从未' : `${relativeTime(x.fetchedAt)}（${fullStamp(x.fetchedAt)}）`}</b>
+        </span>
+      </div>
+
+      {x.status === 'down' && x.error !== null && !running ? (
+        <div className="alert alert--err">
+          <Icon id="i-x" />
+          <div>{x.error}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 设置页三行：CF / AT 各含 handle 校验与单源同步，XCPC 是认领 + 拉快照（docs/14 §1.4） */
 export function Settings(props: Props) {
   return (
     <div className="content" style={{ maxWidth: 760 }}>
@@ -154,6 +249,7 @@ export function Settings(props: Props) {
         <div className="srcrows">
           <Row source="cf" {...props} />
           <Row source="at" {...props} />
+          <XcpcRow {...props} />
         </div>
         <p className="footnote" style={{ marginTop: 'var(--sp-2)', borderTop: '1px solid var(--line-soft)', paddingTop: 'var(--sp-2)' }}>
           时区口径：Asia/Shanghai（固定）
