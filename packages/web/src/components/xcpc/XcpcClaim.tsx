@@ -24,10 +24,9 @@ interface PickerProps {
   hint?: string;
   /** 有档案时换人的提醒 */
   swapHint?: string;
-  autoFocus?: boolean;
 }
 
-export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, autoFocus = false }: PickerProps) {
+export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint }: PickerProps) {
   const [q, setQ] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [results, setResults] = useState<XcpcSearchRow[]>([]);
@@ -100,12 +99,10 @@ export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, autoF
           aria-label={ariaLabel}
           autoComplete="off"
           spellCheck={false}
-          autoFocus={autoFocus}
           onChange={(e) => {
             setQ(e.target.value);
             setPicked(null);
-            if (phase === 'confirm') setPhase('results');
-            if (phase === 'done') setPhase('results');
+            if (phase === 'confirm' || phase === 'done') setPhase('results');
           }}
         />
       </div>

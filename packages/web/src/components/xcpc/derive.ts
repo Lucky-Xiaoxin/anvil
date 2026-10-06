@@ -3,15 +3,14 @@
  * 最佳名次 / 跨度 / delta / 年份分组 / 百分位格式都留在这里，纯函数便于单测。
  */
 import type { XcpcHistoryRow, XcpcMedals, XcpcMetal, XcpcPlayerDto, XcpcTier } from '@anvil/shared';
+import { XCPC_METALS, XCPC_TIERS } from '@anvil/shared';
 
-export const TIER_ORDER: readonly XcpcTier[] = ['final', 'regional', 'invitational', 'provincial'];
 export const TIER_NAME: Record<XcpcTier, string> = {
   final: '决赛',
   regional: '区域赛',
   invitational: '邀请赛',
   provincial: '省赛',
 };
-export const METAL_ORDER: readonly XcpcMetal[] = ['gold', 'silver', 'bronze'];
 export const METAL_NAME: Record<XcpcMetal, string> = { gold: '金', silver: '银', bronze: '铜' };
 
 /** 单 tier 超过 12 枚就折：渲染前 12 枚 + 「+N」计数 chip（docs/14 §5.3） */
@@ -97,12 +96,12 @@ export interface MedalRow {
 
 export function medalRows(medals: XcpcMedals): MedalRow[] {
   const rows: MedalRow[] = [];
-  for (const tier of TIER_ORDER) {
+  for (const tier of XCPC_TIERS) {
     const bucket = medals[tier];
     if (bucket === undefined) continue;
     const expanded: MedalDisc[] = [];
     let total = 0;
-    for (const metal of METAL_ORDER) {
+    for (const metal of XCPC_METALS) {
       const n = bucket[metal] ?? 0;
       if (n <= 0) continue;
       total += n;

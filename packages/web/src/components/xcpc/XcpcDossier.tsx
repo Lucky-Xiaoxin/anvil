@@ -38,9 +38,6 @@ const fmt = (n: number | null | undefined): string =>
 
 const ROUND = ' · ';
 
-/** 涨蓝跌琥珀的读法与 CF / AT 的曲线一致 */
-const tone = (delta: number | null): number => (delta === null ? 0 : delta);
-
 /** 分一律取整显示，差值也一样 —— 上游是浮点，直接减会读出 −40.99999999999985 */
 const deltaText = (delta: number | null): string | undefined => (delta === null ? undefined : signedDelta(Math.round(delta)));
 
@@ -421,7 +418,8 @@ function ridgeGeometry(tl: Timeline, W: number) {
 
   const marks = tl.rated.map((p) => ({ index: p.index, x: X(p.index), y: Y(p.rating ?? 0), up: isUp(p.delta) }));
   const pins = tl.points.filter((p) => p.rating === null).map((p) => ({ index: p.index, x: X(p.index) }));
-  const hits = tl.points.map((p) => ({ index: p.index, x: X(p.index) - span / 2, w: span || W - PL - PR }));
+  const colW = N > 1 ? span : W - PL - PR;
+  const hits = tl.points.map((p) => ({ index: p.index, x: N > 1 ? X(p.index) - span / 2 : PL, w: colW }));
 
   // x 刻度四枚：第 1 / ⌈N/3⌉ / ⌈2N/3⌉ / N 场（docs/14 §5.3，按 1 起的场次序号）
   const axis: number[] = [];
@@ -624,7 +622,7 @@ function FragmentChapter({
             ) : (
               <>
                 <b className="num">{fmt(row.ratingAfter)}</b>
-                {point.delta === null ? null : <Delta text={deltaText(point.delta)} tone={tone(point.delta)} />}
+                {point.delta === null ? null : <Delta text={deltaText(point.delta)} tone={point.delta ?? 0} />}
               </>
             )}
           </td>
@@ -707,7 +705,7 @@ export function XcpcDossier({ profile, status, firstPaint, notice, onSync }: Pro
             </span>
           </div>
           <Ridge tl={tl} animate={animate} />
-          <div className="sect__foot">悬停看日期与名次</div>
+          {tl.rated.length === 0 ? null : <div className="sect__foot">悬停看日期与名次</div>}
         </section>
 
         <Banners player={player} />

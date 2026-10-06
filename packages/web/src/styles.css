@@ -561,7 +561,6 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .sect{padding:26px 38px 30px;border-top:1px solid var(--line-soft)}
 .sect__h{display:flex;align-items:baseline;gap:14px;min-width:0}
 .sect__t{font-size:16px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
-.sect__c{font-size:14px;font-weight:600}
 .sect__rule{flex:1 1 auto;height:1px;background:linear-gradient(90deg,var(--line),rgba(34,42,54,.15));align-self:center;margin-top:2px}
 .sect__foot{margin-top:12px;font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
 

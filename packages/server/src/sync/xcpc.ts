@@ -4,6 +4,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { XCPC_METALS, XCPC_TIERS } from '@anvil/shared';
 import type {
   SourceState,
   XcpcHistoryRow,
@@ -40,20 +41,19 @@ const USER_AGENT = 'ANVIL/1.0 (personal ICPC training dashboard)';
 /** 站点 hay 的分隔符：一个不会出现在姓名 / 校名里的控制字符，免得跨字段假命中 */
 const HAY_SEP = '\x01';
 
-export const TIERS: readonly XcpcTier[] = ['final', 'regional', 'invitational', 'provincial'];
-export const METALS: readonly XcpcMetal[] = ['gold', 'silver', 'bronze'];
-
 export type XcpcErrorKind = 'not-found' | 'unavailable' | 'busy';
 
+/**
+ * 只带一句人话：界面把它直接当降级条的第二行显示，所以消息里不放主机名与路径，
+ * 也不重复「XCPC 快照暂不可达」——那句话由界面自己说。
+ */
 export class XcpcError extends Error {
   readonly kind: XcpcErrorKind;
-  readonly detail: string;
 
-  constructor(kind: XcpcErrorKind, message: string, detail = '') {
+  constructor(kind: XcpcErrorKind, message: string) {
     super(message);
     this.name = 'XcpcError';
     this.kind = kind;
-    this.detail = detail;
   }
 }
 
@@ -66,13 +66,13 @@ function readJson(text: string, what: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    throw new XcpcError('unavailable', '快照返回的不是 JSON', what);
+    throw new XcpcError('unavailable', '快照返回的不是 JSON');
   }
 }
 
 /* ---------- 分桶 / 分片键 ---------- */
 
-export function md5hex(input: string): string {
+function md5hex(input: string): string {
   return createHash('md5').update(input, 'utf8').digest('hex');
 }
 
@@ -156,7 +156,7 @@ function str(input: unknown): string {
 /** 上游只有四档 tier，实测存在缺失行；没见过的值不硬套一档，交回 null → 界面「—」 */
 function tierOf(input: unknown): XcpcTier | null {
   const v = str(input);
-  return (TIERS as readonly string[]).includes(v) ? (v as XcpcTier) : null;
+  return (XCPC_TIERS as readonly string[]).includes(v) ? (v as XcpcTier) : null;
 }
 
 /**
@@ -199,11 +199,11 @@ function toMedals(raw: unknown): XcpcMedals {
   const out: XcpcMedals = {};
   if (typeof raw !== 'object' || raw === null) return out;
   const buckets = raw as Record<string, unknown>;
-  for (const tier of TIERS) {
+  for (const tier of XCPC_TIERS) {
     const bucket = buckets[tier];
     if (typeof bucket !== 'object' || bucket === null) continue;
     const counts: Partial<Record<XcpcMetal, number>> = {};
-    for (const metal of METALS) {
+    for (const metal of XCPC_METALS) {
       const n = (bucket as Record<string, unknown>)[metal];
       if (typeof n === 'number' && Number.isFinite(n) && n > 0) counts[metal] = Math.floor(n);
     }
@@ -281,14 +281,14 @@ export class XcpcClient {
       }
       if (attempt >= MAX_RETRIES) {
         // 只报原因，不报主机名 —— 界面要把这句直接当第二行显示（docs/14 §5.5）
-        throw new XcpcError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`, url);
+        throw new XcpcError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`);
       }
     }
   }
 
   private async jsonAt(path: string, timeoutMs: number): Promise<unknown> {
     const res = await this.send(path, timeoutMs);
-    if (res.status === 404) throw new XcpcError('not-found', '快照里没有这个文件', path);
+    if (res.status === 404) throw new XcpcError('not-found', '快照里没有这个文件');
     return readJson(res.text, path);
   }
 
@@ -296,7 +296,7 @@ export class XcpcClient {
   async meta(): Promise<{ generatedAt: string }> {
     const raw = (await this.jsonAt('meta.json', SEARCH_TIMEOUT_MS)) as { generatedAt?: unknown };
     const generatedAt = str(raw?.generatedAt);
-    if (generatedAt === '') throw new XcpcError('unavailable', '快照的 meta.json 没有 generatedAt', 'meta.json');
+    if (generatedAt === '') throw new XcpcError('unavailable', '快照的 meta.json 没有 generatedAt');
     return { generatedAt };
   }
 
@@ -345,7 +345,7 @@ export class XcpcClient {
   async playerDetail(key: string): Promise<unknown> {
     const shard = await this.shard(shardOf(key));
     const detail = shard[key];
-    if (detail === undefined) throw new XcpcError('not-found', '快照里没有这个档案', key);
+    if (detail === undefined) throw new XcpcError('not-found', '快照里没有这个档案');
     return detail;
   }
 
@@ -441,7 +441,7 @@ export async function claimXcpc(store: XcpcStore, client: XcpcClient, key: strin
       client.officialTotal(),
     ]);
     const player = toPlayerDto(detail);
-    if (player === null) throw new XcpcError('unavailable', '这个档案读不出结构', key);
+    if (player === null) throw new XcpcError('unavailable', '这个档案读不出结构');
     const now = stamp();
     replaceXcpcPlayer(store.db, {
       key,
@@ -471,7 +471,7 @@ export async function refreshXcpc(store: XcpcStore, client: XcpcClient): Promise
     const stored = loadXcpcPlayer(db);
     const current = stored === null ? null : toProfile(stored);
     // 认领标记还在、行却读不出来（手工动过 vault）：按没认领过对待，别拿半截数据刷新
-    if (stored === null || current === null) throw new XcpcError('not-found', '还没有认领 XCPC 档案', 'xcpc_players');
+    if (stored === null || current === null) throw new XcpcError('not-found', '还没有认领 XCPC 档案');
     let meta: { generatedAt: string };
     try {
       meta = await client.meta();

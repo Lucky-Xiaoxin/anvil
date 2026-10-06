@@ -162,6 +162,13 @@ export type XcpcTier = 'final' | 'regional' | 'invitational' | 'provincial';
 
 export type XcpcMetal = 'gold' | 'silver' | 'bronze';
 
+/**
+ * tier 与金属的固定序：荣誉陈列的行序、勋章的摆序、medals 桶的归一化都读这两张表。
+ * 契约口径（docs/14 §2.3 / §5.3），服务端与前端共用一份，免得两边各写一遍走岔。
+ */
+export const XCPC_TIERS: readonly XcpcTier[] = ['final', 'regional', 'invitational', 'provincial'];
+export const XCPC_METALS: readonly XcpcMetal[] = ['gold', 'silver', 'bronze'];
+
 /** 搜索分片的一行（docs/14 §2 紧凑行 `[key,name,org,contests]`） */
 export interface XcpcSearchRow {
   key: string;
