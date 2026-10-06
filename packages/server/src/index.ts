@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import Fastify from 'fastify';
-import { dbFile, loadConfig, portOf, saveHandles, webDistDir } from './config.ts';
+import { dbFile, loadConfig, portOf, saveHandles, saveXcpcPlayerKey, webDistDir } from './config.ts';
 import { openDatabase } from './db.ts';
 import { registerApi } from './api.ts';
 import { registerStatic } from './static.ts';
@@ -8,6 +8,7 @@ import { AtClient, createAtSource } from './sync/at.ts';
 import { CfClient } from './sync/cf.ts';
 import { createCfSource } from './sync/job.ts';
 import { initSnapshot } from './sync/runner.ts';
+import { XcpcClient } from './sync/xcpc.ts';
 
 const config = loadConfig();
 const db = openDatabase(dbFile());
@@ -25,6 +26,12 @@ registerApi(app, {
     return { cf: c.cfHandle, at: c.atHandle };
   },
   setHandles: (patch) => saveHandles(patch),
+  xcpc: {
+    db,
+    getKey: () => loadConfig().xcpcPlayerKey,
+    setKey: (key) => saveXcpcPlayerKey(key),
+    client: new XcpcClient(),
+  },
 });
 // `npm run dev` 会把这个置 0：开发时前端走 Vite(5173) + 代理，别再让 7788 顺带发一份
 // 可能已经过期的 packages/web/dist —— 否则很容易对着旧 bundle 调 bug

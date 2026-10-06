@@ -1,9 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
-import { dayKeyOf, type AcEvent, type RatingRow, type SyncSourceId } from '@anvil/shared';
+import { dayKeyOf, type AcEvent, type RatingRow, type SourceId, type SyncSourceId } from '@anvil/shared';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
-/** v2 形状：submissions 加 source 列、主键改 (source, id)；rating_history 整体 source 化（docs/09 §3.1） */
+/** v3 增量：只加 xcpc_players 一张表（docs/14 §3）—— v2 库直接补表，老表与老数据不动 */
 const DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS submissions (
@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS rating_history (
   performance INTEGER,
   updated_ts INTEGER,
   PRIMARY KEY (source, contest_key)
+);
+CREATE TABLE IF NOT EXISTS xcpc_players (
+  key TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  snapshot_at TEXT,
+  rank_total INTEGER,
+  fetched_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sync_state (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 `;
@@ -66,8 +73,8 @@ export interface RatingInput {
   updatedTs: number;
 }
 
-/** sync_state 键按源命名：`cf:last_sync_at`、`at:last_sync_at`（docs/09 §3.1） */
-export function syncKey(source: SyncSourceId, name: string): string {
+/** sync_state 键按源命名：`cf:last_sync_at`、`at:last_sync_at`、`xcpc:last_sync_at`（docs/09 §3.1 / docs/14 §4） */
+export function syncKey(source: SourceId, name: string): string {
   return `${source}:${name}`;
 }
 
@@ -96,6 +103,7 @@ function isV1RatingHistory(db: DatabaseSync): boolean {
 /**
  * v1 → v2：事务内重建两张表，CF 行按 §3.1 的规则落进新形状。
  * 幂等 —— 已经迁过的库（有 source 列）不再进重建分支，重复调用不炸、数据不动。
+ * v2 → v3 是纯增量：`CREATE TABLE IF NOT EXISTS` 补一张 xcpc_players，重建分支与老数据一概不动。
  */
 export function initSchema(db: DatabaseSync): void {
   db.exec('PRAGMA journal_mode = WAL;');
@@ -389,4 +397,48 @@ export function setSyncState(db: DatabaseSync, key: string, value: string): void
 export function getSyncState(db: DatabaseSync, key: string): string | null {
   const row = db.prepare('SELECT v FROM sync_state WHERE k = ?').get(key) as { v: string } | undefined;
   return row?.v ?? null;
+}
+
+/* ---------- XCPC（切片 3 · docs/14 §3）：PlayerDetail 整存 JSON 文本，读时再映射 DTO ---------- */
+
+export interface XcpcStoredPlayer {
+  key: string;
+  /** PlayerDetail 原样 JSON 文本 */
+  payload: string;
+  /** meta.json 的 generatedAt；取不到 → NULL */
+  snapshotAt: string | null;
+  /** leaderboards/official/meta.json 的 total；取不到 → NULL → 界面 — */
+  rankTotal: number | null;
+  /** 本地拉取时刻（epoch 秒） */
+  fetchedAt: number;
+}
+
+/**
+ * 单档案语义：claim / refresh 都是「清掉 xcpc 域再写这一行」，同一个事务里完成。
+ * 表按 key 建成是为了将来多人档案能直接扩展；当前只保一份。
+ */
+export function replaceXcpcPlayer(db: DatabaseSync, row: XcpcStoredPlayer): void {
+  withTransaction(db, () => {
+    db.prepare('DELETE FROM xcpc_players').run();
+    db
+      .prepare('INSERT INTO xcpc_players (key, payload, snapshot_at, rank_total, fetched_at) VALUES (?,?,?,?,?)')
+      .run(row.key, row.payload, row.snapshotAt, row.rankTotal, row.fetchedAt);
+  });
+}
+
+export function loadXcpcPlayer(db: DatabaseSync): XcpcStoredPlayer | null {
+  const row = db
+    .prepare(
+      `SELECT key AS key, payload AS payload, snapshot_at AS snapshotAt, rank_total AS rankTotal, fetched_at AS fetchedAt
+         FROM xcpc_players LIMIT 1`,
+    )
+    .get() as { key: string; payload: string; snapshotAt: string | null; rankTotal: number | null; fetchedAt: number } | undefined;
+  if (!row) return null;
+  return {
+    key: String(row.key),
+    payload: String(row.payload),
+    snapshotAt: row.snapshotAt === null ? null : String(row.snapshotAt),
+    rankTotal: row.rankTotal === null ? null : Number(row.rankTotal),
+    fetchedAt: Number(row.fetchedAt),
+  };
 }

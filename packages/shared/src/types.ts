@@ -1,4 +1,4 @@
-/** 接口契约（docs/09 §4，继承 docs/04 §4.4）：字段名与视觉基线的 data-bind 一一对应。 */
+/** 接口契约（docs/09 §4，继承 docs/04 §4.4；XCPC 段见 docs/14 §2/§4）：字段名与视觉基线的 data-bind 一一对应。 */
 
 export type SyncSourceId = 'cf' | 'at';
 
@@ -32,6 +32,8 @@ export interface StatusDto {
   lastSyncAt: number | null;
   counts: { submissions: number; problems: number };
   sources: Record<SyncSourceId, SourceStatusDto>;
+  /** XCPC 走认领而非 handle，不进 `sources`（它没有提交粒度、也不跑 /api/sync runner） */
+  xcpc: XcpcStatusDto;
 }
 
 export type SyncPhase = 'idle' | 'fetching' | 'storing' | 'done' | 'error';
@@ -150,4 +152,89 @@ export interface RatingRow {
   /** 非 rated 上游给 0 → 转 null */
   performance: number | null;
   updatedTs: number;
+}
+
+/* ==========================================================================
+   XCPC（切片 3 · docs/14）—— 选手档案走社区快照，不进 CF/AT 那套提交/rating 表
+   ========================================================================== */
+
+export type XcpcTier = 'final' | 'regional' | 'invitational' | 'provincial';
+
+export type XcpcMetal = 'gold' | 'silver' | 'bronze';
+
+/** 搜索分片的一行（docs/14 §2 紧凑行 `[key,name,org,contests]`） */
+export interface XcpcSearchRow {
+  key: string;
+  name: string;
+  org: string;
+  contests: number;
+}
+
+/** 聚合奖牌桶：零奖牌 tier 上游整个省略，无奖牌者整字段省略 → 读时 defensive */
+export type XcpcMedals = Partial<Record<XcpcTier, Partial<Record<XcpcMetal, number>>>>;
+
+/**
+ * 逐场一行，服务端只做完官方单口径映射（docs/14 §4）：
+ * `rank/teams/rankPercent/perf/ratingAfter` 取的是 `*Official` 套装，打星场（`star`）整组为 null。
+ * 数值原样给 —— 取整与百分比格式都是前端的显示口径。
+ */
+export interface XcpcHistoryRow {
+  contestId: string;
+  title: string;
+  /** 上游原样 +08:00 ISO 串；日期取前 10 位，不做时区换算 */
+  startAt: string;
+  teamName: string;
+  tier: XcpcTier;
+  solved: number;
+  star: boolean;
+  rank: number | null;
+  teams: number | null;
+  rankPercent: number | null;
+  perf: number | null;
+  ratingAfter: number | null;
+  /** 罚时比 / 首 A / 末小时：非官方榜字段，打星行照给 */
+  dirt: number | null;
+  firstATime: number | null;
+  lastHourSolved: number | null;
+}
+
+export interface XcpcPlayerDto {
+  key: string;
+  name: string;
+  org: string;
+  contests: number;
+  /** 官方榜口径读数；当前分显示的是 officialRating 取整 */
+  officialRating: number;
+  officialRank: number;
+  medals: XcpcMedals;
+  /** 升序（上游即升序） */
+  history: XcpcHistoryRow[];
+}
+
+/** 档案载荷：GET /api/xcpc、claim 成功、refresh 成功三处共用（docs/14 §4） */
+export interface XcpcProfileDto {
+  player: XcpcPlayerDto;
+  /** 上游 meta.json 的 generatedAt 原样串；展示取日期部分 */
+  snapshotAt: string | null;
+  /** 本地拉取时刻（epoch 秒）；与「数据版本」分开记、分开显 */
+  fetchedAt: number | null;
+  /** 官方榜分母；取不到 → null → 显示 — */
+  rankTotal: number | null;
+}
+
+/** refresh 载荷：`updated:false` = 快照版本没变，只动了上次同步时刻 */
+export interface XcpcRefreshDto extends XcpcProfileDto {
+  updated: boolean;
+  status: SourceState;
+}
+
+/** XCPC 的源读数：`fetchedAt`/`snapshotAt` 两钟口径 separate（docs/14 §2.4） */
+export interface XcpcStatusDto {
+  claimed: boolean;
+  key: string | null;
+  officialRating: number | null;
+  snapshotAt: string | null;
+  fetchedAt: number | null;
+  status: SourceState;
+  error: string | null;
 }
