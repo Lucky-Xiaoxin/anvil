@@ -1,4 +1,13 @@
-import type { DashboardDto, SourceId, StatusDto, SyncSourceId, SyncStatesDto } from '@anvil/shared';
+import type {
+  DashboardDto,
+  SourceId,
+  StatusDto,
+  SyncSourceId,
+  SyncStatesDto,
+  XcpcProfileDto,
+  XcpcRefreshDto,
+  XcpcSearchRow,
+} from '@anvil/shared';
 
 export class ApiError extends Error {
   readonly kind: string;
@@ -46,6 +55,24 @@ export const getSyncStates = (): Promise<SyncStatesDto> => request<SyncStatesDto
 export const saveHandles = (patch: { cfHandle?: string; atHandle?: string }): Promise<StatusDto> =>
   request<StatusDto>('/api/config', post(patch));
 export const startSync = (source: SyncSourceId): Promise<SyncStatesDto> => request<SyncStatesDto>('/api/sync', post({ source }));
+
+/** 未认领是正常态而非故障，404 在这里折成 null，不进错误提示条 */
+export async function getXcpc(): Promise<XcpcProfileDto | null> {
+  try {
+    return await request<XcpcProfileDto>('/api/xcpc');
+  } catch (err) {
+    if (err instanceof ApiError && err.kind === 'unclaimed') return null;
+    throw err;
+  }
+}
+
+export const searchXcpc = (q: string): Promise<{ results: XcpcSearchRow[] }> =>
+  request<{ results: XcpcSearchRow[] }>(`/api/xcpc/search?q=${encodeURIComponent(q)}`);
+
+export const claimXcpc = (key: string): Promise<XcpcProfileDto> => request<XcpcProfileDto>('/api/xcpc/claim', post({ key }));
+
+/** 拉快照 = 比版本后按需重拉，单请求往返，不走 /api/sync 的 runner */
+export const refreshXcpc = (): Promise<XcpcRefreshDto> => request<XcpcRefreshDto>('/api/xcpc/refresh', post({}));
 
 /** 源显示名：tab 条、顶栏按钮与错误文案共用一份 */
 export const SOURCE_NAME: Record<SourceId, string> = { cf: 'Codeforces', at: 'AtCoder', xcpc: 'XCPC' };

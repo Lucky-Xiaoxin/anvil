@@ -7,8 +7,9 @@ import type {
   SyncSourceId,
   SyncStateDto,
   SyncStatesDto,
+  XcpcProfileDto,
 } from '@anvil/shared';
-import { getDashboard, getSyncStates, getStatus, startSync } from './api.ts';
+import { getDashboard, getSyncStates, getStatus, getXcpc, refreshXcpc, startSync } from './api.ts';
 import { messageOf, sleep } from './format.ts';
 import { FLY, flyIn, flyNodes, flyOut, flySkipped } from './fly.ts';
 import { AppShell, type View } from './components/AppShell.tsx';
@@ -19,12 +20,13 @@ import {
   LockedVp,
   NoticeBar,
   Unconfigured,
-  XcpcPlaceholder,
   type Notice,
 } from './components/Dashboard.tsx';
 import { Settings } from './components/Settings.tsx';
 import { SourceTabs } from './components/SourceTabs.tsx';
 import { Wizard } from './components/Wizard.tsx';
+import { XcpcClaim } from './components/xcpc/XcpcClaim.tsx';
+import { XcpcDossier } from './components/xcpc/XcpcDossier.tsx';
 import { decideSwitch } from './switcher.ts';
 
 function viewFromHash(): View {
@@ -43,12 +45,15 @@ const patchStates = (all: SyncStatesDto, id: SyncSourceId, next: SyncStateDto): 
 export function App() {
   const [status, setStatus] = useState<StatusDto | null>(null);
   const [dashes, setDashes] = useState<Partial<Record<SyncSourceId, DashboardDto>>>({});
+  const [xcpc, setXcpc] = useState<XcpcProfileDto | null>(null);
   const [states, setStates] = useState<SyncStatesDto | null>(null);
   const [today, setToday] = useState(() => new Date());
   const [view, setView] = useState<View>(viewFromHash);
-  const [busy, setBusy] = useState<Record<SyncSourceId, boolean>>({ cf: false, at: false });
+  const [busy, setBusy] = useState<Record<SourceId, boolean>>({ cf: false, at: false, xcpc: false });
   const [delta, setDelta] = useState<{ source: SyncSourceId; stored: number } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** 认领成功后停在完成条上，等用户点「看档案」再切长卷 */
+  const [claiming, setClaiming] = useState(false);
 
   /** 真的挂在屏上的源；切换过程中它还是旧屏 */
   const [shown, setShown] = useState<SourceId>('cf');
@@ -78,9 +83,10 @@ export function App() {
   const refresh = useCallback(async () => {
     try {
       const s = await getStatus();
-      const [cf, at] = await Promise.all([getDashboard('cf'), getDashboard('at')]);
+      const [cf, at, x] = await Promise.all([getDashboard('cf'), getDashboard('at'), getXcpc()]);
       setStatus(s);
       setDashes({ cf, at });
+      setXcpc(x);
       setToday(new Date());
       setNotice(null);
     } catch (err) {
@@ -91,6 +97,42 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * XCPC 的「同步」= 拉快照（比版本后按需重拉），单请求往返、没有进度可报，
+   * 所以它不进 /api/sync 的 runner（docs/14 §4）。提示条放在 refresh 之后落，
+   * 免得被 refresh 清旧提示的那一步顺手抹掉。
+   */
+  const runXcpcRefresh = useCallback(async (): Promise<void> => {
+    if (busy.xcpc) return;
+    setBusy((b) => ({ ...b, xcpc: true }));
+    setNotice(null);
+    let next: Notice | null = null;
+    try {
+      const { updated, player, snapshotAt, fetchedAt, rankTotal } = await refreshXcpc();
+      setXcpc({ player, snapshotAt, fetchedAt, rankTotal });
+      next = { kind: 'ok', text: updated ? '已拉到新版快照' : '社区快照仍是这一版 · 数据没变' };
+    } catch (err) {
+      next = { kind: 'err', text: `${messageOf(err)} · 本地缓存的档案照旧显示` };
+    } finally {
+      await refresh();
+      setBusy((b) => ({ ...b, xcpc: false }));
+      setNotice(next);
+    }
+  }, [busy.xcpc, refresh]);
+
+  /**
+   * 认领 / 换人成功：档案立刻进屏，状态点与侧栏读数跟着 refresh。
+   * `goDossier` 只在建领屏用 —— 停在完成条上等「看档案」；设置页换人就地完成。
+   */
+  const onClaimed = useCallback(
+    (profile: XcpcProfileDto, goDossier: boolean) => {
+      setXcpc(profile);
+      setClaiming(goDossier);
+      void refresh();
+    },
+    [refresh],
+  );
 
   /** 同步按源起跑：谁在跑只锁谁，AT 挂了不碍着 CF */
   const runSync = useCallback(
@@ -149,7 +191,11 @@ export function App() {
      * （Edge 的调度时机不同所以看不到）。`flushSync` 让 setShown 与随之而来的
      * `useLayoutEffect` 在同一个任务内跑完，任何浏览器都没机会插进这一帧。
      */
-    flushSync(() => setShown(to));
+    flushSync(() => {
+      // 离开 XCPC 屏就把认领完成条收掉，下次回来直接落长卷
+      if (to !== 'xcpc') setClaiming(false);
+      setShown(to);
+    });
   };
 
   /**
@@ -257,20 +303,46 @@ export function App() {
           status={status}
           states={states}
           busy={busy}
+          xcpc={xcpc}
           onStatus={setStatus}
           onRun={async (source) => {
             await runSync(source);
           }}
+          onRunXcpc={async () => {
+            await runXcpcRefresh();
+          }}
+          onClaimed={(p) => onClaimed(p, false)}
         />
       );
     }
     /*
-     * XCPC 的判定必须在「一个 handle 都没配」之前：XCPC 屏是占位屏，与有没有 handle 无关。
+     * XCPC 的判定必须在「一个 handle 都没配」之前：这一屏走认领、不走 handle，CF / AT 配没配与它无关。
      * 原先这条在下面，导致没配 handle 时点 XCPC / AT 也走 ColdStart，而 ColdStart 的面板 id
      * 写死 content-cf —— 飞出的卡落地时 `nodeOf(shown)` 取不到节点，于是没有飞入、没有焦点交接，
      * 卡还会在飞出段被 cancel 的瞬间弹回原位；`aria-controls` 也指向了不存在的面板。
      */
-    if (active === null) return <XcpcPlaceholder />;
+    if (active === null) {
+      if (status === null) {
+        return (
+          <div className="content" id="content-xcpc" role="tabpanel">
+            {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
+          </div>
+        );
+      }
+      // 没档案、或刚认领完还停在完成条上 → 认领屏；否则就是长卷
+      if (claiming || xcpc === null) {
+        return <XcpcClaim onClaimed={(p) => onClaimed(p, true)} onGoDossier={() => setClaiming(false)} />;
+      }
+      return (
+        <XcpcDossier
+          profile={xcpc}
+          status={status.xcpc}
+          firstPaint={!seenRef.current.has('xcpc')}
+          notice={notice}
+          onSync={() => void runXcpcRefresh()}
+        />
+      );
+    }
     if (status && !status.sources.cf.configured && !status.sources.at.configured) {
       return (
         <ColdStart
@@ -321,10 +393,12 @@ export function App() {
       onNavigate={navigate}
       status={status}
       source={shown}
-      busy={active ? busy[active] : false}
+      xcpc={xcpc}
+      busy={busy[shown]}
       delta={delta && active && delta.source === active ? delta.stored : null}
       onSync={() => {
         if (active) void runSync(active);
+        else void runXcpcRefresh();
       }}
       tabs={tabs}
     >

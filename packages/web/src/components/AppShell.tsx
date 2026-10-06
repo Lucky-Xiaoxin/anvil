@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
-import type { SourceId, SourceState, SourceStatusDto, StatusDto } from '@anvil/shared';
+import type { SourceState, SourceStatusDto, StatusDto, SourceId, XcpcProfileDto } from '@anvil/shared';
 import { SOURCE_NAME } from '../api.ts';
 import { fmtInt, relativeTime } from '../format.ts';
+import { medalRows, medalTotal, snapshotDate, snapshotDaysAgo } from './xcpc/derive.ts';
+import { useTip } from '../tip.tsx';
 import { Icon } from './ui.tsx';
 
 export type View = 'dashboard' | 'master' | 'vp' | 'settings';
@@ -20,21 +22,31 @@ interface Props {
   status: StatusDto | null;
   /** 当前挂在屏上的源：顶栏说的、按钮动的都是它 */
   source: SourceId;
+  /** 长卷的场数与奖牌数要从档案里读，status 只带读数不带这些 */
+  xcpc: XcpcProfileDto | null;
   busy: boolean;
-  /** 最近一次同步新增的提交条数 */
+  /** 最近一次同步新增的提交条数；XCPC 没有提交粒度 → null */
   delta: number | null;
   onSync: () => void;
   tabs: ReactNode | null;
   children: ReactNode;
 }
 
-export function AppShell({ view, onNavigate, status, source, busy, delta, onSync, tabs, children }: Props) {
-  const src: SourceStatusDto | null = source === 'xcpc' ? null : (status?.sources[source] ?? null);
-  const configured = src?.configured ?? false;
+export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, onSync, tabs, children }: Props) {
+  const { show, hide } = useTip();
+  const x = status?.xcpc ?? null;
+  const isXcpc = source === 'xcpc';
+  const src: SourceStatusDto | null = isXcpc ? null : (status?.sources[source] ?? null);
+  const claimed = x?.claimed ?? false;
+  /** 「能同步」：CF / AT 看有没有填 handle，XCPC 看有没有认领 */
+  const ready = isXcpc ? claimed : (src?.configured ?? false);
+  const state: SourceState = isXcpc ? (x?.status ?? 'idle') : (src?.status ?? 'idle');
   const dash = view === 'dashboard';
+  const name = x?.key === undefined || x?.key === null ? '' : x.key.split('@')[0] ?? '';
+  const days = snapshotDaysAgo(x?.snapshotAt ?? null);
 
   return (
-    <div className={`app${dash ? ` dash pf-${source}${source === 'xcpc' ? ' is-strong' : ''}` : ''}`}>
+    <div className={`app${dash ? ` dash pf-${source}${isXcpc ? ' is-strong' : ''}` : ''}`}>
       <aside className="nav">
         <div className="brand">
           <Icon id="i-anvil" />
@@ -64,12 +76,25 @@ export function AppShell({ view, onNavigate, status, source, busy, delta, onSync
           </button>
         </div>
         <div className="navfoot">
-          {source === 'xcpc' ? (
-            <>
-              未接入
-              <br />
-              契约 <code>docs/09</code> §9
-            </>
+          {isXcpc ? (
+            claimed ? (
+              <>
+                <b className="num">{fmtInt(xcpc?.player.contests ?? 0)}</b> 场参赛 ·{' '}
+                <b className="num">{xcpc === null ? '—' : medalTotal(medalRows(xcpc.player.medals))}</b> 枚奖牌
+                <br />
+                源 <code>heimaom</code> 社区快照
+                <br />
+                数据版本 <code>{snapshotDate(x?.snapshotAt ?? null)}</code>
+              </>
+            ) : (
+              <>
+                未认领档案
+                <br />
+                源 <code>heimaom</code> 社区快照
+                <br />
+                口径 <code>official</code>
+              </>
+            )
           ) : (
             <>
               <b className="num">{src ? fmtInt(src.counts.submissions) : '—'}</b> 条提交 ·{' '}
@@ -86,22 +111,56 @@ export function AppShell({ view, onNavigate, status, source, busy, delta, onSync
       <div className="main">
         <div className="topbar">
           <h2>{TITLES[view]}</h2>
-          {source === 'xcpc' ? (
-            <span className="chip" style={{ color: 'var(--text-mute)' }}>
-              <i style={{ background: '#39434F' }} />
-              未认领
-            </span>
-          ) : configured ? (
+          {isXcpc ? (
+            claimed ? (
+              <span
+                className="chip"
+                onMouseEnter={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  show({
+                    x: r.left + r.width / 2,
+                    y: r.bottom,
+                    below: true,
+                    zero: false,
+                    date: '档案 key',
+                    value: x?.key ?? '',
+                    valueClass: 'is-dim',
+                    sub: '官方榜口径 · 重名请对照学校',
+                  });
+                }}
+                onMouseLeave={hide}
+              >
+                <i style={{ background: DOT[state] }} />
+                {name}
+              </span>
+            ) : (
+              <span className="chip" style={{ color: 'var(--text-mute)' }}>
+                <i style={{ background: DOT.idle }} />
+                未认领
+              </span>
+            )
+          ) : ready ? (
             <span className="chip">
-              <i style={{ background: DOT[src!.status] }} />@{src?.handle}
+              <i style={{ background: DOT[state] }} />@{src?.handle}
             </span>
           ) : (
             <span className="chip" style={{ color: 'var(--text-mute)' }}>
-              <i style={{ background: '#39434F' }} />
+              <i style={{ background: DOT.idle }} />
               未配置
             </span>
           )}
-          {dash && configured && src ? (
+          {dash && isXcpc && claimed ? (
+            <span className="topbar__meta">
+              <Icon
+                id={busy ? 'i-sync' : state === 'ok' ? 'i-check' : 'i-warn'}
+                style={{ width: 13, height: 13, color: busy ? 'var(--accent)' : state === 'ok' ? 'var(--ok)' : 'var(--warn)' }}
+              />
+              数据版本 <b className="num" style={{ color: 'var(--text-dim)', fontWeight: 600 }}>{snapshotDate(x?.snapshotAt ?? null)}</b>
+              <span className="mute">{days === null ? '' : ` · 生成 ${days} 天前`}</span>
+              <span className="vsep" aria-hidden="true" />
+              上次同步 <b className="num" style={{ color: 'var(--text-dim)', fontWeight: 600 }}>{relativeTime(x?.fetchedAt ?? null)}</b>
+            </span>
+          ) : dash && !isXcpc && ready && src ? (
             <span className="topbar__meta">
               <Icon
                 id={busy ? 'i-sync' : src.status === 'ok' ? 'i-check' : 'i-warn'}
@@ -125,12 +184,13 @@ export function AppShell({ view, onNavigate, status, source, busy, delta, onSync
           {dash ? (
             <button
               className={`btn btn-sync${busy ? ' is-busy' : ''}`}
-              disabled={!configured || busy || source === 'xcpc'}
-              title={source === 'xcpc' ? 'XCPC 本切片不实现同步' : undefined}
+              disabled={!ready || busy}
+              title={!ready && isXcpc ? '认领后才能拉快照' : undefined}
               onClick={onSync}
             >
               <Icon id="i-sync" />
-              {busy ? '拉取中…' : '同步'} <span className="btn-src">{SOURCE_NAME[source]}</span>
+              {busy ? (isXcpc ? '拉取' : '拉取中…') : '同步'} <span className="btn-src">{SOURCE_NAME[source]}</span>
+              {busy && isXcpc ? '…' : null}
             </button>
           ) : null}
         </div>

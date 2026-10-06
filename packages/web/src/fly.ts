@@ -26,8 +26,12 @@ export function legTimes(n: number, leg: 'out' | 'in'): { start: number; duratio
   return Array.from({ length: n }, (_, i) => ({ start: i * p.step, duration: p.dur + i * p.durStep }));
 }
 
-/** 飞行物 = 内容区的直接子卡片：四张统计卡、格子卡 / 曲线卡、以及降级条 */
-const FLY_SELECTOR = ':scope > .grid-4 > .stat, :scope > .card, :scope > .alert';
+/**
+ * 飞行物 = 内容区的直接子卡片：四张统计卡、格子卡 / 曲线卡、降级条；
+ * XCPC 屏两个飞行单元 —— 整卷（.dossier）与认领卡（.stack > .card），docs/14 §5.4。
+ */
+const FLY_SELECTOR =
+  ':scope > .grid-4 > .stat, :scope > .card, :scope > .alert, :scope > .dossier, :scope > .stack > .card';
 
 export const flyNodes = (content: HTMLElement): HTMLElement[] =>
   Array.from(content.querySelectorAll<HTMLElement>(FLY_SELECTOR));
