@@ -86,7 +86,8 @@ function mock(routes: Record<string, unknown>, extra: { fail?: string[]; serverE
 }
 
 const bucketUrl = (hex: string) => `${BASE}search/players/${hex}.json`;
-const META = { generatedAt: FIX.snapshotAt, counts: { players: 68940 } };
+/** 快照日期跟着「现在」走：状态判定按真实时钟算，钉死夹具日期会让 ok / down 断言在 10 天后集体过期 */
+const META = { generatedAt: new Date(Date.now() - 86_400_000).toISOString(), counts: { players: 68940 } };
 const LB = { total: FIX.rankTotal, pageSize: 100, pageCount: 632 };
 /** store() 额外带一个读回认领标记的口，方便断言 */
 type Store = XcpcStore & { key: () => string };
@@ -285,11 +286,11 @@ describe('claim（docs/14 §4）', () => {
     const m = mock(claimRoutes());
     const profile = await claimXcpc(s, m.client, KEY);
     expect(profile.rankTotal).toBe(FIX.rankTotal);
-    expect(profile.snapshotAt).toBe(FIX.snapshotAt);
+    expect(profile.snapshotAt).toBe(META.generatedAt);
     expect(m.calls).toHaveLength(3);
     const row = loadXcpcPlayer(db)!;
     expect(row.key).toBe(KEY);
-    expect(row.snapshotAt).toBe(FIX.snapshotAt);
+    expect(row.snapshotAt).toBe(META.generatedAt);
     expect(JSON.parse(row.payload).name).toBe('李鑫杰');
     expect(s.key()).toBe(KEY);
     expect(getSyncState(db, syncKey('xcpc', 'last_sync_at'))).not.toBeNull();
@@ -365,6 +366,17 @@ describe('claim（docs/14 §4）', () => {
     expect(loadXcpcPlayer(db)!.rankTotal).toBeNull();
     db.close();
   });
+
+  it('认领会先清缓存：旧版本的桶不会顶替现行快照', async () => {
+    const db = mem();
+    const s = store(db);
+    const m = mock(claimRoutes());
+    await m.client.search('李');                 // 暖桶
+    await claimXcpc(s, m.client, KEY);
+    await m.client.search('李');                 // 缓存已被认领清掉 → 重新打桶
+    expect(m.calls.filter((u) => u === bucketUrl(bucketOf('李')))).toHaveLength(2);
+    db.close();
+  });
 });
 
 /* ---------- refresh ---------- */
@@ -436,6 +448,40 @@ describe('refresh（docs/14 §4）', () => {
     expect(getSyncState(db, syncKey('xcpc', 'last_error'))).toContain('ECONNREFUSED');
     db.close();
   });
+
+  it('失败后同版本重试成功：last_error 清掉，红点不留在屏上', async () => {
+    const { db, s, routes } = await claimed();
+    await expect(refreshXcpc(s, mock(routes, { fail: ['meta.json'] }).client)).rejects.toBeInstanceOf(XcpcError);
+    expect(xcpcStatus(s).status).toBe('down');
+
+    const before = loadXcpcPlayer(db)!;
+    const out = await refreshXcpc(s, mock(routes).client);
+    expect(out.updated).toBe(false);
+    expect(out.status).toBe('ok');
+    expect(getSyncState(db, syncKey('xcpc', 'last_error'))).toBe('');
+    expect(xcpcStatus(s).error).toBeNull();
+    expect(loadXcpcPlayer(db)!.payload).toBe(before.payload);
+    db.close();
+  });
+
+  it('换版本：同一个 client 里先清缓存再取数，旧分片不顶替新版本', async () => {
+    const db = mem();
+    const s = store(db);
+    const routes: Record<string, unknown> = claimRoutes();
+    const m = mock(routes);
+    await claimXcpc(s, m.client, KEY);           // 这一步把分片暖进了缓存
+
+    const newer = '2026-10-06T03:00:00.000000+00:00';
+    routes[`${BASE}meta.json`] = { ...META, generatedAt: newer };
+    routes[`${BASE}players/${shardOf(KEY)}.json`] = { [KEY]: { ...FIX.detail, officialRating: 1500.25 } };
+
+    const out = await refreshXcpc(s, m.client);
+    expect(out.updated).toBe(true);
+    expect(out.snapshotAt).toBe(newer);
+    expect(out.player.officialRating).toBe(1500.25);
+    expect(loadXcpcPlayer(db)!.snapshotAt).toBe(newer);
+    db.close();
+  });
 });
 
 /* ---------- 状态四态 ---------- */
@@ -480,14 +526,14 @@ describe('XCPC 状态（docs/14 §4）', () => {
   });
 
   it('officialRating 从库里带出来，tab 条与设置页共用', async () => {
-    const { db, s } = await claimedWith(FIX.snapshotAt);
+    const { db, s } = await claimedWith(META.generatedAt);
     expect(xcpcStatus(s)).toMatchObject({ claimed: true, key: KEY, officialRating: 1353.13 });
     expect(xcpcProfile(s)!.player.contests).toBe(3);
     db.close();
   });
 
   it('清掉 last_error 之后不飘红：空串不算 down', async () => {
-    const { db, s } = await claimedWith(FIX.snapshotAt);
+    const { db, s } = await claimedWith(META.generatedAt);
     getSyncState(db, syncKey('xcpc', 'last_error'));
     expect(xcpcStatus(s).status).toBe('ok');
     db.close();

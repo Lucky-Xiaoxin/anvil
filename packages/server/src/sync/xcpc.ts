@@ -435,6 +435,8 @@ export async function claimXcpc(store: XcpcStore, client: XcpcClient, key: strin
   if (running) throw new XcpcError('busy', 'XCPC 正在拉快照，等它跑完');
   running = true;
   try {
+    // 认领拉的是「现行版本」：先清缓存，别让进程里更早版本的桶 / 分片混进来
+    client.clearCache();
     const [detail, meta, rankTotal] = await Promise.all([
       client.playerDetail(key),
       client.meta(),
@@ -483,9 +485,14 @@ export async function refreshXcpc(store: XcpcStore, client: XcpcClient): Promise
     const now = stamp();
     if (meta.generatedAt === stored.snapshotAt) {
       setSyncState(db, syncKey('xcpc', 'last_sync_at'), String(now));
+      // 上次失败留下的错误串到这里已经过期：meta 打得通、版本也确认过，状态该回 ok
+      setSyncState(db, syncKey('xcpc', 'last_error'), '');
       return { ...current, updated: false, status: xcpcStatus(store, now * 1000).status };
     }
 
+    // 换版本必须先清缓存再取数：缓存不记版本，命中旧分片会把「已更新」落成旧内容，
+    // 而且下次同版本比对不会再拉 —— 数据会卡在旧版本直到再下一版
+    client.clearCache();
     let detail: unknown;
     let rankTotal: number | null;
     try {
@@ -506,7 +513,6 @@ export async function refreshXcpc(store: XcpcStore, client: XcpcClient): Promise
       return { ...current, updated: false, status: 'down' };
     }
 
-    client.clearCache();
     replaceXcpcPlayer(db, {
       key: stored.key,
       payload: JSON.stringify(detail),

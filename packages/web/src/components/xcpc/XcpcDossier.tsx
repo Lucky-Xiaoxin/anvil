@@ -15,6 +15,7 @@ import {
   TIER_NAME,
   bestRank,
   careerSpan,
+  chronBadge,
   chronicleChapters,
   dayOf,
   isUp,
@@ -579,55 +580,57 @@ function FragmentChapter({
           </div>
         </td>
       </tr>
-      {chapter.rows.map(({ row, point }) => (
-        <tr className={row.star ? 'is-star' : undefined} key={`${row.contestId}-${point.index}`} onMouseEnter={at(chronTip(row, point))} onMouseLeave={hide}>
-          <td className="chron__date">
-            <b className="num">{dayOf(row.startAt)}</b>
-            <span className="chron__idx">{`#${point.index + 1}`}</span>
-          </td>
-          <td>
-            <div className="chron__race">
-              {row.tier === null ? (
-                <span className="tgtag">—</span>
-              ) : (
-                <span className={`tier tier--${row.tier}`}>{TIER_NAME[row.tier]}</span>
-              )}
-              {row.online ? <span className="tgtag">网络赛</span> : null}
-              {row.star ? <span className="tgtag tgtag--star">打星</span> : null}
-              <span className="chron__title">{row.title}</span>
-            </div>
-          </td>
-          <td className="chron__team">{row.teamName}</td>
-          {row.star ? (
-            <td className="r chron__cell--star">—</td>
-          ) : (
-            <td className="r">
-              <div className="chron__rank">
-                <span>
-                  <b className="num">{fmt(row.rank)}</b>
-                  <span className="chron__slash">/</span>
-                  <span className="num">{fmt(row.teams)}</span>
-                </span>
-                <span className="chron__sub">{rowPct(row) ?? '—'}</span>
+      {chapter.rows.map(({ row, point }) => {
+        const badge = chronBadge(row);
+        return (
+          <tr className={row.star ? 'is-star' : undefined} key={`${row.contestId}-${point.index}`} onMouseEnter={at(chronTip(row, point))} onMouseLeave={hide}>
+            <td className="chron__date">
+              <b className="num">{dayOf(row.startAt)}</b>
+              <span className="chron__idx">{`#${point.index + 1}`}</span>
+            </td>
+            <td>
+              <div className="chron__race">
+                {badge.tier === null ? (
+                  <span className="tgtag">{badge.text}</span>
+                ) : (
+                  <span className={`tier tier--${badge.tier}`}>{badge.text}</span>
+                )}
+                {row.star ? <span className="tgtag tgtag--star">打星</span> : null}
+                <span className="chron__title">{row.title}</span>
               </div>
             </td>
-          )}
-          <td className="r">
-            <b className="num">{row.solved}</b>
-          </td>
-          <td className={row.star ? 'r chron__cell--star' : 'r'}>{row.star ? '—' : <b className="num">{fmt(row.perf)}</b>}</td>
-          <td className={row.star ? 'r chron__cell--star' : 'r'}>
+            <td className="chron__team">{row.teamName}</td>
             {row.star ? (
-              '—'
+              <td className="r chron__cell--star">—</td>
             ) : (
-              <>
-                <b className="num">{fmt(row.ratingAfter)}</b>
-                {point.delta === null ? null : <Delta text={deltaText(point.delta)} tone={point.delta ?? 0} />}
-              </>
+              <td className="r">
+                <div className="chron__rank">
+                  <span>
+                    <b className="num">{fmt(row.rank)}</b>
+                    <span className="chron__slash">/</span>
+                    <span className="num">{fmt(row.teams)}</span>
+                  </span>
+                  <span className="chron__sub">{rowPct(row) ?? '—'}</span>
+                </div>
+              </td>
             )}
-          </td>
-        </tr>
-      ))}
+            <td className="r">
+              <b className="num">{row.solved}</b>
+            </td>
+            <td className={row.star ? 'r chron__cell--star' : 'r'}>{row.star ? '—' : <b className="num">{fmt(row.perf)}</b>}</td>
+            <td className={row.star ? 'r chron__cell--star' : 'r'}>
+              {row.star ? (
+                '—'
+              ) : (
+                <>
+                  <b className="num">{fmt(row.ratingAfter)}</b>
+                  {point.delta === null ? null : <Delta text={deltaText(point.delta)} tone={point.delta ?? 0} />}
+                </>
+              )}
+            </td>
+          </tr>
+        );
+      })}
     </>
   );
 }

@@ -5,6 +5,7 @@
 > 数据源 = heimaom.cn 静态导出（xcpcrating 社区快照，**非官方**）。"同步" = 拉最新快照，不是实时数据。
 >
 > **2026-10-06 实现期修订（用户验收后逐条拍板，已就地改写入本契约）**：① 取消拼音声母检索与 256 桶兜底全扫（§2.2）；② 新增 `online` 网络赛标签、`tier` 允许为 null（§2.3 / §5.3）；③ 编年表固定列宽不横滚、超出走省略号（§5.3）；④ 界面解释性文案全面收敛 —— 卡头卡脚只留读数、勋章 tooltip 改「金 共 5 枚」、名衔与顶栏不再各说一遍口径、认领屏去三步卡与示例串、同步成功不弹回执（§5.2 / §5.3 / §5.5）；⑤ 错误串只给原因，主机名退回日志（§2.2 / §5.5）。逐条"主张与原契约不符"的对照见 `实现说明-切片3.md` §5。
+> **2026-10-06 复核后修订（架构侧随修复提交）**：⑥ 编年表里**网络预选赛不显 tier 徽章**、该格整格换显「网络赛」（网络预选赛不算区域赛，§5.3）；⑦ refresh 同版本成功清 `last_error`、换版本**先清缓存再取数**（§4）。
 
 ---
 
@@ -105,8 +106,8 @@ POST /api/xcpc/claim {key}  → 200 { player, snapshotAt, fetchedAt, rankTotal }
 POST /api/xcpc/refresh      → 200 { updated: boolean, player?, status } / 502 / 409
 ```
 
-- **claim 原子序**：拉详情分片 + meta.json + 官方榜 meta（3 请求）全部成功 → 事务：清 xcpc 域 + 写新行 → 写 config → 返回。任一失败 = 现状不动、报对应的错。换人 = 再认领一次（旧档案整域清掉）。
-- **refresh**：先拉 meta.json；`generatedAt` 与库中 `snapshot_at` 相同 → 只更新 `xcpc:last_sync_at`（`updated:false`）；不同 → 重拉详情分片与分母，事务更新（`updated:true`，并清搜索缓存）。**新版快照里找不到该 key** → 保留旧数据 + `xcpc:last_error = "档案在新版快照中未找到 · 保留本地数据"`（状态转 down）。成功（无论 updated）写 `xcpc:last_sync_at`。
+- **claim 原子序**：**先清进程内缓存**，拉详情分片 + meta.json + 官方榜 meta（3 请求）全部成功 → 事务：清 xcpc 域 + 写新行 → 写 config → 返回。任一失败 = 现状不动、报对应的错。换人 = 再认领一次（旧档案整域清掉）。
+- **refresh**：先拉 meta.json；`generatedAt` 与库中 `snapshot_at` 相同 → 只更新 `xcpc:last_sync_at`、清 `last_error`（`updated:false`）；不同 → **先清缓存再**重拉详情分片与分母，事务更新（`updated:true`）。**新版快照里找不到该 key** → 保留旧数据 + `xcpc:last_error = "档案在新版快照中未找到 · 保留本地数据"`（状态转 down）。成功（无论 updated）写 `xcpc:last_sync_at`。
 - **状态**：`idle` = 未认领；`down` = `xcpc:last_error` 非空；`stale` = **快照日期距今 > 10 天**（常量 `XCPC_STALE_AFTER_DAYS = 10`，基于"数据版本"而非本地同步时刻——这是 XCPC 与 CF/AT「3 天没同步算过期」的差别：社区快照周期本来就慢，按同步时间判会常年飘黄）；`ok` = 其余。
 - 互斥：refresh / claim 进程内串行（进行中再来 → 409）。
 - **DTO 映射（服务端唯一做的一层，之后前端不再碰口径）**：官方单口径 = `rank ← rankOfficial / teams ← teamCountOfficial / rankPercent ← rankPercentOfficial / perf ← perfOfficial / ratingAfter ← ratingAfterOfficial`；`star = official === false`；数值原样给（显示取整在前端统一）；`bestRank / 跨度 / delta / 年份分组 / 百分位的数字格式` 全部前端算。
@@ -135,7 +136,7 @@ POST /api/xcpc/refresh      → 200 { updated: boolean, player?, status } / 502 
 - **荣誉陈列**：tier 行序 final→regional→invitational→provincial，零奖牌 tier 整行省略；行权重按出现序递减（第 1 行常规 / 第 2 行 `--dim` / 第 3+ 行 `--dim2`）；行尾「N 枚」；**勋章一枚 = 一块奖牌**（金属 gold→silver→bronze 序），决赛 tier 勋章带虹彩丝带 + 紫晕（reduced-motion 静止）；**折叠规则：单 tier >12 枚 → 渲染前 12 枚 + 「+N」计数 chip（tooltip 只写「另有 N 枚」）**；无奖牌整段 `—`（不画空网格）。卡头只留读数「共 N 枚」（不写"按层级分桶"）。**勋章 tooltip 两行**：`决赛 · 金` / `金 共 5 枚`（金属色上色），**不写**"×5"（会被读成"一枚等于五块"）、不写"（决赛版）"、不写"盘顶虹彩丝带…"这类机制说明。tier 徽章材质四档：决赛=虹彩箔（8s 缓慢流光，rm 静止）/ 区域赛=琥珀金 / 邀请赛=翡翠 / 省赛=冷钢 / 打星=星尘虚线。
 - **阶梯轨迹**（SVG 手绘）：x = 全场次序号（含打星位）、y = official 分；**步进台阶线**（横到下一场、再竖直落阶；打星点**不入线**，前后两个 rated 点直接跨接）；打星场 = 虚线钉 + 「打星」小字；落点菱形刻痕涨蓝/跌琥珀（delta 相对上一 rated 点，首点按涨）；末点琥珀 + 光晕；线下 `--pf-xcpc` 浅染渐变；y 网格 100 步进（rated min/max ±40 后 50 取整）、x 刻度 4 枚（第 1 / ⌈N/3⌉ / ⌈2N/3⌉ / N 场）；悬停命中区一场一列（含打星列），tooltip：rated =「title · date / `rating  ±delta` / 第 R 名 / T 队 · 前 x% / Perf … · 队名 …」，star =「title · date / 打星场 · 官方榜无成绩 / 过 N 题 · 队名」。卡头读数「首 → 末 · ±总差」；卡脚只留「悬停看日期与名次」（"横轴 = 场次序号 / 虚钉不入线"是读图机制，不进界面）。**边界：rated 场 = 0 → 整卡空态，文案「没有 rated 场次」；= 1 → 单点直显（不除零）**。
 - **队名墙**：**连续同名场次为一段**（换名开启新段），按出现序；旗 = 队名 + `N 场` + `YYYY-MM → YYYY-MM`；悬停亮旗杆 + tooltip「番号 · name / N 场 · 起 → 止 / 最佳 第 R 名 / T 队 · date」（取段内非打星最小 rankOfficial；全打星 → 「全部场次打星 · 无官方榜名次」）。卡头「N 支 · M 场」（不写"按番号时代排列"）。
-- **逐场编年**：**固定列宽、不横滚**（`table-layout:fixed` + 列宽写死；视觉稿那句 `.chron__title` 的省略号在自动布局下从来没生效过，长赛名会把表撑出横向滚动条 —— 用户 2026-10-06 裁定"字段和页面都固定宽度，超出的省略，鼠标放上去可以预览全名"），**最新在上**；年份分隔行（`YYYY` + `N 场` + 该年 rated 首末分，无 rated 省略分段）；列：日期（+`#序号`）| 比赛（tier 徽章 + 网络赛 tag + 打星 tag + 标题，标题与队名超出走省略号、全名在行 tooltip）| 队名 | 名次 ÷ 队数（`R / T` + 「前 x%」副行；打星 `—`）| 过题 | Perf（打星 `—`）| 赛后分 ±（`值` + `±delta` 涨/跌色；打星 `—`）。**tier 徽章**：四档走各自材质；`tier` 为 null → 中性虚线 chip 给「—」；`online` → 同一款虚线 chip 给「网络赛」（✦ 星尘标记只属于"打星"那一枚）。行悬停（整行命中）tooltip：rated =「title · date / `rating  ±delta` / 第 R 名 / T 队 · 前 x% / Perf … · 队名 / 罚时比 d.dd · 首 A n′ · 末小时 n 题」，star =「… / 打星场 · 官方榜无成绩 / 过 N 题 · 队名 / 罚时比 d.dd · 首 A n′」。卡头「N 场 · 最新在上」。
+- **逐场编年**：**固定列宽、不横滚**（`table-layout:fixed` + 列宽写死；视觉稿那句 `.chron__title` 的省略号在自动布局下从来没生效过，长赛名会把表撑出横向滚动条 —— 用户 2026-10-06 裁定"字段和页面都固定宽度，超出的省略，鼠标放上去可以预览全名"），**最新在上**；年份分隔行（`YYYY` + `N 场` + 该年 rated 首末分，无 rated 省略分段）；列：日期（+`#序号`）| 比赛（tier 徽章 + 网络赛 tag + 打星 tag + 标题，标题与队名超出走省略号、全名在行 tooltip）| 队名 | 名次 ÷ 队数（`R / T` + 「前 x%」副行；打星 `—`）| 过题 | Perf（打星 `—`）| 赛后分 ±（`值` + `±delta` 涨/跌色；打星 `—`）。**tier 徽章**：四档走各自材质；`online`（网络预选赛）**不显 tier 徽章、该格整格换显「网络赛」虚线 chip**（上游把它归进 `regional`，展示上不算区域赛 —— 2026-10-06 复核后修订）；`tier` 为 null → 同款虚线 chip 给「—」（✦ 星尘标记只属于"打星"那一枚）。行悬停（整行命中）tooltip：rated =「title · date / `rating  ±delta` / 第 R 名 / T 队 · 前 x% / Perf … · 队名 / 罚时比 d.dd · 首 A n′ · 末小时 n 题」，star =「… / 打星场 · 官方榜无成绩 / 过 N 题 · 队名 / 罚时比 d.dd · 首 A n′」。卡头「N 场 · 最新在上」。
 - **卷脚**：「来源 xcpcrating 社区数据（非官方）· 官方榜单口径 · 数据版本 `date`」。
 - 数字格式：分 / Perf / rating 一律取整显示；**±delta 也按取整后的差值出字**（上游是浮点，直接相减会读出 `−40.99999999999985`）；百分比一位小数；日期取 `startAt` 前 10 位（原文即 +08:00）。
 - mock 的 **卷内 `rise` 交错入场不进产品**（换源动效即入场）；mock 的调参台 / 试穿开关 / mockbar / mockfoot 全是稿内工具，不进产品。

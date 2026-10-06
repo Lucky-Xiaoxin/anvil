@@ -229,6 +229,16 @@ export function chronicleChapters(player: XcpcPlayerDto): ChronicleChapter[] {
     .map((chapter) => ({ ...chapter, rows: chapter.rows.slice().reverse() }));
 }
 
+/**
+ * 编年行的档位格（docs/14 §5.3）：网络预选赛上游归进 `regional`，但展示上不算区域赛 ——
+ * 该格整格换成「网络赛」；`tier` 缺失给「—」；其余走四档徽章。
+ */
+export function chronBadge(row: XcpcHistoryRow): { tier: XcpcTier | null; text: string } {
+  if (row.online) return { tier: null, text: '网络赛' };
+  if (row.tier === null) return { tier: null, text: '—' };
+  return { tier: row.tier, text: TIER_NAME[row.tier] };
+}
+
 /** 最佳名次：逐场官方榜名次最小值；一场都没有 → null → 界面 — */
 export function bestRank(history: readonly XcpcHistoryRow[]): XcpcHistoryRow | null {
   let best: XcpcHistoryRow | null = null;

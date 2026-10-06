@@ -7,6 +7,7 @@ import type { XcpcHistoryRow, XcpcMedals, XcpcPlayerDto } from '@anvil/shared';
 import {
   bestRank,
   careerSpan,
+  chronBadge,
   chronicleChapters,
   isUp,
   medalRows,
@@ -220,5 +221,16 @@ describe('两钟口径（docs/14 §2.4）', () => {
 
   it('未来的时间戳不报负数天数', () => {
     expect(snapshotDaysAgo(new Date(Date.UTC(2026, 9, 10)).toISOString(), Date.UTC(2026, 9, 6))).toBe(0);
+  });
+});
+
+describe('编年档位格（docs/14 §5.3，复核后修订）', () => {
+  it('网络预选赛顶替 tier 徽章：上游归进 regional，展示上不算区域赛', () => {
+    expect(chronBadge(row({ online: true, tier: 'regional' }))).toEqual({ tier: null, text: '网络赛' });
+  });
+
+  it('tier 缺失给「—」，其余走四档徽章', () => {
+    expect(chronBadge(row({ online: false, tier: null }))).toEqual({ tier: null, text: '—' });
+    expect(chronBadge(row({ online: false, tier: 'final' }))).toEqual({ tier: 'final', text: '决赛' });
   });
 });
