@@ -195,7 +195,7 @@ function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
             </>
           ) : (
             <>
-              未认领<span className="mute"> · 搜姓名或拼音</span>
+              未认领<span className="mute"> · 搜姓名或学校</span>
             </>
           )}
         </span>
@@ -210,7 +210,6 @@ function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
           <XcpcPicker
             ariaLabel="搜索 XCPC 选手"
             swapHint="重名不特殊处理 · 候选里对照学校"
-            showSteps={false}
             onClaimed={(profile) => {
               onClaimed(profile);
               setOpen(false);
@@ -230,8 +229,6 @@ function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
         <span>
           上次同步 <b>{x.fetchedAt === null ? '从未' : `${relativeTime(x.fetchedAt)}（${fullStamp(x.fetchedAt)}）`}</b>
         </span>
-        <span>·</span>
-        <span>源 heimaom 社区快照 · 只在你点击时拉</span>
       </div>
 
       {x.status === 'down' && x.error !== null && !running ? (

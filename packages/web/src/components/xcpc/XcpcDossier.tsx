@@ -20,7 +20,6 @@ import {
   isUp,
   medalRows,
   medalTotal,
-  MEDAL_FOLD,
   monthOf,
   pctFrom,
   rowPct,
@@ -92,7 +91,7 @@ function Mast({ player, profile, animate }: { player: XcpcPlayerDto; profile: Xc
           {player.name}
         </h2>
         <div className="mast__school">{player.org}</div>
-        <div className="mast__key">key {player.key} · official 单口径</div>
+        <div className="mast__key">key {player.key}</div>
       </div>
       <div className="mast__r">
         <span className="label">当前分</span>
@@ -150,16 +149,14 @@ function Mast({ player, profile, animate }: { player: XcpcPlayerDto; profile: Xc
 
 function Disc({ tier, disc }: { tier: XcpcTier; disc: MedalDisc }) {
   const { at, hide } = useAnchor();
-  const final = tier === 'final';
   const metal = METAL_NAME[disc.metal];
   return (
     <span
-      className={`medal medal--${disc.metal}${final ? ' medal--final' : ''}`}
+      className={`medal medal--${disc.metal}${tier === 'final' ? ' medal--final' : ''}`}
       onMouseEnter={at({
-        date: `${TIER_NAME[tier] ?? tier} · ${metal}${final ? '（决赛版）' : ''}`,
-        value: `${metal} ×${disc.ofSameMetal}`,
+        date: `${TIER_NAME[tier] ?? tier} · ${metal}`,
+        value: `${metal} 共 ${disc.ofSameMetal} 枚`,
         valueClass: `is-${disc.metal}`,
-        sub: final ? '盘顶虹彩丝带 + 虹彩刻星 · 决赛专属' : '按 tier 分桶 · 零奖牌 tier 整行省略',
       })}
       onMouseLeave={hide}
     >
@@ -179,7 +176,7 @@ function Vitrine({ player }: { player: XcpcPlayerDto }) {
         <h3 className="sect__t">荣誉陈列</h3>
         <span className="sect__rule" aria-hidden="true" />
         <span className="card__note">
-          共 <b>{total}</b> 枚 · 按层级分桶
+          共 <b>{total}</b> 枚
         </span>
       </div>
       <div className="vitrine">
@@ -212,12 +209,7 @@ function FoldMore({ tier, hidden }: { tier: string; hidden: number }) {
   return (
     <span
       className="medal-more"
-      onMouseEnter={at({
-        date: `${tier} · 折叠`,
-        value: `另有 ${hidden} 枚`,
-        valueClass: 'is-dim',
-        sub: `单层级只列前 ${MEDAL_FOLD} 枚${ROUND}计数与「N 枚」读数仍是全量`,
-      })}
+      onMouseEnter={at({ date: `${tier} · 折叠`, value: `另有 ${hidden} 枚`, valueClass: 'is-dim' })}
       onMouseLeave={hide}
     >
       {`+${hidden}`}
@@ -276,7 +268,7 @@ function Ridge({ tl, animate }: { tl: Timeline; animate: boolean }) {
 
   // 一场 rated 都没有就没有台阶可画（docs/14 §5.3 边界）
   if (tl.rated.length === 0) {
-    return <div className="skel">没有 rated 场次 · 阶梯要的是官方榜分数</div>;
+    return <div className="skel">没有 rated 场次</div>;
   }
 
   const g = ridgeGeometry(tl, W);
@@ -455,7 +447,7 @@ function Banners({ player }: { player: XcpcPlayerDto }) {
         <h3 className="sect__t">队名墙</h3>
         <span className="sect__rule" aria-hidden="true" />
         <span className="card__note">
-          <b>{runs.length}</b> 支 · {contests} 场 · 按番号时代排列
+          <b>{runs.length}</b> 支 · {contests} 场
         </span>
       </div>
       <div className="banners">
@@ -597,8 +589,13 @@ function FragmentChapter({
           </td>
           <td>
             <div className="chron__race">
-              <span className={`tier tier--${row.tier}`}>{TIER_NAME[row.tier] ?? row.tier}</span>
-              {row.star ? <span className="tgtag">打星</span> : null}
+              {row.tier === null ? (
+                <span className="tgtag">—</span>
+              ) : (
+                <span className={`tier tier--${row.tier}`}>{TIER_NAME[row.tier]}</span>
+              )}
+              {row.online ? <span className="tgtag">网络赛</span> : null}
+              {row.star ? <span className="tgtag tgtag--star">打星</span> : null}
               <span className="chron__title">{row.title}</span>
             </div>
           </td>
@@ -710,9 +707,7 @@ export function XcpcDossier({ profile, status, firstPaint, notice, onSync }: Pro
             </span>
           </div>
           <Ridge tl={tl} animate={animate} />
-          <div className="sect__foot">
-            {`横轴 = 场次序号${tl.starCount > 0 ? ` · 打星 ${tl.starCount} 场虚钉不入线` : ''} · 悬停看日期与名次`}
-          </div>
+          <div className="sect__foot">悬停看日期与名次</div>
         </section>
 
         <Banners player={player} />

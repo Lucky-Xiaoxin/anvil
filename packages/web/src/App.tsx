@@ -100,7 +100,8 @@ export function App() {
 
   /**
    * XCPC 的「同步」= 拉快照（比版本后按需重拉），单请求往返、没有进度可报，
-   * 所以它不进 /api/sync 的 runner（docs/14 §4）。提示条放在 refresh 之后落，
+   * 所以它不进 /api/sync 的 runner（docs/14 §4）。成功不弹回执 —— 顶栏的「上次同步」
+   * 与 tab 条 tooltip 已经把这件事说了两遍；提示只留给失败，且放在 refresh 之后落，
    * 免得被 refresh 清旧提示的那一步顺手抹掉。
    */
   const runXcpcRefresh = useCallback(async (): Promise<void> => {
@@ -109,9 +110,8 @@ export function App() {
     setNotice(null);
     let next: Notice | null = null;
     try {
-      const { updated, player, snapshotAt, fetchedAt, rankTotal } = await refreshXcpc();
+      const { player, snapshotAt, fetchedAt, rankTotal } = await refreshXcpc();
       setXcpc({ player, snapshotAt, fetchedAt, rankTotal });
-      next = { kind: 'ok', text: updated ? '已拉到新版快照' : '社区快照仍是这一版 · 数据没变' };
     } catch (err) {
       next = { kind: 'err', text: `${messageOf(err)} · 本地缓存的档案照旧显示` };
     } finally {

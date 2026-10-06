@@ -125,7 +125,7 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
                     date: '档案 key',
                     value: x?.key ?? '',
                     valueClass: 'is-dim',
-                    sub: '官方榜口径 · 重名请对照学校',
+                    sub: '重名请对照学校',
                   });
                 }}
                 onMouseLeave={hide}

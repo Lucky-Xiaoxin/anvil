@@ -24,12 +24,10 @@ interface PickerProps {
   hint?: string;
   /** 有档案时换人的提醒 */
   swapHint?: string;
-  /** 三步说明只给认领屏；设置页行内版不重复解释 */
-  showSteps?: boolean;
   autoFocus?: boolean;
 }
 
-export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, showSteps = true, autoFocus = false }: PickerProps) {
+export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, autoFocus = false }: PickerProps) {
   const [q, setQ] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [results, setResults] = useState<XcpcSearchRow[]>([]);
@@ -91,8 +89,6 @@ export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, showS
     }
   };
 
-  const searching = q.trim() !== '';
-
   return (
     <div className="srchwrap">
       <div className="search">
@@ -100,7 +96,7 @@ export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, showS
         <input
           type="text"
           value={q}
-          placeholder="姓名或拼音，如 李 / lxj"
+          placeholder="姓名或学校"
           aria-label={ariaLabel}
           autoComplete="off"
           spellCheck={false}
@@ -218,25 +214,6 @@ export function XcpcPicker({ ariaLabel, onDone, onClaimed, hint, swapHint, showS
         </div>
       ) : null}
 
-      {showSteps && !searching ? (
-        <div className="onb" style={{ marginTop: 22 }}>
-          <div className="onb__i">
-            <span className="onb__n">01</span>
-            <div className="onb__t">搜索</div>
-            <p className="onb__p">姓名或拼音，实时出候选。</p>
-          </div>
-          <div className="onb__i">
-            <span className="onb__n">02</span>
-            <div className="onb__t">认领</div>
-            <p className="onb__p">选中确认，写入本地 <code>vault</code>。</p>
-          </div>
-          <div className="onb__i">
-            <span className="onb__n">03</span>
-            <div className="onb__t">查看</div>
-            <p className="onb__p">荣誉陈列 · 阶梯轨迹 · 逐场编年。</p>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -259,12 +236,12 @@ export function XcpcClaim({ onClaimed, onGoDossier }: Props) {
                 还没有认领 <em>XCPC</em> 选手档案。
               </h3>
               <p className="dim" style={{ fontSize: 13, lineHeight: 1.7, marginTop: 8 }}>
-                输入姓名或拼音 —— 从快照名单里认出你自己。
+                输入姓名或学校 —— 从快照名单里认出你自己。
               </p>
             </div>
             <XcpcPicker
               ariaLabel="搜索 XCPC 选手"
-              hint="拼音声母也行（lxj）· 重名请对照学校"
+              hint="重名请对照学校"
               onClaimed={onClaimed}
               onDone={onGoDossier}
             />

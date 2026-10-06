@@ -28,6 +28,7 @@ function row(over: Partial<XcpcHistoryRow> = {}): XcpcHistoryRow {
     startAt: '2024-05-18T09:00:00+08:00',
     teamName: '三把火',
     tier: 'provincial',
+    online: false,
     solved: 3,
     star: false,
     rank: 92,

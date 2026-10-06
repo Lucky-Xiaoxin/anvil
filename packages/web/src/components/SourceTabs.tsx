@@ -46,7 +46,7 @@ function xcpcView(status: StatusDto | null): TabView {
       rating: '—',
       unset: true,
       dot: 'idle',
-      tip: { date: 'XCPC · 未认领', value: '还没有认领档案 · 点进去搜一个', valueClass: 'is-mute' },
+      tip: { date: 'XCPC', value: '未认领', valueClass: 'is-mute' },
     };
   }
   const days = snapshotDaysAgo(x.snapshotAt);

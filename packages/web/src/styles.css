@@ -671,8 +671,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 #rgPf .s1{stop-color:rgba(var(--pf-rgb),.02)}
 
 /* 逐场编年 */
-.chronwrap{margin-top:8px;overflow-x:auto}
-.chron{width:100%;border-collapse:collapse;font-size:12.5px;min-width:880px}
+.chronwrap{margin-top:8px}
+/* 列宽写死 + fixed 布局：长赛名靠省略号收，整卷不需要左右滚动（用户 2026-10-06 定） */
+.chron{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12.5px}
 .chron th{
   text-align:left;font-family:var(--font-num);font-size:9.5px;font-weight:400;
   letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);
@@ -687,8 +688,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .chron__date{font-family:var(--font-num);font-variant-numeric:tabular-nums}
 .chron__idx{font-family:var(--font-num);font-size:10px;color:var(--text-mute);margin-left:6px}
 .chron__race{display:flex;align-items:center;gap:8px;min-width:0}
-.chron__title{color:var(--text);overflow:hidden;text-overflow:ellipsis}
-.chron__team{color:var(--text-dim)}
+.chron__title{flex:1 1 auto;min-width:0;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.chron__team{color:var(--text-dim);overflow:hidden;text-overflow:ellipsis}
 .chron__rank{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
 .chron__sub{font-family:var(--font-num);font-size:10px;color:var(--text-mute)}
 .chron__slash{color:var(--text-mute);margin:0 3px}
@@ -723,13 +724,14 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .tier--regional{color:#1A1207;background:linear-gradient(180deg,#F0D3A0 0%,#C79A4E 48%,#8F6A2A 100%);border-color:rgba(255,255,255,.22)}
 .tier--invitational{color:#0C1D16;background:linear-gradient(180deg,#C8F2DF 0%,#6FCBA4 48%,#35886A 100%);border-color:rgba(255,255,255,.28)}
 .tier--provincial{color:#151A23;background:linear-gradient(180deg,#F4F8FD 0%,#C6CFDC 46%,#8E99AA 100%);border-color:rgba(255,255,255,.35)}
+/* 星尘虚线 chip：打星 / 网络赛 / tier 缺失三处共用；✦ 只属于打星那一枚 */
 .tgtag{
   display:inline-flex;align-items:center;gap:4px;
   height:19px;padding:0 7px;border-radius:3.5px;flex:0 0 auto;
   font-family:var(--font-num);font-size:10px;letter-spacing:.05em;color:#9FB2C9;
   border:1px dashed #4A5C74;background:rgba(159,178,201,.05);
 }
-.tgtag::before{content:"\2726";font-size:8px;line-height:1;color:#C9D6E6;opacity:.8}
+.tgtag--star::before{content:"\2726";font-size:8px;line-height:1;color:#C9D6E6;opacity:.8}
 
 /* 长卷脚注 */
 .dossier__foot{
