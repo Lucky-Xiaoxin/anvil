@@ -225,21 +225,24 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .content--fit{overflow:hidden;min-height:0}
 
 /* ---------- 4b. 壳 · 侧栏收起态（本稿唯一壳改动，必答 4） ---------- */
-/* 收起键「骑缝」挂在 nav 与内容区的分界线上，两态同一位置，不随宽度搬家 */
+/* 收起键在 nav 内部：展开态贴右缘 · 垂直居中；收起态落到轨道底部（394 之上）· 同一尺寸 */
 .railbtn{
-  position:absolute;left:var(--nav-now);top:20px;transform:translateX(-50%);
-  width:20px;height:20px;border-radius:50%;z-index:30;
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:20px;height:20px;border-radius:6px;z-index:30;
   display:grid;place-items:center;
-  background:#0E1218;border:1px solid var(--line);color:var(--text-mute);
-  opacity:0;
-  transition:opacity var(--dur) var(--ease),left var(--dur) var(--ease),
-             color var(--dur) var(--ease),border-color var(--dur) var(--ease),background var(--dur) var(--ease);
+  background:transparent;border:1px solid transparent;color:var(--text-mute);
+  opacity:.42;                                          /* 常驻但安静：悬停整个 app 才提亮 */
+  transition:opacity var(--dur) var(--ease),color var(--dur) var(--ease),
+             border-color var(--dur) var(--ease),background var(--dur) var(--ease);
 }
-.railbtn svg{width:11px;height:11px;transform:rotate(180deg);transition:transform var(--dur) var(--ease)}
-.app:hover .railbtn,.app:focus-within .railbtn,.is-rail .railbtn{opacity:1}
-.railbtn:hover{color:var(--text);border-color:#3B4757;background:var(--panel-2)}
-.railbtn:active{transform:translateX(-50%) scale(.9)}
-.is-rail .railbtn svg{transform:rotate(0)}
+.railbtn svg{width:16px;height:13px;display:block}
+.rb-out{fill:none;stroke:currentColor;stroke-width:1.5}
+.rb-bar{fill:currentColor;opacity:.95}                    /* 展开 = 小竖条亮（面板在） */
+.is-rail .railbtn{right:auto;left:50%;top:auto;bottom:72px;transform:translateX(-50%);opacity:.88}
+.is-rail .rb-bar{opacity:.26}                             /* 收起 = 小竖条暗（面板没了） */
+.app:hover .railbtn,.app:focus-within .railbtn{opacity:1}
+.railbtn:hover{color:var(--text);border-color:var(--line);background:var(--panel-2)}
+.railbtn:active{background:#1A2028;color:var(--text)}
 
 .is-rail .brand{justify-content:center;padding:var(--sp-3) 0 var(--sp-2)}
 .is-rail .brand__txt{display:none}
@@ -506,9 +509,10 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .btn--go:hover{background:rgba(245,165,36,.18);border-color:rgba(245,165,36,.52);box-shadow:0 0 14px rgba(245,165,36,.10)}
 .crow.is-live{background:rgba(245,165,36,.045)}
 .crow__live{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-num);font-size:11.5px;color:var(--accent);white-space:nowrap}
+.crow__live.is-paused{color:var(--text-dim)}
 .crow__from{font-family:var(--font-num);font-size:10px;letter-spacing:.06em;color:var(--text-mute);white-space:nowrap}
-.dot--live{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.14);animation:beat 1.6s var(--ease) infinite}
-@keyframes beat{0%,100%{opacity:1}50%{opacity:.35}}
+.dot--live{background:#4FDD6A;width:7px;height:7px;box-shadow:0 0 0 3px rgba(63,185,80,.16),0 0 9px rgba(79,221,106,.6);animation:beat 1.6s var(--ease) infinite}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.62}}
 .cat__foot{
   padding:12px 18px;border-top:1px solid var(--line);background:rgba(0,0,0,.14);
   font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em;
@@ -588,6 +592,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 /* 题目格五态（必答 3）：大字 = 分钟，小字 = 次数 */
 .pcell{padding:0 2px;height:100%;display:grid;place-items:center}
 .pcell__b{
+  position:relative;
   width:calc(var(--pcw) - 4px);height:calc(var(--rowh) - 6px);
   border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:rgba(255,255,255,.018);border:1px solid transparent;
@@ -617,6 +622,21 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .pcell.is-frz .pcell__t{color:var(--text-dim)}
 .pcell.is-frz .pcell__n{color:var(--text-dim)}
 .pcell.is-ce .pcell__b{background:rgba(148,160,180,.05);border-color:rgba(148,160,180,.22)}
+/* 封榜后揭晓（终榜才存在的两态）：底色与字色各退一档 + 右上角圆点 */
+.pcell.is-post.is-ac .pcell__b,.pcell.is-post.is-fb .pcell__b{
+  background:rgba(63,185,80,.055);border-color:rgba(63,185,80,.17);box-shadow:none;
+}
+.pcell.is-post.is-ac .pcell__t,.pcell.is-post.is-fb .pcell__t{color:var(--ok);opacity:.8}
+.pcell.is-post.is-fb .pcell__n{color:rgba(63,185,80,.8);letter-spacing:.02em}
+.pcell.is-post.is-pen .pcell__b{background:rgba(248,81,73,.04);border-color:rgba(248,81,73,.14)}
+.pcell.is-post.is-pen .pcell__t{opacity:.62}
+.pcell.is-post.is-ce .pcell__b{background:rgba(148,160,180,.035);border-color:rgba(148,160,180,.15)}
+.pcell__dot{
+  position:absolute;right:1.5px;top:1.5px;width:3px;height:3px;border-radius:50%;
+  background:var(--ok);box-shadow:0 0 0 1px rgba(10,12,16,.55);
+}
+.pcell.is-post.is-pen .pcell__dot{background:var(--bad)}
+.pcell.is-post.is-ce .pcell__dot{background:#9FB2C9}
 
 /* 封榜带（榜内提示，必答 3）：一条窄带，斜纹只铺在带内，不碰表格 */
 .frost{
@@ -634,6 +654,17 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .clock{display:inline-flex;align-items:center;gap:9px}
 .clock b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;letter-spacing:.01em;color:var(--text)}
 .clock--over b{font-size:13px;color:var(--text-dim);font-weight:400}
+.clock.is-paused b{color:var(--text-dim)}
+/* 回放走带：暂停 / 继续 / 结束 */
+.transport{display:inline-flex;gap:2px;margin-left:2px}
+.tbtn{
+  width:24px;height:24px;border-radius:var(--r-s);display:grid;place-items:center;
+  color:var(--text-mute);border:1px solid transparent;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease),border-color var(--dur) var(--ease);
+}
+.tbtn svg{width:12px;height:12px}
+.tbtn:hover{color:var(--text);background:rgba(255,255,255,.05);border-color:var(--line)}
+.tbtn:active{background:#1A2028}
 .rbname{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .pill{
   display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;
@@ -653,8 +684,10 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 /* 图例（榜底一行，口径进 tooltip） */
 .key{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .key__i{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
-.key__s{width:18px;height:16px;border-radius:2.5px;display:grid;place-items:center;font-size:9px;font-family:var(--font-num)}
+.key__s{width:18px;height:16px;border-radius:2.5px;display:grid;place-items:center;font-size:9px;font-family:var(--font-num);position:relative}
 .key__s--none{background:rgba(255,255,255,.018);border:1px solid transparent}
+.key__s--post{background:rgba(63,185,80,.055);border:1px solid rgba(63,185,80,.17)}
+.key__s--post::after{content:"";position:absolute;right:1.5px;top:1.5px;width:3px;height:3px;border-radius:50%;background:var(--ok)}
 .key__s--pen{background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);color:var(--bad)}
 .key__s--ac{background:rgba(63,185,80,.11);border:1px solid rgba(63,185,80,.26);color:var(--ok)}
 .key__s--fb{background:linear-gradient(180deg,#1E5C2C,#143D20);border:1px solid rgba(63,185,80,.6);color:#9BF3AC}
@@ -792,8 +825,8 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <path d="M7.4 7.1 10.2 11.4M16.6 6.7 13.8 11.4M11.2 15.1 6.9 17.8M12.9 15.1l4 2.8"/>
     </symbol>
     <symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-      <circle cx="12" cy="12" r="3.1"/>
-      <path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/>
+      <circle cx="12" cy="12" r="5.3"/><circle cx="12" cy="12" r="2.1"/>
+      <path stroke-width="2.3" d="M12 6.7V3.5M12 17.3v3.2M16.6 9.35l2.8-1.65M16.6 14.65l2.8 1.65M7.4 14.65l-2.8 1.65M7.4 9.35l-2.8-1.65"/>
     </symbol>
     <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
       <rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9M12 14.3v2.5"/>
@@ -812,12 +845,14 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
     <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.4 15.4 4.6 4.6"/>
     </symbol>
-    <!-- 新增：模拟榜单（榜单柱 + 计时盘）/ 开始模拟 / 查看终榜 / 封榜（遮眼）/ 骑缝折叠键 -->
+    <!-- 新增：模拟榜单（榜单柱 + 计时盘）/ 开始模拟 / 暂停 / 结束 / 查看终榜 / 封榜（遮眼） -->
     <symbol id="i-board" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
       <rect x="2.6" y="12.4" width="3.6" height="9" rx="1.1"/><rect x="8.1" y="8.2" width="3.6" height="13.2" rx="1.1"/>
       <circle cx="17.6" cy="9.4" r="5.4"/><path d="M17.6 6.4v3.2h2.3" stroke-linecap="round"/>
     </symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8.2 5.2v13.6L19.2 12z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7.4 5h3.1v14H7.4zM13.5 5h3.1v14h-3.1z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><path fill="currentColor" d="M6.4 6.4h11.2v11.2H6.4z"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
       <path d="M2.6 12S6.1 6.4 12 6.4 21.4 12 21.4 12 17.9 17.6 12 17.6 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.7"/>
     </symbol>
@@ -830,7 +865,6 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 <!-- ===== 工作台外壳片段（四屏共用，JS 克隆进每个 .app；导航三处新名字 = 本稿一并画进） ===== -->
 <template id="tplShell">
-  <button class="railbtn" data-rail aria-label="收起侧栏" title="收起侧栏"><svg aria-hidden="true"><use href="#i-chev"/></svg></button>
   <aside class="nav">
     <div class="brand">
       <svg aria-hidden="true"><use href="#i-anvil"/></svg>
@@ -846,6 +880,9 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <span class="navfoot__full">目录 <b>394</b> 场 · 单场 <b>13</b> 题<br>源 <code>srk-collection</code> 社区快照<br>回放为模拟 · 演示假数据</span>
       <span class="navfoot__rail"><i class="dot dot--ok dot--big"></i><b>394</b><span class="navlabel">目录 394 场<small>源 srk-collection · 演示假数据</small></span></span>
     </div>
+    <button class="railbtn" data-rail aria-label="收起侧栏" title="收起侧栏">
+      <svg viewBox="0 0 18 14" aria-hidden="true"><rect class="rb-out" x=".9" y=".9" width="16.2" height="12.2" rx="3.2"/><rect class="rb-bar" x="3.4" y="3.5" width="4" height="7" rx="1.4"/></svg>
+    </button>
   </aside>
 </template>
 
@@ -862,7 +899,6 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
     <button class="demochip" data-speed="1" aria-pressed="true">1×</button>
     <button class="demochip" data-speed="60" aria-pressed="false">60×</button>
     <button class="demochip" data-speed="300" aria-pressed="false">300×</button>
-    <button class="demochip" id="chipHold" aria-pressed="false">暂停时钟</button>
     <button class="demochip" id="chipRail" aria-pressed="false">收起侧栏</button>
   </div>
   <span class="mockbar__spec">1440×900 基准 · 1280 不破版</span>
@@ -909,8 +945,13 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <button class="btn btn--ghost btn--sm" data-goto="s1"><svg aria-hidden="true" style="transform:rotate(180deg)"><use href="#i-chev"/></svg>回到目录</button>
       <span class="vsep" aria-hidden="true"></span>
       <h2 class="rbname" id="rbName2"></h2>
-      <span class="clock"><i class="dot dot--live"></i><b id="clk2">4:12:07</b></span>
+      <span class="clock" id="clkBox"><i class="dot dot--live"></i><b id="clk2">4:12:07</b></span>
+      <span class="transport">
+        <button class="tbtn" id="tPause" aria-label="暂停" title="暂停"><svg aria-hidden="true"><use href="#i-pause"/></svg></button>
+        <button class="tbtn" id="tEnd" aria-label="结束模拟" title="结束模拟"><svg aria-hidden="true"><use href="#i-stop"/></svg></button>
+      </span>
       <span class="pill" id="frz2" hidden></span>
+      <span class="pill" id="hold2" hidden>已暂停</span>
       <span class="topbar__spacer"></span>
       <label class="switch"><input type="checkbox" id="onlyFormal2"> 仅正式队</label>
     </div>
@@ -1149,11 +1190,11 @@ function cellAt(t,p,elapsed,cap){
       var y=subs[j]; if(y.t>ac.t) break;
       if(y.t<=cap && y.r!=="AC" && y.r!=="FB" && y.r!=="CE") nf++;
     }
-    return {st:(ac.r==="FB"?"fb":"ac"), t:ac.t, n:nf+1, fails:nf};
+    return {st:(ac.r==="FB"?"fb":"ac"), t:ac.t, n:nf+1, fails:nf, post:ac.t>CONTEST.freeze};
   }
   if(after) return {st:"frz", t:last.t, n:nAll};
-  if(!fails && last.r==="CE") return {st:"ce", t:last.t, n:0};
-  return {st:"pen", t:last.t, n:fails};
+  if(!fails && last.r==="CE") return {st:"ce", t:last.t, n:0, post:last.t>CONTEST.freeze};
+  return {st:"pen", t:last.t, n:fails, post:last.t>CONTEST.freeze};
 }
 function buildBoard(elapsed,onlyFormal){
   var cap=capAt(elapsed), rows=[];
@@ -1202,16 +1243,18 @@ function buildBoard(elapsed,onlyFormal){
 /* ==========================================================================
    榜体渲染（s2 / s3 / s4 样张 = 同一函数同一份数据）
      格子读数规则：大字 = 分钟，小字 = 次数（× / − / ?），首杀的小字让位给 FB
+     封榜后揭晓的两格（通过 / 未通过）= 底色弱化一档 + 右上角圆点：它没改变定格名次
    ========================================================================== */
 function cellHTML(c,ti,p){
-  var cls="pcell", body="";
-  if(c.st==="ac")       { cls+=" is-ac is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span>'+(c.n>1?'<span class="pcell__n">×'+c.n+'</span>':''); }
-  else if(c.st==="fb")  { cls+=" is-fb is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">FB</span>'; }
-  else if(c.st==="pen") { cls+=" is-pen is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">−'+c.n+'</span>'; }
+  var cls="pcell", body="", post=c.post?" is-post":"";
+  if(c.st==="ac")       { cls+=" is-ac"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span>'+(c.n>1?'<span class="pcell__n">×'+c.n+'</span>':''); }
+  else if(c.st==="fb")  { cls+=" is-fb"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">FB</span>'; }
+  else if(c.st==="pen") { cls+=" is-pen"+post+" is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">−'+c.n+'</span>'; }
   else if(c.st==="frz") { cls+=" is-frz is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">?'+c.n+'</span>'; }
-  else if(c.st==="ce")  { cls+=" is-ce is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">CE</span>'; }
+  else if(c.st==="ce")  { cls+=" is-ce"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">CE</span>'; }
   else cls+=" is-none";
-  return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+'</span></div>';
+  return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+
+         (c.post?'<i class="pcell__dot"></i>':'')+'</span></div>';
 }
 function boardHTML(rows,col){
   var h='<div class="brow bhead"><div class="h-r">R#</div><div class="h-s">S#</div>'
@@ -1237,22 +1280,44 @@ function boardHTML(rows,col){
 
 /* ==========================================================================
    时钟：秒级走 · 分钟粒度重建；点「开始模拟」就开钟，刷新按开始时刻续钟
+     暂停 = 记录改存"停在第几秒"，继续 = 从那一秒接钟；结束 = 清记录并落回顾
    ========================================================================== */
 var DEMO_T=(4*3600+12*60+7)*1000;                      /* 演示默认停在封榜段内 */
-var CK={elapsed:DEMO_T, scrub:CONTEST.dur, speed:1, hold:false, ended:false, started:Date.now()-DEMO_T};
-var CKKEY="anvil.mock04.start";
+var CK={elapsed:DEMO_T, scrub:CONTEST.dur, speed:1, hold:false, paused:false, ended:false, started:Date.now()-DEMO_T};
+var LIVE=true;                                          /* 目录里那行「回放中」的开关：结束模拟后退回普通行 */
+var CKKEY="anvil.mock04.clock";
 function ckLoad(){
   try{
-    var v=parseInt(localStorage.getItem(CKKEY)||"0",10);
-    if(v && Date.now()-v>0 && Date.now()-v<CONTEST.dur+3600000){
-      CK.started=v; CK.elapsed=Math.min(CONTEST.dur, Date.now()-v);
+    var raw=localStorage.getItem(CKKEY); if(!raw) return;
+    var v=JSON.parse(raw);
+    if(v.start){
+      var e=Date.now()-v.start;
+      if(v.start>0 && e>0 && e<CONTEST.dur+3600000){ CK.started=v.start; CK.elapsed=Math.min(CONTEST.dur,e) }
+    }else if(typeof v.at==="number"){                   /* 上次是暂停状态关掉的 → 回来仍然停着 */
+      CK.elapsed=Math.min(CONTEST.dur,v.at); CK.started=Date.now()-CK.elapsed;
+      CK.hold=true; CK.paused=true;
     }
   }catch(e){}
 }
-function ckSave(){ try{ localStorage.setItem(CKKEY,String(CK.started)) }catch(e){} }
+function ckSave(){
+  try{ localStorage.setItem(CKKEY, JSON.stringify(CK.hold? {at:CK.elapsed} : {start:CK.started})) }catch(e){}
+}
 function ckGo(at){                                      /* 「开始模拟」= 开钟，没有准备页 */
-  CK.started=Date.now()-(at||0); CK.elapsed=at||0; CK.ended=false; ckSave();
+  CK.started=Date.now()-(at||0); CK.elapsed=at||0; CK.ended=false;
+  CK.hold=false; CK.paused=false; LIVE=true; ckSave();
   paintClock(); repaintBoards();
+}
+function ckPause(on){                                   /* 顶栏 ⏸ / ▶ */
+  CK.hold=on; CK.paused=on;
+  if(!on) CK.started=Date.now()-CK.elapsed;             /* 继续 = 从暂停处接钟 */
+  ckSave(); paintClock(); repaintBoards(); renderCat();
+}
+function ckEnd(){                                       /* 顶栏 ⏹ = 停钟 + 清记录 + 落终榜回顾 */
+  CK.hold=true; CK.paused=false; CK.ended=false; LIVE=false;
+  CK.elapsed=CONTEST.dur; CK.scrub=CONTEST.dur;
+  try{ localStorage.removeItem(CKKEY) }catch(e){}
+  var r=$("#s3R"); if(r) r.value=mm(CONTEST.dur);
+  paintScrub(); repaintBoards(); renderCat(); go("s3");
 }
 function ckTick(){
   if(CK.hold) return;                                   /* 只由「暂停」拦：reduced-motion 关的是装饰动效，不是比赛钟 */
@@ -1318,7 +1383,7 @@ function subPop(ti,p,elapsed,cap){                      /* 提交明细：逐次
   var subs=t.subs[p].filter(function(x){ return x.t<=elapsed });
   var L='<div class="pop__h"><span class="pop__t">'+pr.label+" · "+esc(pr.name)+'</span>'
     +'<button class="pop__x" aria-label="关闭">×</button></div>'
-    +'<div class="pop__sub">'+esc(t.name)+" @"+esc(t.org)+(fb&&fb.ti===ti?" · 本题首杀":"")+'</div>'
+    +'<div class="pop__sub">'+esc(t.name)+" @"+esc(t.org)+(fb&&fb.ti===ti&&fb.at<=cap?" · 本题首杀":"")+'</div>'
     +'<div class="pop__rule"></div>';
   if(!subs.length) L+='<div class="hint">本场未提交。</div>';
   else{
@@ -1424,7 +1489,7 @@ function paintBoard(o){
   var d=dataFor(o), e=elapsedFor(o);
   o.scroll.innerHTML=boardHTML(d.rows,d.col);
   /* 列头口径进 tooltip（UI 上不加解释性文字） */
-  [["h-r","名次 R#|全场位置 · 打星队占位不计奖牌"],
+  [["h-r","名次 R#|全场位置 · 打星队占位不计奖牌|奖牌 = 正式队 1–"+CONTEST.medal.gold+" 金 / "+(CONTEST.medal.gold+1)+"–"+CONTEST.medal.silver+" 银 / "+(CONTEST.medal.silver+1)+"–"+CONTEST.medal.bronze+" 铜"],
    ["h-s","学校排名 S#|只标各校最好的一支|打星队不计"],
    ["h-sol","过题 Slv|封榜段内定格在 "+hm(CONTEST.freeze)],
    ["h-pen","罚时 Pen|过题分钟 + 20 × 过题前失败|CE 不罚"]
@@ -1440,17 +1505,13 @@ function paintBoard(o){
     o.frost._tip=parseTip("封榜段 = 最后 1 小时|段内提交只显时刻与次数，判名显示 ?|名次与罚时定格在 "+hm(CONTEST.freeze)+" · 终局自动解封");
     if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
   }
-  o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b> · 金银铜 = 正式队 1–'
-    +CONTEST.medal.gold+' / '+(CONTEST.medal.gold+1)+'–'+CONTEST.medal.silver+' / '+(CONTEST.medal.silver+1)+'–'+CONTEST.medal.bronze+'</span>'
+  o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b></span>'
     +'<span class="spacer"></span><span class="key">'
-    +'<span class="key__i"><i class="key__s key__s--none"></i>空</span>'
     +'<span class="key__i"><i class="key__s key__s--pen">−</i>罚时</span>'
     +'<span class="key__i"><i class="key__s key__s--ac">✓</i>AC</span>'
     +'<span class="key__i"><i class="key__s key__s--fb">✦</i>首杀</span>'
     +'<span class="key__i"><i class="key__s key__s--frz">?</i>冻结</span>'
-    +'<span class="key__i"><i class="key__m" style="background:var(--gold)"></i>金</span>'
-    +'<span class="key__i"><i class="key__m" style="background:var(--silver)"></i>银</span>'
-    +'<span class="key__i"><i class="key__m" style="background:var(--bronze)"></i>铜</span>'
+    +'<span class="key__i"><i class="key__s key__s--post"></i>封榜后</span>'
     +'</span>';
 }
 function boardHover(o,ev){
@@ -1461,20 +1522,23 @@ function boardHover(o,ev){
     var d=dataFor(o), r=d.byT[+c.dataset.t]; if(!r) return;
     var x=r.cells[+c.dataset.p], pr=PROB[+c.dataset.p], L;
     var head=pr.label+" · "+pr.name;
-    if(x.st==="ac")       L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"AC "+mm(x.t)+"′ ×"+x.n}];
-    else if(x.st==="fb")  L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"首杀 "+mm(x.t)+"′ ×"+x.n}];
-    else if(x.st==="pen") L=[{c:"tip__d",t:head},{c:"tip__v is-bad",t:"未过 −"+x.n+" · 末次 "+mm(x.t)+"′"}];
+    if(x.st==="ac")       L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"AC "+mm(x.t)+"′ ×"+x.n+(x.post?" · 封榜后":"")}];
+    else if(x.st==="fb")  L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"首杀 "+mm(x.t)+"′ ×"+x.n+(x.post?" · 封榜后":"")}];
+    else if(x.st==="pen") L=[{c:"tip__d",t:head},{c:"tip__v is-bad",t:"未过 −"+x.n+" · 末次 "+mm(x.t)+"′"+(x.post?" · 封榜后":"")}];
     else if(x.st==="ce")  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"CE · 不罚 · "+mm(x.t)+"′"}];
     else                  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"封榜 ?"+x.n+" · 末次 "+mm(x.t)+"′"}];
+    if(x.post) L.push({c:"tip__x",t:"发生在封榜段 · 不计入定格名次"});
     L.push({c:"tip__x",t:TEAMS[r.ti].name+" · 第 "+r.rank+" 名"});
     L.push({c:"tip__x",t:"点击查看逐次提交"});
     var b1=c.getBoundingClientRect(); showTip(b1.left+b1.width/2,b1.top,L); return;
   }
   if(ph){
-    var p=+ph.dataset.hp, d2=dataFor(o), col=d2.col[p], fb=FB[p];
+    var p=+ph.dataset.hp, d2=dataFor(o), col=d2.col[p], e2=elapsedFor(o), fb=FB[p];
+    var fbAt=col.ac?capAt(e2):-1;                          /* 首杀只能按当前视图时刻说话，别把 69 分的事提前报出来 */
+    var shown=(fb && fb.at<=fbAt)?fb:null;
     var L2=[{c:"tip__d",t:PROB[p].label+" · "+PROB[p].name},
             {c:"tip__v"+(col.ac?"":" is-zero"), t:col.ac+" / "+d2.rows.length+" 队过"},
-            {c:"tip__x",t:fb?("首杀 "+TEAMS[fb.ti].org+" · "+mm(fb.at)+"′"):"全场无人通过"}];
+            {c:"tip__x",t:shown?("首杀 "+TEAMS[shown.ti].org+" · "+mm(shown.at)+"′"):(e2>=CONTEST.dur?"全场无人通过":"尚无通过")}];
     if(col.frz) L2.push({c:"tip__x",t:"另有 "+col.frz+" 格封榜未定"});
     var b2=ph.getBoundingClientRect(); showTip(b2.left+b2.width/2,b2.top,L2); return;
   }
@@ -1500,14 +1564,19 @@ function boardClick(o,ev){
   if(tm) openPop(tm.closest(".brow"), teamPop(+tm.closest(".brow").dataset.t));
 }
 function paintClock(){
+  var box=$("#clkBox"); if(box) box.classList.toggle("is-paused",!!CK.paused);
   var c2=$("#clk2"); if(c2) c2.textContent=hms(CK.elapsed);
-  var f2=$("#frz2");
-  if(f2){
-    var inFrz=CK.elapsed>CONTEST.freeze && CK.elapsed<CONTEST.dur;
-    f2.hidden=!inFrz;
-    if(inFrz) f2.innerHTML='封榜中 · 剩 '+hms(CONTEST.dur-CK.elapsed);
+  var f2=$("#frz2"), h2=$("#hold2");
+  var inFrz=CK.elapsed>CONTEST.freeze && CK.elapsed<CONTEST.dur;
+  if(f2){ f2.hidden=!inFrz; if(inFrz) f2.innerHTML='封榜中 · 剩 '+hms(CONTEST.dur-CK.elapsed) }
+  if(h2) h2.hidden=!CK.paused;
+  var live=$("#clkBox .dot"); if(live) live.className="dot "+(CK.paused||CK.elapsed>=CONTEST.dur?"dot--idle":"dot--live");
+  var pb=$("#tPause");
+  if(pb){
+    pb.innerHTML='<svg aria-hidden="true"><use href="#'+(CK.paused?"i-play":"i-pause")+'"/></svg>';
+    pb.setAttribute("aria-label",CK.paused?"继续":"暂停");
+    pb.title=CK.paused?"继续":"暂停";
   }
-  var live=$(".clock .dot"); if(live) live.className="dot "+(CK.elapsed>=CONTEST.dur?"dot--idle":"dot--live");
   $$(".liveClk").forEach(function(n){ n.textContent=hms(CK.elapsed) });
   var m3=$("#mode3"); if(m3) m3.textContent = CK.scrub>=CONTEST.dur?"终榜回顾":(CK.scrub>CONTEST.freeze?"回顾 · 封榜段":"回顾模式");
 }
@@ -1615,12 +1684,14 @@ function badge(x){
   return '<span class="tier tier--'+x.tier+'">'+TIER_CN[x.tier]+'</span>';
 }
 function crowHTML(x,path){
-  var acts = x.live
-    ? '<span class="crow__live"><i class="dot dot--live"></i>回放中 <span class="num liveClk">'+hms(CK.elapsed)+'</span></span>'
+  var live = x.live && LIVE;
+  var acts = live
+    ? '<span class="crow__live'+(CK.paused?" is-paused":"")+'"><i class="dot '+(CK.paused?"dot--idle":"dot--live")+'"></i>'
+      +(CK.paused?"已暂停 ":"回放中 ")+'<span class="num liveClk">'+hms(CK.elapsed)+'</span></span>'
       +'<button class="btn btn--xs" data-goto="s2">回到回放</button>'
     : '<button class="btn btn--xs btn--go" data-start="'+x.d+'"><svg aria-hidden="true"><use href="#i-play"/></svg>开始模拟</button>'
       +'<button class="btn btn--xs btn--ghost" data-final="'+x.d+'"><svg aria-hidden="true"><use href="#i-eye"/></svg>查看终榜</button>';
-  return '<div class="crow'+(x.live?" is-live":"")+'">'
+  return '<div class="crow'+(live?" is-live":"")+'">'
     +'<span class="crow__d">'+x.d+'</span>'
     +badge(x)
     +'<span class="crow__t">'+esc(x.name)+(path?'<u>'+esc(path)+'</u>':'')+'</span>'
@@ -1729,7 +1800,8 @@ function loadCat(){
    s4 · 组件与状态（兼必答对照）
    ========================================================================== */
 var AC={st:"ac",t:42*60000,n:2}, FBc={st:"fb",t:31*60000,n:1}, PEN={st:"pen",t:97*60000,n:3},
-    FRZ={st:"frz",t:251*60000,n:4}, NONE={st:"none"}, CE={st:"ce",t:12*60000,n:0};
+    FRZ={st:"frz",t:251*60000,n:4}, NONE={st:"none"}, CE={st:"ce",t:12*60000,n:0},
+    ACp={st:"ac",t:262*60000,n:3,post:true}, PENp={st:"pen",t:281*60000,n:2,post:true};
 function densityNums(){
   var navW=220, pad=64;
   var fixed=46+34+46+56+N*30+11;                        /* 4 个信息列 + 13 题列 + 榜内纵向滚动条 */
@@ -1749,17 +1821,20 @@ function renderTK(){
   frzCell=frzCell||{ti:rows[3].ti,p:0};
   var sect="";
 
-  sect+='<section><h3>Problem cell <span>题目格全状态横排（必答 3 的强度基准）· 大字 = 分钟 / 小字 = 次数</h3>'
+  sect+='<section><h3>Problem cell <span>题目格全状态横排（必答 3 的强度基准）· 大字 = 分钟 / 小字 = 次数 · 末两格 = 封榜后揭晓</h3>'
     +'<div style="display:flex;gap:12px;flex-wrap:wrap">'
-    +[["none","空"],["pen","罚时中 −n"],["ac","AC"],["fb","首杀 FB"],["frz","封榜 ?n"],["ce","CE 不罚"]].map(function(s){
-      var map={none:NONE,pen:PEN,ac:AC,fb:FBc,frz:FRZ,ce:CE};
+    +[["none","空"],["pen","罚时中 −n"],["ac","AC"],["fb","首杀 FB"],["frz","封榜 ?n"],["ce","CE 不罚"],
+      ["acp","封榜后 通过"],["penp","封榜后 未过"]].map(function(s){
+      var map={none:NONE,pen:PEN,ac:AC,fb:FBc,frz:FRZ,ce:CE,acp:ACp,penp:PENp};
       return '<div class="state" style="align-items:center;width:96px;padding:14px 8px">'
         +'<div style="--pcw:44px;--rowh:40px">'+cellHTML(map[s[0]],0,0)+'</div>'
         +'<span class="state__n" style="text-align:center">'+s[1]+'</span></div>';
     }).join("")
     +'</div>'
-    +'<p class="hint" style="margin-top:12px">六格用放大轨宽（<code>--pcw:44px</code>）拍特写；榜内实值 30 / 32。'
-      +'冻结格 = 斜纹 + 虚线描边（与"罚时红""空"三者互斥，一眼分得开），强度只到"看得出来"，不加发光。</p></section>';
+    +'<p class="hint" style="margin-top:12px">八格用放大轨宽（<code>--pcw:44px</code>）拍特写；榜内实值 30 / 32。'
+      +'冻结格 = 斜纹 + 虚线描边（与"罚时红""空"三者互斥）。<b>封榜后两格</b>只在终榜（或滑到终榜）出现：'
++'底色与字色各退一档 + 右上角一枚圆点，读法是"这一格发生在封榜段，没有改变你看到的名次"；'
++'若首杀恰好也在封榜后，则小字仍写 FB、底色同样退档（不再叠深绿，避免盖过定格结果）。</p></section>';
 
   sect+='<section><h3>Medal band <span>行底三色带 + 打星行 · 按正式队名次 1–30 / 31–60 / 61–90</h3>'
     +'<div class="boardwrap boardwrap--demo"><div>'+boardHTML(rows.slice(0,3).concat([rows[rows.length-1]]),col)+'</div></div>'
@@ -1771,15 +1846,19 @@ function renderTK(){
       return '<span class="key__i"><i style="width:3px;height:16px;border-radius:2px;background:var(--'+x[0]+')"></i>'+x[1]+'</span>';
     }).join("")+'<span class="key__i">底纹按金属各调一档明度，不让铜色压住红绿读数</span></div></div></section>';
 
-  sect+='<section><h3>Catalog row <span>目录行 · 默认 / 悬停 / 进行中</h3>'
+  var _pz=CK.paused; CK.paused=true;
+  var rowPaused=crowHTML(CAT[0].kids[1].list[8]); CK.paused=_pz;
+  sect+='<section><h3>Catalog row <span>目录行 · 默认 / 悬停 / 进行中 / 已暂停</h3>'
     +'<div class="cat" style="max-width:760px">'
     +crowHTML(CAT[0].kids[1].list[4])
     +crowHTML(CAT[0].kids[1].list[5]).replace('class="crow','class="crow is-hover')
     +crowHTML(CAT[0].kids[1].list[8])
+    +rowPaused
     +'</div>'
     +'<p class="hint" style="margin-top:12px">默认行只给日期 + tier + 名称；两枚按钮常驻（小尺寸 <code>btn--xs</code>），'
       +'主操作「开始模拟」走琥珀描边、次操作「查看终榜」走 ghost —— 常驻而不是 hover 才出现，因为它是这一屏唯一的动作。'
-      +'第二行是悬停态（底色 + 左缘琥珀 2px），第三行是进行中：名次条换成绿点与实时读数，动作换成「回到回放」。</p></section>';
+      +'第二行是悬停态（底色 + 左缘琥珀 2px）；第三行进行中：绿点 + 实时读数 + 「回到回放」；'
+      +'第四行已暂停：绿点转灰、读数转暗，钟停着但榜还在，动作不变。</p></section>';
 
   sect+='<section><h3>Popovers <span>提交明细 / 队伍 · 结果枚举全覆盖 AC FB WA TLE RTE CE ?</h3>'
     +'<div class="tk-grid2">'
@@ -1810,19 +1889,29 @@ function renderTK(){
       +'<span class="hint">换一场站名或年份</span></div>'
     +'</div></section>';
 
-  sect+='<section><h3>Replay chrome <span>计时 / 封榜 / 回顾 —— 三态并排（必答 3）</h3>'
-    +'<div class="tk-grid3">'
+  function transport(paused){
+    return '<span class="transport"><button class="tbtn" tabindex="-1" aria-hidden="true"><svg aria-hidden="true"><use href="#'
+      +(paused?"i-play":"i-pause")+'"/></svg></button>'
+      +'<button class="tbtn" tabindex="-1" aria-hidden="true"><svg aria-hidden="true"><use href="#i-stop"/></svg></button></span>';
+  }
+  sect+='<section><h3>Replay chrome <span>计时 / 走带 / 封榜 / 暂停 / 回顾 —— 四态并排（必答 3）</h3>'
+    +'<div class="tk-grid3" style="grid-template-columns:repeat(4,minmax(0,1fr))">'
     +'<div class="state"><span class="state__n">进行中 · 未封榜</span>'
-      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CONTEST.freeze-1000)+'</b></div>'
-      +'<span class="hint">顶栏只留一枚绿点 + 读数</span></div>'
+      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CONTEST.freeze-1000)+'</b>'+transport(false)+'</div>'
+      +'<span class="hint">顶栏 = 绿点 + 读数 + ⏸ / ⏹</span></div>'
     +'<div class="state"><span class="state__n">进行中 · 封榜段</span>'
-      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CK.elapsed)+'</b></div>'
+      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CK.elapsed)+'</b>'+transport(false)+'</div>'
       +'<span class="pill">封榜中 · 剩 '+hms(CONTEST.dur-CK.elapsed)+'</span></div>'
+    +'<div class="state"><span class="state__n">进行中 · 已暂停</span>'
+      +'<div class="clock is-paused"><i class="dot dot--idle"></i><b>'+hms(CK.elapsed)+'</b>'+transport(true)+'</div>'
+      +'<span class="pill">已暂停</span></div>'
     +'<div class="state"><span class="state__n">回顾 · 终榜</span>'
       +'<span class="pill pill--over">终榜回顾</span>'
       +'<div class="scrub__t" style="min-width:0">'+hms(CONTEST.dur)+'</div>'
       +'<span class="hint">无计时器 · 时间轴接管</span></div>'
     +'</div>'
+    +'<p class="hint" style="margin-top:12px">⏹ 结束模拟 = 停钟 + 清续钟记录 + 落回顾模式看终榜（数据本来就是打完的比赛，结束即揭晓）；'
++'⏸ 之后刷新回来仍然停在那一秒。</p>'
     +'<div class="spec-row"><span class="spec-row__k">封榜带<b>榜内提示强度</b></span>'
       +'<div class="boardwrap boardwrap--demo" style="border-radius:var(--r)">'
       +'<div class="frost" style="flex:none"><svg aria-hidden="true"><use href="#i-noflag"/></svg>'
@@ -1840,12 +1929,12 @@ function renderTK(){
       +'<button class="btn btn--xs btn--ghost">封榜</button><button class="btn btn--xs btn--ghost">终榜</button></span></div></div>'
     +'</section>';
 
-  sect+='<section><h3>Shell · rail <span>侧栏收起态（必答 4）· 收起键骑缝，两态同一位置</h3>'
+  sect+='<section><h3>Shell · rail <span>侧栏收起态（必答 4）· 收起键在 nav 内：展开贴右缘居中，收起落轨道底部</h3>'
     +'<div class="tk-grid2">'
     +'<div><div class="app app--mini" id="miniA"></div>'
-      +'<div class="sheetnote"><b>展开态</b> · 220px · 收起键只在看护导航时显形（悬停 / 聚焦）</div></div>'
+      +'<div class="sheetnote"><b>展开态</b> · 220px · 收起键贴 nav 右缘、垂直居中，常驻转灰，悬停提亮</div></div>'
     +'<div><div class="app app--mini is-rail" id="miniB"></div>'
-      +'<div class="sheetnote"><b>收起态</b> · 56px 图标轨道 · 当前项仍留琥珀左条 · navfoot 只剩状态点 + 计数 · 悬停出浮标</div></div>'
+      +'<div class="sheetnote"><b>收起态</b> · 56px 图标轨道 · 收起键同尺寸落到轨道底部 · 当前项仍留琥珀左条 · navfoot 只剩状态点 + 计数 · 悬停出浮标</div></div>'
     +'</div>'
     +'<div class="spec-row spec-row--top"><span class="spec-row__k">浮标做法<b>走 tooltip 外观</b></span>'
       +'<div class="hint" style="max-width:760px">浮标不是新组件：同 <code>.tip</code> 的黑底 / 描边 / 阴影，箭头改指左、第二行给一句口径'
@@ -1854,7 +1943,7 @@ function renderTK(){
     +'<div class="spec-row"><span class="spec-row__k">开关<b>两种入口</b></span>'
       +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
       +'<button class="btn btn--sm" id="tkRail">收起 / 展开（四屏同步）</button>'
-      +'<span class="hint">也可用顶栏右侧的演示开关 · 键盘 Tab 到骑缝键可直达</span></div></div></section>';
+      +'<span class="hint">也可用顶栏右侧的演示开关 · 键盘 Tab 到收起键可直达 · 字形同一枚面板图标，里面那根小竖条展开亮 / 收起暗</span></div></div></section>';
 
   sect+='<section><h3>Board scale <span>表密度实测读数（必答 1）· 1440 与 1280 同参数</h3>'
     +'<div class="tk-grid2">'
@@ -1907,15 +1996,19 @@ function renderTK(){
 +'它在切一/切二就是"数据与刻度"的读法，放这儿语义对齐；顶栏计时器用中性白 + 绿点表示"活着"。</p></div></div>'
     +'<div class="dec__i dec__i--ok"><div><div class="dec__t">3 · 封榜态表达<span class="must">主张</span></div>'
       +'<p class="dec__p">三层但都不发光：<b>格</b>（斜纹 + 虚线描边 + <code>?n</code>，与"空"和"红罚时"三者互斥）、'
-+'<b>带</b>（榜头上方一条 30px 窄带，写清"定格在 4:00"与未知格数，斜纹只铺在带内）、'
-+'<b>顶栏</b>（一枚 ghost pill「封榜中 · 剩 x」）。名次在封榜段不动 —— 这是最强的信号，不需要额外视觉。'
-+'被否掉的方案：整表盖一层磨砂（读数全糊）/ 榜体描边变灰（和不可达态撞）。</p></div></div>'
+      +'<b>带</b>（榜头上方一条 30px 窄带，写清"定格在 4:00"与未知格数，斜纹只铺在带内）、'
+      +'<b>顶栏</b>（一枚 ghost pill「封榜中 · 剩 x」）。名次在封榜段不动 —— 这是最强的信号，不需要额外视觉。'
+      +'终局解封后另给<b>两态</b>：封榜段里通过 / 未过的格子底色与字色各退一档、右上角一枚圆点，'
+      +'读法是"这一格没有改变你看到的名次"——被否掉的方案：反相实色底（满屏高亮会盖过奖牌带、与首杀深绿打架）。'
+      +'其余被否方案：整表盖一层磨砂（读数全糊）/ 榜体描边变灰（和不可达态撞）。</p></div></div>'
     +'<div class="dec__i dec__i--line"><div><div class="dec__t">4 · 侧栏收起态<span class="must">主张</span></div>'
-      +'<p class="dec__p">轨道 <b>56px</b>（图标 16px + 左右各 20px 命中区），收起键<b>骑缝</b>压在分界线上、'
-+'纵对齐 brand 行 —— 两态同一位置，随轨道一起走，不用先学第二次。展开态收起键默认隐身（悬停整个 app 或键盘聚焦才显形），'
-+'因为它是低频操作；收起态常驻。当前项保留琥珀左条 + 底色，只剩图标时仍能认出在哪一页。<b>navfoot 只留符号</b>：'
-+'一枚源状态点 + 计数 <code>394</code>，悬停出完整 navfoot 浮标 —— 三行小字在 56px 里必然碎掉，裁掉比压扁诚实。'
-+'文字做法选<b>浮标</b>不选常驻：4 项不需要常驻标签，而浮标复用全站 tooltip 外观（箭头改指左）零新组件。</p></div></div>'
+      +'<p class="dec__p">轨道 <b>56px</b>（图标 16px + 左右各 20px 命中区）。收起键放在 <b>nav 内部</b>：'
+      +'展开态贴 nav 右缘、垂直居中（20×20，常驻但转灰到 .42，悬停整个 app 才提亮 —— 它低频，但不该藏起来）；'
+      +'收起态同一枚键落到轨道底部、394 之上，常驻。字形是一枚面板图标，<b>里面那根小竖条展开亮、收起暗</b>，'
+      +'状态写在图标自己身上，不需要额外文案。当前项保留琥珀左条 + 底色，只剩图标时仍能认出在哪一页。'
+      +'<b>navfoot 只留符号</b>：一枚源状态点 + 计数 <code>394</code>，悬停出完整 navfoot 浮标 —— '
+      +'三行小字在 56px 里必然碎掉，裁掉比压扁诚实。文字做法选<b>浮标</b>不选常驻：'
+      +'4 项不需要常驻标签，而浮标复用全站 tooltip 外观（箭头改指左）零新组件。</p></div></div>'
     +'</div></section>';
 
   $("#tk").innerHTML=sect;
@@ -1981,7 +2074,7 @@ document.addEventListener("click",function(e){
   if(g){ e.preventDefault(); go(g.dataset.goto) }
 });
 
-/* ---------- 壳 · 收起态（骑缝键 + 顶栏演示开关等效） ---------- */
+/* ---------- 壳 · 收起态（nav 内的收起键 + 顶栏演示开关等效） ---------- */
 $("#chipRail").addEventListener("click",function(){ setRail(!RAIL) });
 document.addEventListener("click",function(e){
   var b=e.target.closest && e.target.closest("[data-rail]");
@@ -1994,15 +2087,14 @@ speedBtns.forEach(function(b){
   b.addEventListener("click",function(){
     var v=+b.dataset.speed;
     CK.started=Date.now()-CK.elapsed/v;                 /* 换速不跳秒 */
-    CK.speed=v; CK.hold=false; ckSave();
+    CK.speed=v; CK.hold=false; CK.paused=false; ckSave();
     speedBtns.forEach(function(x){ x.setAttribute("aria-pressed",x===b?"true":"false") });
     paintClock(); repaintBoards();
   });
 });
-$("#chipHold").addEventListener("click",function(){
-  CK.hold=!CK.hold;
-  this.setAttribute("aria-pressed",CK.hold?"true":"false");
-});
+/* ---------- 顶栏回放控制：⏸/▶ 暂停继续 · ⏹ 结束模拟 ---------- */
+$("#tPause").addEventListener("click",function(){ ckPause(!CK.paused) });
+$("#tEnd").addEventListener("click",function(){ ckEnd() });
 
 /* ---------- s1 · 目录 ---------- */
 $("#q").addEventListener("input",function(){ renderCat() });
@@ -2061,6 +2153,7 @@ ckLoad();                                               /* 续钟：先接上上
     if(/^s[1-4]$/.test(t)) screenInit=t;
     else if(t==="rm") setRM(true);
     else if(t==="hold") CK.hold=true;
+    else if(t==="paused"){ CK.hold=true; CK.paused=true }
     else if(t==="rail") setRail(true);
     else if(t==="railhover") setRail(true);
     else if(t==="formal"||t==="pop=sub"||t==="pop=team") QUEUE.push(t);
