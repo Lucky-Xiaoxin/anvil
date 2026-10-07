@@ -246,6 +246,10 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 
 .is-rail .brand{justify-content:center;padding:var(--sp-3) 0 var(--sp-2)}
 .is-rail .brand__txt{display:none}
+/* 展开瞬间文字不能回行：过渡中轨道只有 56px，换行会把侧栏挤成一列竖字（闪一下的根因）
+   —— 文字一律 nowrap，展开态把 nav 裁掉，宽度动画期间文字自左向右被逐步露出 */
+.navtxt,.brand__txt,.navfoot__full{white-space:nowrap}
+.app:not(.is-rail) .nav{overflow:hidden}
 .is-rail .navlist{padding:var(--sp-2) 8px;align-items:stretch}
 .is-rail .navitem{justify-content:center;gap:0;padding:10px 0}
 .is-rail .navitem .navtxt,.is-rail .navitem .lock{display:none}
@@ -2201,6 +2205,13 @@ QUEUE.forEach(function(t){
 if(/railhover/.test(location.hash||"")){
   var labs=$$(".screen:not([hidden]) .navitem .navlabel");
   if(labs[2]) labs[2].classList.add("is-on");
+}
+if(/(^|,)expand(,|$)/.test(location.hash||"")){        /* 演示：下一帧再展开，配合截图抓过渡中间帧 */
+  setRail(true);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ setRail(false) }) });
+}
+if(/(^|,)collapse(,|$)/.test(location.hash||"")){       /* 反方向：下一帧收起 */
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ setRail(true) }) });
 }
 setInterval(ckTick,250);
 })();
