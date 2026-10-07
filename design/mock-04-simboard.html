@@ -1,0 +1,2115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANVIL · 模拟榜单 · v5（切片 4 设计稿）</title>
+<meta name="description" content="ANVIL（铁砧）切片 4 视觉稿：模拟榜单 —— 赛事目录 / 回放榜（计时 · 封榜）/ 回顾模式（时间轴）/ 组件与状态 + 侧栏收起态。">
+<style>
+/* ==========================================================================
+   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v5）
+   基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
+     tokens / 组件 / 表密度 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
+   契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
+   壳改动：侧栏可收起（图标轨道 + 悬停浮标）+ 导航三处改名（个人数据 / 工坊 / 模拟榜单）。
+   ========================================================================== */
+
+/* ---------- 1. Tokens（与 mock-03x 一致，未改；末尾追加本稿尺度） ---------- */
+:root{
+  --bg:#0A0C10;
+  --panel:#12161D;
+  --panel-2:#171C25;
+  --line:#222A36;
+  --line-soft:#1B222C;
+  --text:#E8ECF3;
+  --text-dim:#94A0B4;
+  --text-mute:#6C7A8C;
+  --accent:#F5A524;
+  --accent-ink:#1A1206;
+  --accent-2:#4CC9F0;
+  --ok:#3FB950;
+  --warn:#D29922;
+  --bad:#F85149;
+  --gold:#D9A441; --silver:#AEB8C6; --bronze:#B08968;
+
+  --pf-cf:#4CC9F0;   --pf-cf-rgb:76,201,240;
+  --pf-at:#00C0C0;   --pf-at-rgb:0,192,192;
+  --pf-xcpc:#F0A0C4; --pf-xcpc-rgb:240,160,196;
+  --pf-grad:linear-gradient(90deg,var(--pf),var(--pf));
+
+  --rk-blue-d:#5B7BFF;
+  --rk-at-cyan:#00C0C0;
+  --rk-violet-d:#D473D4;
+
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  --font-num:"Cascadia Code","Cascadia Mono",Consolas,"JetBrains Mono","Liberation Mono",monospace;
+
+  --r-s:4px; --r:10px; --r-l:14px;
+  --sp-1:8px; --sp-2:16px; --sp-3:24px; --sp-4:32px; --sp-5:40px; --sp-6:48px;
+  --nav-w:220px;
+
+  --dur:180ms;
+  --ease:cubic-bezier(.22,.71,.3,1);
+
+  --bar-h:40px; --foot-h:26px;
+
+  /* 本稿追加尺度（必答 1 · 表密度）：题列轨宽 / 行高 / 轨道侧栏宽 */
+  --rail-w:56px;
+  --pcw:30px;      /* 题目列轨宽（内含 26px 格） */
+  --rowh:32px;     /* 榜体行高 */
+  --headh:46px;    /* 榜体列头高 */
+}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
+
+html{min-width:1200px;background:var(--bg)}
+body{
+  margin:0;height:100vh;min-width:1200px;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  font:14px/1.55 var(--font-ui);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1200px 380px at 50% -220px, rgba(245,165,36,.055), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0 1px, transparent 1px 40px),
+    var(--bg);
+}
+::selection{background:rgba(245,165,36,.28);color:#FFF6E4}
+h1,h2,h3,h4,p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+button{font:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-s)}
+
+/* ---------- 2. 排字（与 mock-03x 一致，未改） ---------- */
+.label{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-num);font-size:10px;line-height:1;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--text-mute);
+}
+.label::before{content:"";width:8px;height:1px;background:currentColor;opacity:.6}
+.label--accent{color:var(--accent)}
+.label--blue{color:var(--accent-2)}
+.dim{color:var(--text-dim)}
+.mute{color:var(--text-mute)}
+.hint{font-size:11.5px;color:var(--text-mute);line-height:1.7}
+.hint b{color:var(--text-dim)}
+.hint code{font-size:11.5px;color:var(--text-dim);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px}
+
+/* ---------- 3. 视觉稿外壳（非产品 UI，与 mock-03x 一致） ---------- */
+.mockbar{
+  flex:0 0 var(--bar-h);height:var(--bar-h);
+  display:flex;align-items:center;gap:var(--sp-2);
+  padding:0 var(--sp-3);
+  border-bottom:1px dashed var(--line);
+  background:#080A0E;
+}
+.mockbar__tag{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--font-num);font-size:10px;letter-spacing:.16em;
+  color:var(--accent);text-transform:uppercase;white-space:nowrap;
+}
+.mockbar__tag i{width:6px;height:6px;background:var(--accent);display:block;transform:rotate(45deg)}
+.mocktabs{display:flex;gap:2px;margin-left:auto}
+.mocktab{
+  font-family:var(--font-num);font-size:11.5px;letter-spacing:.06em;
+  color:var(--text-dim);padding:6px 12px;border-radius:var(--r-s);
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.mocktab:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.mocktab[aria-selected="true"]{color:var(--accent-ink);background:var(--accent)}
+.mockbar__spec{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.04em;white-space:nowrap}
+.demogrp{display:flex;align-items:center;gap:2px;margin-left:12px;padding-left:12px;border-left:1px dashed var(--line)}
+.demochip{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.03em;
+  color:var(--text-dim);padding:4px 8px;border-radius:var(--r-s);border:1px solid transparent;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease),border-color var(--dur) var(--ease);
+}
+.demochip i{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+.demochip:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.demochip[aria-pressed="true"]{color:var(--text);border-color:var(--line);background:var(--panel-2)}
+
+.mockfoot{
+  flex:0 0 var(--foot-h);height:var(--foot-h);
+  display:flex;align-items:center;gap:10px;padding:0 var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.06em;color:var(--text-mute);
+  background:#080A0E;
+}
+.mockfoot i{width:14px;height:2px;background:var(--accent);display:block;opacity:.8}
+
+/* ---------- 4. AppShell（与 mock-03x 一致；本稿唯一的壳改动 = 可收起轨道，见 4b） ---------- */
+.screen{flex:1 1 auto;min-height:0}
+.app{
+  position:relative;--nav-now:var(--nav-w);
+  display:grid;grid-template-columns:var(--nav-now) minmax(0,1fr);height:100%;min-height:0;
+  transition:grid-template-columns var(--dur) var(--ease);
+}
+.app.is-rail{--nav-now:var(--rail-w)}
+
+.nav{
+  position:relative;z-index:20;
+  display:flex;flex-direction:column;min-height:0;
+  background:linear-gradient(180deg,#0E1218,#0A0D12);
+  border-right:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:11px;padding:var(--sp-3) var(--sp-2) var(--sp-3) 17px;border-bottom:1px solid var(--line-soft)}
+.brand svg{width:26px;height:26px;color:var(--accent);flex:0 0 auto}
+.brand__txt{min-width:0}
+.brand__name{font-family:var(--font-num);font-size:15px;font-weight:600;letter-spacing:.20em;color:var(--text);line-height:1}
+.brand__sub{font-size:10px;letter-spacing:.26em;color:var(--text-mute);margin-top:5px;line-height:1}
+
+.navlist{padding:var(--sp-2) 10px;display:flex;flex-direction:column;gap:2px}
+.navitem{
+  position:relative;display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:var(--r-s);
+  color:var(--text-dim);font-size:13.5px;text-align:left;width:100%;
+  transition:color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.navitem svg{width:16px;height:16px;flex:0 0 auto;opacity:.85}
+.navitem:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.navitem[aria-current="page"]{color:var(--text);background:rgba(245,165,36,.10)}
+.navitem[aria-current="page"]::before{
+  content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:2px;background:var(--accent);
+  box-shadow:0 0 10px rgba(245,165,36,.55);
+}
+.navitem--locked{color:var(--text-mute)}
+.navitem--locked:hover{color:var(--text-dim)}
+.navitem .lock{margin-left:auto;width:12px;height:12px;opacity:.7}
+
+.navfoot{
+  margin-top:auto;padding:var(--sp-2) 17px var(--sp-3);
+  border-top:1px solid var(--line-soft);
+  font-family:var(--font-num);font-size:10.5px;line-height:1.95;color:var(--text-mute);
+}
+.navfoot b{color:var(--text-dim);font-weight:600}
+
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;z-index:10}
+.topbar{
+  flex:0 0 56px;height:56px;position:relative;
+  display:flex;align-items:center;gap:var(--sp-2);padding:0 var(--sp-4);
+  background:rgba(18,22,29,.6);
+}
+.topbar::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,var(--accent) 0%,rgba(245,165,36,.35) 22%,var(--line) 60%,var(--line) 100%);
+  transform-origin:left center;animation:railignite var(--dur) var(--ease) both;
+}
+@keyframes railignite{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.topbar h2{font-size:15px;font-weight:600;letter-spacing:.01em}
+.topbar__meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);white-space:nowrap}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:4px 10px;border:1px solid var(--line);border-radius:999px;
+  font-family:var(--font-num);font-size:12px;color:var(--text);background:var(--panel-2);
+}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.vsep{width:1px;height:14px;background:var(--line);flex:0 0 auto;margin:0 3px}
+.topbar__spacer{flex:1 1 auto}
+.btn-src{font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
+
+.content{
+  flex:1 1 auto;min-height:0;overflow-y:auto;
+  padding:var(--sp-2) var(--sp-4) var(--sp-4);
+  display:flex;flex-direction:column;gap:var(--sp-2);
+}
+.content::-webkit-scrollbar{width:11px}
+.content::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--bg);border-radius:999px}
+.content::-webkit-scrollbar-thumb:hover{background:#31404F}
+/* 榜体屏：外层不滚，纵向滚动只发生在榜内（见 12） */
+.content--fit{overflow:hidden;min-height:0}
+
+/* ---------- 4b. 壳 · 侧栏收起态（本稿唯一壳改动，必答 4） ---------- */
+/* 收起键「骑缝」挂在 nav 与内容区的分界线上，两态同一位置，不随宽度搬家 */
+.railbtn{
+  position:absolute;left:var(--nav-now);top:20px;transform:translateX(-50%);
+  width:20px;height:20px;border-radius:50%;z-index:30;
+  display:grid;place-items:center;
+  background:#0E1218;border:1px solid var(--line);color:var(--text-mute);
+  opacity:0;
+  transition:opacity var(--dur) var(--ease),left var(--dur) var(--ease),
+             color var(--dur) var(--ease),border-color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.railbtn svg{width:11px;height:11px;transform:rotate(180deg);transition:transform var(--dur) var(--ease)}
+.app:hover .railbtn,.app:focus-within .railbtn,.is-rail .railbtn{opacity:1}
+.railbtn:hover{color:var(--text);border-color:#3B4757;background:var(--panel-2)}
+.railbtn:active{transform:translateX(-50%) scale(.9)}
+.is-rail .railbtn svg{transform:rotate(0)}
+
+.is-rail .brand{justify-content:center;padding:var(--sp-3) 0 var(--sp-2)}
+.is-rail .brand__txt{display:none}
+.is-rail .navlist{padding:var(--sp-2) 8px;align-items:stretch}
+.is-rail .navitem{justify-content:center;gap:0;padding:10px 0}
+.is-rail .navitem .navtxt,.is-rail .navitem .lock{display:none}
+.is-rail .navitem[aria-current="page"]::before{left:-8px}
+.is-rail .navfoot{padding:var(--sp-2) 0 var(--sp-3);display:flex;justify-content:center}
+.is-rail .navfoot__full{display:none}
+.navfoot__rail{display:none}
+.is-rail .navfoot__rail{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative}
+.navfoot__rail .dot{cursor:default}
+.navfoot__rail b{font-family:var(--font-num);font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:.02em}
+
+/* 收起态悬停浮标：走全站 tooltip 的外观，箭头改指左（贴在图标右侧） */
+.navlabel{
+  position:absolute;left:100%;top:50%;z-index:40;
+  transform:translate(-4px,-50%);
+  margin-left:12px;white-space:nowrap;
+  background:#05070A;border:1px solid #2C3746;border-radius:var(--r-s);
+  padding:6px 10px;box-shadow:0 8px 22px rgba(0,0,0,.55);
+  font-size:12.5px;line-height:1.3;color:var(--text);
+  opacity:0;pointer-events:none;
+  transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.navlabel small{display:block;font-family:var(--font-num);font-size:10px;color:var(--text-mute);letter-spacing:.04em;margin-top:2px}
+.navlabel::after{
+  content:"";position:absolute;right:100%;top:50%;width:8px;height:8px;
+  transform:translateY(-50%) rotate(45deg);
+  background:#05070A;border-left:1px solid #2C3746;border-bottom:1px solid #2C3746;
+}
+.is-rail .navitem:hover .navlabel,.is-rail .navitem:focus-visible .navlabel,.navlabel.is-on{opacity:1;transform:translate(0,-50%)}
+.is-rail .navfoot__rail:hover .navlabel,.is-rail .navfoot__rail .navlabel.is-on{opacity:1;transform:translate(0,0)}
+.navfoot__rail .navlabel{left:100%;top:50%}
+
+/* ---------- 5. 卡片（与 mock-03x 一致） ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-2) var(--sp-3) var(--sp-3);min-width:0}
+.card--pad0{padding:0}
+.card__head{display:flex;align-items:baseline;gap:var(--sp-2);padding:14px var(--sp-3) 0;min-width:0;flex-wrap:wrap}
+.card__title{font-size:13.5px;font-weight:600;letter-spacing:.01em}
+.card__head .spacer{flex:1 1 auto;min-width:8px}
+.card__note{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.card__note b{color:var(--accent);font-weight:600}
+.card__foot{padding:10px var(--sp-3) 14px;font-size:11.5px;color:var(--text-mute);line-height:1.6}
+.card__foot b{color:var(--text-dim);font-weight:600}
+
+/* ---------- 6. Tooltip（与 mock-03x 一致） ---------- */
+.tip{
+  position:fixed;z-index:50;pointer-events:none;
+  transform:translate(-50%,-100%);
+  background:#05070A;border:1px solid #2C3746;border-radius:var(--r-s);
+  padding:7px 10px;min-width:118px;max-width:320px;
+  box-shadow:0 8px 22px rgba(0,0,0,.55);
+  font-size:12px;line-height:1.45;color:var(--text);
+}
+.tip__d{font-family:var(--font-num);font-size:11px;color:var(--text-dim);letter-spacing:.02em}
+.tip__v{font-family:var(--font-num);font-size:13px;color:var(--accent);margin-top:2px;font-variant-numeric:tabular-nums}
+.tip__v.is-zero{color:var(--text-mute)}
+.tip__v.is-up{color:var(--accent-2)}
+.tip__v.is-down{color:var(--accent)}
+.tip__v.is-gold{color:var(--gold)}
+.tip__v.is-silver{color:var(--silver)}
+.tip__v.is-bronze{color:var(--bronze)}
+.tip__v.is-ok{color:var(--ok)}
+.tip__v.is-bad{color:var(--bad)}
+.tip__x{font-size:11.5px;color:var(--text-dim);margin-top:3px}
+.tip__x b{color:var(--text);font-weight:600}
+.tip::after{
+  content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
+  transform:translateX(-50%) rotate(45deg);
+  background:#05070A;border-right:1px solid #2C3746;border-bottom:1px solid #2C3746;
+}
+.tip--static{position:static;transform:none;display:block;box-shadow:none;max-width:none;width:100%}
+.tip--static::after{display:none}
+
+/* ---------- 7. 按钮（与 mock-03x 一致；本稿加 btn--xs 供榜内与目录行用，见 12/13） ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:34px;padding:0 14px;border-radius:var(--r-s);
+  font-size:13px;font-weight:600;letter-spacing:.01em;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),
+             box-shadow var(--dur) var(--ease),transform var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.btn svg{width:14px;height:14px}
+.btn:hover{background:#1E252F;border-color:#39465A}
+.btn:active{transform:translateY(1px);background:#1A2028}
+.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none}
+.btn--primary{background:var(--accent);color:var(--accent-ink);border-color:#FFC356}
+.btn--primary:hover{background:#FFB63C;border-color:#FFD180;box-shadow:0 0 0 3px rgba(245,165,36,.16)}
+.btn--primary:active{background:#DE9417}
+.btn--ghost{background:transparent;border-color:transparent;color:var(--text-dim)}
+.btn--ghost:hover{background:rgba(255,255,255,.05);border-color:var(--line);color:var(--text)}
+.btn--sm{height:28px;padding:0 10px;font-size:12px}
+
+/* ---------- 8. 提示条（与 mock-03x 一致） ---------- */
+.alert{display:flex;gap:12px;padding:12px 14px;border-radius:var(--r-s);border:1px solid;font-size:12.5px;line-height:1.65}
+.alert svg{width:16px;height:16px;flex:0 0 auto;margin-top:2px}
+.alert--err{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.32);color:#FFC9C5}
+.alert--err svg{color:var(--bad)}
+.alert--ok{background:rgba(63,185,80,.07);border-color:rgba(63,185,80,.3);color:#BCE7C4}
+.alert--ok svg{color:var(--ok)}
+.alert--warn{background:rgba(210,153,34,.07);border-color:rgba(210,153,34,.30);color:#E8D6AE}
+.alert--warn svg{color:var(--warn)}
+.alert code{font-size:11.5px;color:var(--text);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px}
+.alert b{color:var(--text)}
+.alert__x{margin-left:auto;align-self:flex-start;font-family:var(--font-num);font-size:11px;color:var(--text-mute);white-space:nowrap}
+.alert__x:hover{color:var(--text)}
+
+/* ---------- 9. 搜索框 / 骨架（与 mock-03x 一致） ---------- */
+.search{
+  display:flex;align-items:center;gap:10px;height:42px;padding:0 14px;
+  background:#0B0E13;border:1px solid var(--line);border-radius:var(--r-s);
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.search svg{width:15px;height:15px;color:var(--text-mute);flex:0 0 auto}
+.search input{
+  flex:1 1 auto;min-width:0;background:none;border:none;outline:none;
+  color:var(--text);font:14px var(--font-ui);letter-spacing:.01em;
+}
+.search input::placeholder{color:var(--text-mute)}
+.search input:focus-visible{outline:none}
+.search:focus-within{border-color:rgba(245,165,36,.5);box-shadow:0 0 0 3px rgba(245,165,36,.14)}
+.skel{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;
+  border:1px solid var(--line-soft);border-radius:var(--r-s);background:#0E1218;
+  color:var(--text-mute);font-size:12.5px;
+}
+.skel i{
+  width:14px;height:14px;border-radius:50%;flex:0 0 auto;
+  border:2px solid var(--line);border-top-color:var(--accent);
+  animation:spin 900ms linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.skel--row{padding:0;height:38px;border:none;border-bottom:1px solid var(--line-soft);border-radius:0}
+.skbar{height:9px;border-radius:2px;background:linear-gradient(90deg,#171C25 0%,#20272F 50%,#171C25 100%);background-size:220% 100%;animation:shimmer 1.4s linear infinite}
+@keyframes shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+
+/* ---------- 10. 视觉稿文档组件（组件屏用，与 mock-03x 一致） ---------- */
+.tk{display:flex;flex-direction:column;gap:var(--sp-3);flex:0 0 auto}
+.tk section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp-3)}
+.tk h3{font-family:var(--font-num);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:var(--sp-2)}
+.tk h3 span{color:var(--text-mute);letter-spacing:.04em;text-transform:none;font-size:11px;margin-left:8px}
+.tk-grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-3)}
+.tk-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}
+.state{border:1px solid var(--line-soft);border-radius:var(--r-s);padding:12px 10px;background:#0E1218;display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.state__n{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.06em;text-transform:uppercase}
+.spec-row{display:grid;grid-template-columns:110px minmax(0,1fr);gap:var(--sp-2);align-items:center;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.spec-row:last-child{border-bottom:none}
+.spec-row--top{align-items:start}
+.spec-row__k{font-family:var(--font-num);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute)}
+.spec-row__k b{display:block;color:var(--text-dim);font-weight:600;letter-spacing:.04em;text-transform:none;font-size:11px;margin-top:3px}
+.spec-row > *:last-child{min-width:0}
+.demo-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px dashed var(--line);border-radius:var(--r-s);background:#0E1218}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.switch input{
+  -webkit-appearance:none;appearance:none;margin:0;
+  width:15px;height:15px;flex:0 0 auto;border-radius:3px;
+  border:1px solid #39465A;background:#0B0E13;position:relative;
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease);
+}
+.switch input:hover{border-color:#4B5B71}
+.switch input:checked{
+  border-color:#FFC356;
+  background:var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231A1206' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.5 12.6 4.8 4.8L19.5 6.8'/%3E%3C/svg%3E") center/11px no-repeat;
+}
+.switch:hover{color:var(--text)}
+.dec{display:flex;flex-direction:column;gap:16px}
+.dec__i{display:flex;gap:14px;border-left:2px solid var(--accent);padding-left:14px}
+.dec__i--blue{border-left-color:var(--accent-2)}
+.dec__i--line{border-left-color:#2E3846}
+.dec__i--ok{border-left-color:var(--ok)}
+.dec__t{font-size:13.5px;font-weight:600}
+.dec__p{font-size:12.5px;color:var(--text-dim);line-height:1.75;margin-top:5px}
+.dec__p b{color:var(--text)}
+.dec__p code{font-size:11.5px;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;color:var(--text-dim)}
+.dec__p .must{color:var(--accent);font-family:var(--font-num);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px}
+
+/* ---------- 11. Tier 徽章（切三材质版原样沿用；本稿加一支中性档给非 ICPC 系列） ---------- */
+.tier{
+  position:relative;display:inline-flex;align-items:center;
+  height:19px;padding:0 7px;border-radius:3.5px;flex:0 0 auto;
+  font-family:var(--font-num);font-size:10px;font-weight:600;letter-spacing:.05em;white-space:nowrap;
+  border:1px solid transparent;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.38), 0 1px 3px rgba(0,0,0,.35);
+}
+.tier--final{
+  color:#1B1226;
+  background:linear-gradient(110deg,#9BE7FF 0%,#C9A7FF 24%,#FFB3D9 48%,#FFE3A3 72%,#9BE7FF 100%);
+  background-size:240% 100%;
+  animation:holo 8s ease-in-out infinite alternate;
+  border-color:rgba(255,255,255,.55);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), 0 0 12px rgba(201,167,255,.32), 0 1px 3px rgba(0,0,0,.35);
+}
+@keyframes holo{from{background-position:0% 0}to{background-position:100% 0}}
+.tier--regional{color:#1A1207;background:linear-gradient(180deg,#F0D3A0 0%,#C79A4E 48%,#8F6A2A 100%);border-color:rgba(255,255,255,.22)}
+.tier--invitational{color:#0C1D16;background:linear-gradient(180deg,#C8F2DF 0%,#6FCBA4 48%,#35886A 100%);border-color:rgba(255,255,255,.28)}
+.tier--provincial{color:#151A23;background:linear-gradient(180deg,#F4F8FD 0%,#C6CFDC 46%,#8E99AA 100%);border-color:rgba(255,255,255,.35)}
+.tier--other{color:#141A22;background:linear-gradient(180deg,#C2CBD8 0%,#93A0B1 48%,#6A7787 100%);border-color:rgba(255,255,255,.22);font-weight:400}
+.tgtag{
+  display:inline-flex;align-items:center;gap:4px;
+  height:19px;padding:0 7px;border-radius:3.5px;flex:0 0 auto;
+  font-family:var(--font-num);font-size:10px;letter-spacing:.05em;color:#9FB2C9;
+  border:1px dashed #4A5C74;background:rgba(159,178,201,.05);
+}
+.tgtag::before{content:"\2726";font-size:8px;line-height:1;color:#C9D6E6;opacity:.8}
+
+/* ---------- 12. 赛事目录（s1） ---------- */
+.stack{display:flex;flex-direction:column;gap:var(--sp-2);max-width:1030px;margin:0 auto;width:100%;flex:0 0 auto}
+.catwrap{max-width:1030px;margin:0 auto;width:100%;flex:0 0 auto;display:flex;flex-direction:column;gap:12px}
+.cat{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;
+}
+/* 类目行（五类顶层） */
+.cgrp{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:13px 18px;border-bottom:1px solid var(--line-soft);
+  transition:background var(--dur) var(--ease)
+}
+.cgrp:hover{background:rgba(255,255,255,.03)}
+.cgrp__cv{width:12px;height:12px;color:var(--text-mute);flex:0 0 auto;transition:transform var(--dur) var(--ease)}
+.cgrp[aria-expanded="true"] .cgrp__cv,[aria-expanded="true"]>.cgrp__cv{transform:rotate(90deg)}
+.cyear__in[role="button"]{cursor:pointer;border-radius:var(--r-s);transition:color var(--dur) var(--ease)}
+.cyear__in[role="button"]:hover{color:var(--text)}
+.cyear__in[role="button"]:hover .cyear__y{color:var(--accent)}
+.cyear--grp{padding-top:19px}
+.cyear--grp .cyear__y{font-size:12.5px;letter-spacing:.02em;color:var(--text-dim)}
+.cgrp__n{font-size:14px;font-weight:600;letter-spacing:.01em}
+.cgrp__k{font-family:var(--font-num);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute)}
+.cgrp__n + .cgrp__k{margin-left:2px}
+.cgrp__r{margin-left:auto;font-family:var(--font-num);font-size:11.5px;color:var(--text-mute)}
+.cgrp__r b{color:var(--text-dim);font-weight:600}
+/* 年份 / 省份小节：切三编年表的「账页分隔线」 */
+.cyear{padding:15px 18px 0}
+.cyear:first-child{padding-top:10px}
+.cyear__in{display:flex;align-items:baseline;gap:14px;padding-right:18px}
+.cyear__y{font-family:var(--font-num);font-size:13.5px;font-weight:600;color:var(--text);letter-spacing:.06em}
+.cyear__n{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.cyear__p{font-size:12px;color:var(--text-dim)}
+.cyear__in::after{content:"";flex:1 1 auto;height:1px;background:var(--line-soft);align-self:center}
+.cyear--flat{padding:0 18px}
+/* 场次行 */
+.crow{
+  display:grid;grid-template-columns:92px 62px minmax(0,1fr) auto;
+  align-items:center;gap:12px;padding:0 18px 0 44px;height:38px;position:relative;
+  transition:background var(--dur) var(--ease)
+}
+.crow + .crow{border-top:1px solid var(--line-soft)}
+.crow::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);
+  opacity:0;transition:opacity var(--dur) var(--ease)
+}
+.crow:hover{background:rgba(255,255,255,.025)}
+.crow:hover::before,.crow.is-live::before{opacity:1}
+.crow.is-hover{background:rgba(255,255,255,.025)}
+.crow__d{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim)}
+.crow__t{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.crow__t u{text-decoration:none;color:var(--text-mute);font-size:11.5px;margin-left:8px}
+.crow__acts{display:flex;align-items:center;gap:6px;justify-self:end}
+.btn--xs{height:24px;padding:0 9px;font-size:11.5px;gap:6px;font-weight:600}
+.btn--xs svg{width:12px;height:12px}
+.btn--go{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
+.btn--go:hover{background:rgba(245,165,36,.18);border-color:rgba(245,165,36,.52);box-shadow:0 0 14px rgba(245,165,36,.10)}
+.crow.is-live{background:rgba(245,165,36,.045)}
+.crow__live{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-num);font-size:11.5px;color:var(--accent);white-space:nowrap}
+.crow__from{font-family:var(--font-num);font-size:10px;letter-spacing:.06em;color:var(--text-mute);white-space:nowrap}
+.dot--live{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.14);animation:beat 1.6s var(--ease) infinite}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.35}}
+.cat__foot{
+  padding:12px 18px;border-top:1px solid var(--line);background:rgba(0,0,0,.14);
+  font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em;
+  display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;
+}
+.cat__foot b{color:var(--text-dim);font-weight:600}
+.srchline{display:flex;align-items:center;gap:14px}
+.srchline .search{flex:1 1 auto;min-width:0}
+.srchline__n{font-family:var(--font-num);font-size:11.5px;color:var(--text-mute);white-space:nowrap}
+.srchline__n b{color:var(--accent);font-weight:600}
+
+/* ---------- 13. 榜体（s2 / s3 共用，必答 1） ---------- */
+.boardwrap{
+  --np:13;
+  --c-r:46px; --c-s:34px; --c-sol:46px; --c-pen:56px;
+  --bcols:var(--c-r) var(--c-s) minmax(0,1fr) minmax(0,1.12fr) var(--c-sol) var(--c-pen) repeat(var(--np),var(--pcw));
+  flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;
+}
+.boardwrap--demo{flex:none}
+.boardscroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
+.boardscroll::-webkit-scrollbar{width:11px}
+.boardscroll::-webkit-scrollbar-track{background:transparent}
+.boardscroll::-webkit-scrollbar-thumb{background:#242D3A;border:3px solid var(--panel);border-radius:999px}
+.boardscroll::-webkit-scrollbar-thumb:hover{background:#31404F}
+.brow{display:grid;grid-template-columns:var(--bcols);align-items:center;min-height:var(--rowh)}
+.brow > *{padding:0 7px;min-width:0}
+.bhead{
+  position:sticky;top:0;z-index:6;height:var(--headh);
+  background:#0F141B;border-bottom:1px solid var(--line);
+  align-items:end;padding-bottom:6px;
+}
+.bhead > *{
+  font-family:var(--font-num);font-size:9.5px;font-weight:400;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-mute);display:flex;align-items:center;
+}
+.bhead .h-r,.bhead .h-s,.bhead .h-sol,.bhead .h-pen{justify-content:flex-end}
+.bhead .h-r,.bhead .h-s{justify-content:flex-start}
+.brow--body{border-bottom:1px solid var(--line-soft);transition:background-image var(--dur) var(--ease),background-color var(--dur) var(--ease)}
+.brow--body:last-child{border-bottom:none}
+.brow--body:hover{background-image:linear-gradient(rgba(255,255,255,.032),rgba(255,255,255,.032))}
+/* 奖牌行底：左缘一条色带 + 由左向右衰减的极淡底（按正式队名次，回放中实时滚出） */
+.c-r{position:relative}
+.brow--body > .c-r{padding-left:12px}
+.brow.m-gold{background-image:linear-gradient(90deg,rgba(217,164,65,.27),rgba(217,164,65,.085) 56%,rgba(217,164,65,0) 86%)}
+.brow.m-silver{background-image:linear-gradient(90deg,rgba(174,184,198,.24),rgba(174,184,198,.075) 56%,rgba(174,184,198,0) 86%)}
+.brow.m-bronze{background-image:linear-gradient(90deg,rgba(176,137,104,.27),rgba(176,137,104,.085) 56%,rgba(176,137,104,0) 86%)}
+.brow.m-gold .c-r::before,.brow.m-silver .c-r::before,.brow.m-bronze .c-r::before{
+  content:"";position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:0 2px 2px 0;
+}
+.brow.m-gold .c-r::before{background:var(--gold)}
+.brow.m-silver .c-r::before{background:var(--silver)}
+.brow.m-bronze .c-r::before{background:var(--bronze)}
+.c-r b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;color:var(--text)}
+.c-s{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
+.c-s b{color:var(--accent-2);font-weight:600}
+.c-org{font-size:12.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-team{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;gap:7px;display:flex;align-items:center;min-width:0}
+.c-team__n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-team__star{color:#9FB2C9;font-size:10px;flex:0 0 auto}
+.c-team:hover .c-team__n{color:var(--accent)}
+.c-sol,.c-pen{text-align:right;justify-content:flex-end}
+.c-sol b,.c-pen b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;color:var(--text)}
+.c-pen u{text-decoration:none;font-family:var(--font-num);font-size:10px;color:var(--text-mute);margin-left:4px}
+.brow.is-star .c-r b{color:var(--text-mute);font-weight:400}
+.brow.is-star .c-team__n{color:var(--text-dim)}
+.brow.is-star .c-sol b,.brow.is-star .c-pen b{color:var(--text-dim);font-weight:400}
+
+/* 列头：题号 + 该题过队数（悬停全名） */
+.ph{flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
+.ph b{font-family:var(--font-num);font-size:12.5px;font-weight:600;color:var(--text-dim);line-height:1}
+.ph i{font-family:var(--font-num);font-size:9px;font-style:normal;color:var(--text-mute);line-height:1}
+.ph:hover b{color:var(--accent)}
+.ph.is-zero b{color:var(--text-mute)}
+
+/* 题目格五态（必答 3）：大字 = 分钟，小字 = 次数 */
+.pcell{padding:0 2px;height:100%;display:grid;place-items:center}
+.pcell__b{
+  width:calc(var(--pcw) - 4px);height:calc(var(--rowh) - 6px);
+  border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.018);border:1px solid transparent;
+  transition:outline-color var(--dur) var(--ease),border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+  outline:1px solid transparent;outline-offset:1px;
+}
+.pcell__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:600;line-height:1.05;color:var(--text-mute)}
+.pcell__n{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:9px;line-height:1;letter-spacing:.02em;color:var(--text-mute)}
+.pcell.is-hit{cursor:pointer}
+.pcell.is-hit:hover .pcell__b{outline-color:var(--text)}
+.pcell.is-ac .pcell__b{background:rgba(63,185,80,.11);border-color:rgba(63,185,80,.26)}
+.pcell.is-ac .pcell__t{color:var(--ok)}
+.pcell.is-ac .pcell__n{color:rgba(63,185,80,.66)}
+.pcell.is-fb .pcell__b{
+  background:linear-gradient(180deg,#1E5C2C,#143D20);border-color:rgba(63,185,80,.6);
+  box-shadow:0 0 12px rgba(63,185,80,.20),inset 0 1px 0 rgba(255,255,255,.14);
+}
+.pcell.is-fb .pcell__t{color:#9BF3AC}
+.pcell.is-fb .pcell__n{color:#9BF3AC;letter-spacing:.08em}
+.pcell.is-pen .pcell__b{background:rgba(248,81,73,.06);border-color:rgba(248,81,73,.20)}
+.pcell.is-pen .pcell__t{color:var(--text-dim)}
+.pcell.is-pen .pcell__n{color:var(--bad)}
+.pcell.is-frz .pcell__b{
+  background:repeating-linear-gradient(135deg,rgba(148,160,180,.11) 0 3px,rgba(148,160,180,.03) 3px 6px);
+  border-color:rgba(148,160,180,.34);border-style:dashed;
+}
+.pcell.is-frz .pcell__t{color:var(--text-dim)}
+.pcell.is-frz .pcell__n{color:var(--text-dim)}
+.pcell.is-ce .pcell__b{background:rgba(148,160,180,.05);border-color:rgba(148,160,180,.22)}
+
+/* 封榜带（榜内提示，必答 3）：一条窄带，斜纹只铺在带内，不碰表格 */
+.frost{
+  display:flex;align-items:center;gap:10px;padding:0 16px;height:30px;flex:0 0 30px;
+  border-bottom:1px solid var(--line-soft);
+  background:repeating-linear-gradient(135deg,rgba(148,160,180,.055) 0 6px,rgba(148,160,180,0) 6px 12px);
+  font-family:var(--font-num);font-size:11px;letter-spacing:.03em;color:var(--text-dim);
+}
+.frost svg{width:13px;height:13px;color:#9FB2C9;flex:0 0 auto}
+.frost b{color:var(--text);font-weight:600}
+.frost__r{margin-left:auto;color:var(--text-mute)}
+.frost--off{background:none;border-bottom-color:var(--line-soft);color:var(--text-mute)}
+
+/* 计时器（s2 顶栏） */
+.clock{display:inline-flex;align-items:center;gap:9px}
+.clock b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;letter-spacing:.01em;color:var(--text)}
+.clock--over b{font-size:13px;color:var(--text-dim);font-weight:400}
+.rbname{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.04em;
+  border:1px solid rgba(148,160,180,.34);color:#B4C0CF;background:rgba(148,160,180,.07);
+}
+.pill--live{border-color:rgba(63,185,80,.4);color:#A9E7B4;background:rgba(63,185,80,.08)}
+.pill--over{border-color:rgba(76,201,240,.36);color:#B6E9F8;background:rgba(76,201,240,.07)}
+.board__foot{
+  flex:0 0 auto;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding:9px 16px;border-top:1px solid var(--line-soft);background:rgba(0,0,0,.14);
+  font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.02em;
+}
+.board__foot b{color:var(--text-dim);font-weight:600}
+.board__foot .spacer{flex:1 1 auto}
+
+/* 图例（榜底一行，口径进 tooltip） */
+.key{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.key__i{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
+.key__s{width:18px;height:16px;border-radius:2.5px;display:grid;place-items:center;font-size:9px;font-family:var(--font-num)}
+.key__s--none{background:rgba(255,255,255,.018);border:1px solid transparent}
+.key__s--pen{background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);color:var(--bad)}
+.key__s--ac{background:rgba(63,185,80,.11);border:1px solid rgba(63,185,80,.26);color:var(--ok)}
+.key__s--fb{background:linear-gradient(180deg,#1E5C2C,#143D20);border:1px solid rgba(63,185,80,.6);color:#9BF3AC}
+.key__s--frz{background:repeating-linear-gradient(135deg,rgba(148,160,180,.11) 0 3px,rgba(148,160,180,.03) 3px 6px);border:1px dashed rgba(148,160,180,.34);color:var(--text-dim)}
+.key__m{width:14px;height:14px;border-radius:2px}
+
+/* ---------- 14. 时间轴滑条（s3） ---------- */
+.scrub{
+  flex:0 0 56px;display:flex;align-items:center;gap:16px;padding:0 16px;
+  border-bottom:1px solid var(--line);background:var(--panel-2);
+}
+.scrub__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;color:var(--accent-2);min-width:74px}
+.scrub__lab{font-family:var(--font-num);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);white-space:nowrap}
+.tl{position:relative;flex:1 1 auto;min-width:0;height:26px;display:flex;align-items:center}
+.tl__rail{position:absolute;left:0;right:0;height:4px;border-radius:2px;background:#222A36}
+.tl__frz{
+  position:absolute;height:4px;border-radius:2px;
+  background:repeating-linear-gradient(90deg,rgba(148,160,180,.42) 0 3px,rgba(148,160,180,.10) 3px 6px);
+}
+.tl__fill{position:absolute;left:0;height:4px;border-radius:2px;background:var(--accent-2);box-shadow:0 0 10px rgba(76,201,240,.35)}
+.tl__mk{position:absolute;width:1px;top:2px;bottom:2px;background:#3B4757}
+.tl__mk span{
+  position:absolute;left:5px;top:-14px;white-space:nowrap;
+  font-family:var(--font-num);font-size:9.5px;color:var(--text-mute);letter-spacing:.04em;
+}
+.tl input[type=range]{
+  -webkit-appearance:none;appearance:none;position:absolute;left:0;top:0;
+  width:100%;height:26px;background:transparent;margin:0;cursor:pointer;
+}
+.tl input[type=range]::-webkit-slider-runnable-track{height:26px;background:transparent}
+.tl input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:11px;height:18px;margin-top:4px;border-radius:3px;
+  background:var(--text);border:1px solid #46566A;box-shadow:0 2px 8px rgba(0,0,0,.5);
+}
+.tl input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scrub__x{position:absolute;left:0;right:0;bottom:-13px;display:flex;justify-content:space-between;font-family:var(--font-num);font-size:9.5px;color:var(--text-mute)}
+.scrub__acts{display:flex;gap:4px}
+
+/* ---------- 15. 弹层（提交明细 / 队伍，s2 · s4） ---------- */
+.pop{
+  position:fixed;z-index:60;width:270px;
+  background:#0F141B;border:1px solid #2C3746;border-radius:var(--r);
+  box-shadow:0 18px 44px rgba(0,0,0,.62);
+  padding:12px 14px;font-size:12.5px;
+  animation:rise 200ms var(--ease) both;
+}
+.pop__h{display:flex;align-items:baseline;gap:8px;min-width:0}
+.pop__h .tier{height:17px;font-size:9.5px}
+.pop__t{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop__x{margin-left:auto;font-family:var(--font-num);font-size:11px;color:var(--text-mute);flex:0 0 auto}
+.pop__x:hover{color:var(--text)}
+.pop__sub{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);margin-top:3px;letter-spacing:.02em}
+.pop__rule{height:1px;background:var(--line-soft);margin:10px 0 8px}
+.pop__row{display:grid;grid-template-columns:52px minmax(0,1fr) 42px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line-soft)}
+.pop__row:last-child{border-bottom:none}
+.pop__tm{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-dim)}
+.pop__lg{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res{
+  display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:3px;
+  font-family:var(--font-num);font-size:10px;font-weight:600;letter-spacing:.04em;justify-self:start;
+  border:1px solid transparent;white-space:nowrap;
+}
+.res--ac{color:var(--ok);background:rgba(63,185,80,.11);border-color:rgba(63,185,80,.3)}
+.res--fb{color:#9BF3AC;background:linear-gradient(180deg,#1E5C2C,#143D20);border-color:rgba(63,185,80,.6)}
+.res--bad{color:#FFB4AE;background:rgba(248,81,73,.09);border-color:rgba(248,81,73,.28)}
+.res--mute{color:var(--text-dim);background:rgba(148,160,180,.07);border-color:rgba(148,160,180,.26)}
+.res--frz{color:var(--text-dim);background:repeating-linear-gradient(135deg,rgba(148,160,180,.11) 0 3px,rgba(148,160,180,.03) 3px 6px);border:1px dashed rgba(148,160,180,.34)}
+.pop__kv{display:flex;align-items:baseline;gap:10px;padding:4px 0}
+.pop__k{font-family:var(--font-num);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);flex:0 0 44px}
+.pop__v{color:var(--text);min-width:0}
+.pop__v.dim{color:var(--text-dim)}
+.pop__who{display:flex;flex-direction:column;gap:5px;margin-top:2px}
+.pop__p{display:flex;align-items:center;gap:8px}
+.pop__p .av{
+  width:20px;height:20px;border-radius:var(--r-s);flex:0 0 auto;display:grid;place-items:center;
+  background:var(--panel-2);border:1px solid var(--line);font-family:var(--font-num);font-size:11px;color:var(--text-dim);
+}
+.pop--static{position:static;width:100%;animation:none}
+.backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
+
+/* ---------- 15b. 榜体列（s2 / s3 的 1030 度量）与 s4 样张壳 ---------- */
+.simcol{max-width:1030px;width:100%;margin:0 auto;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px}
+.simcol .scrub{border:1px solid var(--line);border-bottom:none;border-radius:var(--r) var(--r) 0 0;background:#141A22}
+.simcol .boardwrap{border-radius:0 0 var(--r) var(--r)}
+.app--mini{height:252px;position:relative;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.app--mini .main{background:#0C1015;display:flex;align-items:center;justify-content:center;color:var(--text-mute);font-family:var(--font-num);font-size:11px;letter-spacing:.06em}
+.app--mini .navfoot{padding-bottom:var(--sp-2)}
+.sheetnote{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.04em;margin-top:9px}
+.sheetnote b{color:var(--text-dim);font-weight:600}
+/* 密度读数表（s4 · 非产品 UI）：外观与切三编年表一致 */
+.dtable{width:100%;border-collapse:collapse;font-size:12px}
+.dtable th{
+  text-align:left;font-family:var(--font-num);font-size:9.5px;font-weight:400;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);
+  padding:0 10px 8px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+.dtable td{padding:8px 10px;border-bottom:1px solid var(--line-soft);color:var(--text-dim);white-space:nowrap}
+.dtable td.r{text-align:right}
+.dtable td:last-child b{color:var(--ok)}
+.dtable u{text-decoration:none;font-family:var(--font-num);font-size:10px;color:var(--text-mute);margin-left:6px}
+.dtable tr:last-child td{border-bottom:none}
+
+/* ---------- 16. 入场动效 / reduced-motion（与 mock-03x 一致） ---------- */
+.rise{animation:rise 200ms var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.cellin{animation:cellin 200ms var(--ease) both}
+@keyframes cellin{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+
+body.rm-on *,body.rm-on *::before,body.rm-on *::after{
+  animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;
+  transition-duration:1ms !important;scroll-behavior:auto !important;
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 内联图标：几何线条，零外部依赖（沿用 mock-02 / mock-03x 的图标集，本稿新增 4 支） ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-anvil" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M1.4 5.2h12.4l5.4 3.5H1.4z"/>
+      <path fill="currentColor" opacity=".72" d="M8.2 8.7h3.9l-.9 4.5H9.1z"/>
+      <path fill="currentColor" d="M4.9 13.2h10.3l2.9 5.6H2z"/>
+      <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".5" d="M18.4 2.6l2.6-1.2M20.6 6.1h3.2"/>
+    </symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="3" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="3" width="7.4" height="7.4" rx="1.4"/>
+      <rect x="3" y="13.6" width="7.4" height="7.4" rx="1.4"/><rect x="13.6" y="13.6" width="7.4" height="7.4" rx="1.4"/>
+    </symbol>
+    <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="5.5" cy="5.8" r="2.3"/><circle cx="18.5" cy="5.2" r="2.3"/><circle cx="12" cy="13" r="2.3"/><circle cx="5.5" cy="19.2" r="2.3"/><circle cx="18.5" cy="18.8" r="2.3"/>
+      <path d="M7.4 7.1 10.2 11.4M16.6 6.7 13.8 11.4M11.2 15.1 6.9 17.8M12.9 15.1l4 2.8"/>
+    </symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <circle cx="12" cy="12" r="3.1"/>
+      <path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9M12 14.3v2.5"/>
+    </symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.4 11.2A8.4 8.4 0 0 0 6 6.2L3.8 8.4"/><path d="M3.6 12.8a8.4 8.4 0 0 0 14.4 5l2.2-2.2"/><path d="M3.6 4.6v3.9h3.9M20.4 19.4v-3.9h-3.9"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.6 4.8 4.8L19.5 6.8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3.6 22 20.4H2z"/><path d="M12 9.6v5.1"/><circle cx="12" cy="17.3" r=".9" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <path d="M8.6 3v5.2M15.4 3v5.2"/><path d="M5.4 8.2h13.2v3.1a6.6 6.6 0 0 1-13.2 0z"/><path d="M12 17.9V21"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.4 15.4 4.6 4.6"/>
+    </symbol>
+    <!-- 新增：模拟榜单（榜单柱 + 计时盘）/ 开始模拟 / 查看终榜 / 封榜（遮眼）/ 骑缝折叠键 -->
+    <symbol id="i-board" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+      <rect x="2.6" y="12.4" width="3.6" height="9" rx="1.1"/><rect x="8.1" y="8.2" width="3.6" height="13.2" rx="1.1"/>
+      <circle cx="17.6" cy="9.4" r="5.4"/><path d="M17.6 6.4v3.2h2.3" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8.2 5.2v13.6L19.2 12z"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
+      <path d="M2.6 12S6.1 6.4 12 6.4 21.4 12 21.4 12 17.9 17.6 12 17.6 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.7"/>
+    </symbol>
+    <symbol id="i-noflag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.6 4.4 20.4 20.4"/><path d="M9.8 6.9A10 10 0 0 1 12 6.6c5.9 0 9.4 5.4 9.4 5.4a17.5 17.5 0 0 1-3.4 3.9M6.3 8.6A16.9 16.9 0 0 0 2.6 12s3.5 5.4 9.4 5.4a9.8 9.8 0 0 0 3.2-.5"/>
+    </symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></symbol>
+  </defs>
+</svg>
+
+<!-- ===== 工作台外壳片段（四屏共用，JS 克隆进每个 .app；导航三处新名字 = 本稿一并画进） ===== -->
+<template id="tplShell">
+  <button class="railbtn" data-rail aria-label="收起侧栏" title="收起侧栏"><svg aria-hidden="true"><use href="#i-chev"/></svg></button>
+  <aside class="nav">
+    <div class="brand">
+      <svg aria-hidden="true"><use href="#i-anvil"/></svg>
+      <div class="brand__txt"><div class="brand__name">ANVIL</div><div class="brand__sub">铁砧</div></div>
+    </div>
+    <div class="navlist">
+      <button class="navitem"><svg aria-hidden="true"><use href="#i-dash"/></svg><span class="navtxt">个人数据</span><span class="navlabel">个人数据<small>CF · AT · XCPC 三源</small></span></button>
+      <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-map"/></svg><span class="navtxt">工坊</span><svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg><span class="navlabel">工坊<small>切片 5 · 未解锁</small></span></button>
+      <button class="navitem" aria-current="page"><svg aria-hidden="true"><use href="#i-board"/></svg><span class="navtxt">模拟榜单</span><span class="navlabel">模拟榜单<small>目录 + 回放</small></span></button>
+      <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg><span class="navtxt">设置</span><span class="navlabel">设置</span></button>
+    </div>
+    <div class="navfoot">
+      <span class="navfoot__full">目录 <b>394</b> 场 · 单场 <b>13</b> 题<br>源 <code>srk-collection</code> 社区快照<br>回放为模拟 · 演示假数据</span>
+      <span class="navfoot__rail"><i class="dot dot--ok dot--big"></i><b>394</b><span class="navlabel">目录 394 场<small>源 srk-collection · 演示假数据</small></span></span>
+    </div>
+  </aside>
+</template>
+
+<!-- ================= 视觉稿导航条（非产品 UI） ================= -->
+<header class="mockbar">
+  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v5 · 切片 4</span>
+  <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
+    <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / 赛事目录</button>
+    <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / 回放榜</button>
+    <button class="mocktab" role="tab" id="t3" aria-controls="s3" aria-selected="false" data-screen="s3" tabindex="-1">03 / 回顾模式</button>
+    <button class="mocktab" role="tab" id="t4" aria-controls="s4" aria-selected="false" data-screen="s4" tabindex="-1">04 / 组件与壳</button>
+  </nav>
+  <div class="demogrp" role="group" aria-label="演示工具（非产品 UI）">
+    <button class="demochip" data-speed="1" aria-pressed="true">1×</button>
+    <button class="demochip" data-speed="60" aria-pressed="false">60×</button>
+    <button class="demochip" data-speed="300" aria-pressed="false">300×</button>
+    <button class="demochip" id="chipHold" aria-pressed="false">暂停时钟</button>
+    <button class="demochip" id="chipRail" aria-pressed="false">收起侧栏</button>
+  </div>
+  <span class="mockbar__spec">1440×900 基准 · 1280 不破版</span>
+</header>
+
+<main style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0">
+
+<!-- ============================================================
+     屏 1 · 模拟榜单主页（赛事目录：五类 → 年份 → 场次 + 搜索）
+     ============================================================ -->
+<section class="screen" id="s1" role="tabpanel" aria-labelledby="t1">
+<div class="app">
+  <div class="main">
+    <div class="topbar">
+      <h2>模拟榜单</h2>
+      <span class="topbar__meta">目录 <b class="num" style="color:var(--text-dim);font-weight:600">394</b> 场 · 榜单来自官方快照</span>
+      <span class="topbar__spacer"></span>
+      <button class="btn btn-sync" id="syncCat"><svg aria-hidden="true"><use href="#i-sync"/></svg>刷新目录</button>
+    </div>
+    <div class="content" data-content>
+      <div class="catwrap">
+        <div class="srchline">
+          <div class="search">
+            <svg aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="text" id="q" placeholder="赛事名过滤，如 上海 / CCPC / 江苏" aria-label="搜索赛事" autocomplete="off">
+          </div>
+          <span class="srchline__n" id="catN"></span>
+        </div>
+        <div class="cat" id="cat"></div>
+        <div class="hint" id="catNote"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 2 · 回放榜（进行中 · 演示停在封榜段内 4:12:07）
+     ============================================================ -->
+<section class="screen" id="s2" role="tabpanel" aria-labelledby="t2" hidden>
+<div class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="btn btn--ghost btn--sm" data-goto="s1"><svg aria-hidden="true" style="transform:rotate(180deg)"><use href="#i-chev"/></svg>回到目录</button>
+      <span class="vsep" aria-hidden="true"></span>
+      <h2 class="rbname" id="rbName2"></h2>
+      <span class="clock"><i class="dot dot--live"></i><b id="clk2">4:12:07</b></span>
+      <span class="pill" id="frz2" hidden></span>
+      <span class="topbar__spacer"></span>
+      <label class="switch"><input type="checkbox" id="onlyFormal2"> 仅正式队</label>
+    </div>
+    <div class="content content--fit" data-content>
+      <div class="simcol" id="sim2"></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 3 · 回顾模式（终榜 + 时间轴，拖动重建任意时刻）
+     ============================================================ -->
+<section class="screen" id="s3" role="tabpanel" aria-labelledby="t3" hidden>
+<div class="app">
+  <div class="main">
+    <div class="topbar">
+      <button class="btn btn--ghost btn--sm" data-goto="s1"><svg aria-hidden="true" style="transform:rotate(180deg)"><use href="#i-chev"/></svg>回到目录</button>
+      <span class="vsep" aria-hidden="true"></span>
+      <h2 class="rbname" id="rbName3"></h2>
+      <span class="pill pill--over" id="mode3">回顾模式</span>
+      <span class="topbar__spacer"></span>
+      <label class="switch"><input type="checkbox" id="onlyFormal3"> 仅正式队</label>
+    </div>
+    <div class="content content--fit" data-content>
+      <div class="simcol" id="sim3"></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================
+     屏 4 · 组件与状态（兼「必答四题」对照 + 壳收起态）
+     ============================================================ -->
+<section class="screen" id="s4" role="tabpanel" aria-labelledby="t4" hidden>
+<div class="app">
+  <div class="main">
+    <div class="topbar">
+      <h2>组件与状态</h2>
+      <span class="topbar__meta">第四块 = 目录 + 榜体 + 时间轴 · 壳只改侧栏收起</span>
+      <span class="topbar__spacer"></span>
+      <div class="demo-tools" style="border:none;padding:0;background:none">
+        <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
+        <label class="switch"><input type="checkbox" id="rmToggle"> 模拟 reduced-motion</label>
+      </div>
+    </div>
+    <div class="content" data-content>
+      <div class="tk" id="tk"></div>
+    </div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v5（切片 4 · 模拟榜单）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
+
+<div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
+<div class="pop" id="pop" role="dialog" aria-modal="false" aria-label="明细" hidden></div>
+
+<script>
+/* ==========================================================================
+   模拟榜单 · 演示数据与回放引擎（确定性 · 零依赖）
+   实现 agent 注意：这一段在真实产品里换成 srk.json（docs/15 §1）——
+     · 提交时刻源为毫秒，本稿同样按毫秒存 t，读数取整分钟；
+     · 榜单不是"存下来的"，是按当前时刻重建出来的（buildBoard）；
+     · 封榜段 = 时长 − 60 分钟（本场未声明，按缺省）；封榜后公开榜按封榜时刻定格，
+       封榜段内的提交只显示"有活动、结果未知"（?n），不计入名次与罚时；
+     · 奖牌按正式队名次划带（1–30 金 / 31–60 银 / 61–90 铜），打星队不占带。
+   ========================================================================== */
+(function(){
+"use strict";
+
+/* ---------- 工具 ---------- */
+var $ =function(s,r){return (r||document).querySelector(s)};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+function el(tag,cls,txt){var n=document.createElement(tag); if(cls)n.className=cls; if(txt!=null)n.textContent=txt; return n}
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") }
+function reduced(){
+  return document.body.classList.contains("rm-on") ||
+        (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+function mulberry32(a){
+  return function(){
+    a|=0; a=(a+0x6D2B79F5)|0;
+    var t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+var rnd=mulberry32(20251123);                         /* 固定种子 = 上海站 2025-11-23 */
+function ri(lo,hi){ return lo+Math.floor(rnd()*(hi-lo+1)) }
+function pick(a){ return a[Math.floor(rnd()*a.length)] }
+function pad(n){ return String(n).padStart(2,"0") }
+function hms(ms){
+  var s=Math.floor(ms/1000);
+  return Math.floor(s/3600)+":"+pad(Math.floor(s%3600/60))+":"+pad(s%60);
+}
+function hm(ms){ var s=Math.floor(ms/1000); return Math.floor(s/3600)+":"+pad(Math.floor(s%3600/60)) }
+function mm(ms){ return Math.floor(ms/60000) }        /* 榜上的"分钟"读数 */
+function capAt(e){                                      /* 计分口径：封榜段定格，终局解封 */
+  return e>=CONTEST.dur ? e : Math.min(e,CONTEST.freeze);
+}
+
+/* ---------- 本场：形状严格按 docs/15 §1 的实测解剖 ---------- */
+var CONTEST={
+  name:"The 50th ICPC Asia Shanghai Regional Contest · 2025 ICPC 亚洲区域赛 上海站",
+  short:"2025 ICPC 亚洲区域赛 · 上海站",
+  date:"2025-11-23",
+  startAt:"2025-11-23T09:00:00+08:00",
+  dur:300*60000,                                        /* 5 小时 */
+  freeze:240*60000,                                     /* 未声明 → 缺省最后 1 小时 */
+  medal:{gold:30,silver:60,bronze:90},
+  formal:102, star:10                                   /* 演示 112 队（真实侧 356 = 331 + 25 打星） */
+};
+var PROB=[
+  {label:"A",name:"Arrival in Shanghai",    d:.05},
+  {label:"B",name:"Bund Light Show",        d:.12},
+  {label:"C",name:"Circuit Metropolis",     d:.19},
+  {label:"D",name:"Dining Card",            d:.27},
+  {label:"E",name:"Expedition Route",       d:.35},
+  {label:"F",name:"Ferry Schedules",        d:.43},
+  {label:"G",name:"Grid City Planning",     d:.52},
+  {label:"H",name:"High Speed Rail",        d:.60},
+  {label:"I",name:"Ice Cream Queue",        d:.68},
+  {label:"J",name:"Jade Terrace Path",      d:.77},
+  {label:"K",name:"Keyboard Layout Design", d:.86},
+  {label:"L",name:"Long Live the Old Town", d:1.0, never:true},   /* 全场 0 AC */
+  {label:"M",name:"Maglev Race",            d:.93}
+];
+var N=PROB.length;
+
+var ORG=["上海交通大学","南京大学","复旦大学","浙江大学","清华大学","北京大学","中国科学技术大学",
+  "华中科技大学","武汉大学","西安交通大学","哈尔滨工业大学","电子科技大学","同济大学","东南大学",
+  "天津大学","中山大学","华南理工大学","四川大学","山东大学","厦门大学","福州大学","上海大学",
+  "华东师范大学","南京邮电大学","杭州电子科技大学","深圳大学","广东工业大学","重庆大学",
+  "西北工业大学","吉林大学","大连理工大学","北京航空航天大学","北京理工大学","北京邮电大学",
+  "中南大学","湖南大学","昆明理工大学","太原科技大学","河北大学","广西大学"];
+var TNAME=["全员保研","打不过就加入","三人行必有我师","代码敲得都队","铸剑为犁","赛博火柴人",
+  "我们说的都对","题名未定","下一队更强","AC 自动机","编译通过","样例骗人","爆零小分队",
+  "别问 问就是 TLE","早八起不来","面向工资编程","指针又飞了","递归爆栈","越狱的野指针",
+  "三秒定胜负","罚时制造机","这题我会","明天一定 AK","键盘冒烟","Ctrl C 大师","题目读不懂",
+  "读题五分钟","提交即通过","青铜守门员","银铜收割机","重在参与","快进到封榜","再交一发",
+  "首杀未遂","样例都过","玄学调参","二分边界","构造题克星","长期打星","今晚吃面"];
+var SUR=["陈","李","王","张","刘","杨","黄","周","吴","徐","孙","马","朱","胡","郭","何","林","罗","郑","梁","谢","宋","唐","许","邓","冯","韩","曹","彭","曾"];
+var GIV=["一鸣","知行","沐阳","昊霖","鑫杰","嘉禾","如晦","子墨","砚舟","星野","怀瑾","握瑜","长风","照野",
+  "鸣谦","行简","与舟","既白","知遥","弥帆","城越","木樨","澄澈","观澜","拾贰","半山","扶光","清让",
+  "无咎","致远","希文","立珩","书白","映桐"];
+var LANG=["C++17","C++20","C++14","Java17","Py3.11"];
+var RES_BAD=[["WA",.58],["TLE",.26],["RTE",.13],["CE",.03]];
+
+/* ---------- 队伍：队名 + 学校 + 三名队员 + 机位 + 打星（弹层有真内容） ---------- */
+var TOTAL=CONTEST.formal+CONTEST.star, TEAMS=[], USED={};
+for(var i=0;i<TOTAL;i++){
+  var nm=pick(TNAME), k=2;
+  while(USED[nm]) nm=pick(TNAME)+" "+(k++);             /* 同队名很常见 → 加编号 */
+  USED[nm]=1;
+  TEAMS.push({
+    id:i+1, name:nm,
+    org:ORG[i%ORG.length],                               /* 每校先铺一支，S# 列才有内容 */
+    members:[pick(SUR)+pick(GIV),pick(SUR)+pick(GIV),pick(SUR)+pick(GIV)],
+    seat:i+1, star:false,
+    s:(1-i/TOTAL)*0.94 + (rnd()-.5)*0.20                 /* 实力 = 递减基准 + 抖动 */
+  });
+}
+(function(){                                             /* 打星队 10 支，名次段随机分散 */
+  var pool=TEAMS.map(function(t,z){ return z });
+  for(var z=pool.length-1;z>0;z--){
+    var j=Math.floor(rnd()*(z+1)), tmp=pool[z]; pool[z]=pool[j]; pool[j]=tmp;
+  }
+  pool.slice(0,CONTEST.star).sort(function(a,b){ return a-b })
+      .forEach(function(z){ TEAMS[z].star=true });
+})();
+
+/* ---------- 逐次提交（每队每题）：毫秒时刻 + 结果 + 语言 ---------- */
+function badRes(){
+  var r=rnd(), acc=0;
+  for(var i=0;i<RES_BAD.length;i++){ acc+=RES_BAD[i][1]; if(r<=acc) return RES_BAD[i][0] }
+  return "WA";
+}
+function mksub(min,r){ return {t:min*60000+ri(0,59)*1000, r:r, l:pick(LANG)} }
+TEAMS.forEach(function(t){
+  t.subs=[];
+  for(var p=0;p<N;p++){
+    var pr=PROB[p], list=[], last=mm(CONTEST.dur)-ri(0,14);
+    var pAC = pr.never ? 0 : 1/(1+Math.exp(-7.4*(t.s - pr.d - .04)));
+    if(rnd()<pAC){
+      var base=14 + pr.d*230/Math.max(.42,t.s+.30);      /* 难题更晚 · 强队更早 */
+      var tm=Math.min(last, Math.max(6, Math.round(base*(.55+rnd()*.85))));
+      var nf=Math.max(0, Math.round(rnd()*rnd()*(2+pr.d*9)));
+      for(var f=0;f<nf;f++) list.push(mksub(ri(1,Math.max(2,tm-1)),badRes()));
+      list.push(mksub(tm,"AC"));
+    }else{
+      var nf2=Math.round(rnd()*rnd()*(pr.never?7:5)) + (rnd()<.55?1:0);
+      for(var g=0;g<nf2;g++) list.push(mksub(ri(2,last),badRes()));
+    }
+    list.sort(function(a,b){ return a.t-b.t });
+    t.subs.push(list);
+  }
+});
+var FB=[];                                               /* 首杀：每题最早那一支 */
+for(var p2=0;p2<N;p2++){
+  var best=null, bi=-1;
+  TEAMS.forEach(function(t,ti){
+    for(var s=0;s<t.subs[p2].length;s++){
+      var x=t.subs[p2][s];
+      if(x.r==="AC" && (best===null || x.t<best)){ best=x.t; bi=ti }
+    }
+  });
+  FB[p2]= bi<0 ? null : {ti:bi, at:best};
+  if(bi>=0){
+    var arr=TEAMS[bi].subs[p2];
+    for(var w=0;w<arr.length;w++) if(arr[w].r==="AC"){ arr[w].r="FB"; break }
+  }
+}
+
+/* ==========================================================================
+   buildBoard(elapsed) —— 时间 ≤ 当前的提交过滤后重建整张榜
+     cap = min(elapsed, 封榜)：名次 / 过题 / 罚时 只算 cap 之前（封榜即定格）
+     冻结格 = cap 之后、elapsed 之内有提交但没有 AC
+   ========================================================================== */
+function cellAt(t,p,elapsed,cap){
+  var subs=t.subs[p], last=null, ac=null, fails=0, nAll=0, after=false;
+  for(var i=0;i<subs.length;i++){
+    var x=subs[i]; if(x.t>elapsed) break;
+    nAll++; last=x;
+    if(x.t<=cap){
+      if(x.r==="AC"||x.r==="FB"){ if(!ac||x.t>ac.t) ac=x }
+      else if(x.r!=="CE") fails++;
+    }else after=true;
+  }
+  if(!last) return {st:"none"};
+  if(ac){
+    var nf=0;
+    for(var j=0;j<subs.length;j++){
+      var y=subs[j]; if(y.t>ac.t) break;
+      if(y.t<=cap && y.r!=="AC" && y.r!=="FB" && y.r!=="CE") nf++;
+    }
+    return {st:(ac.r==="FB"?"fb":"ac"), t:ac.t, n:nf+1, fails:nf};
+  }
+  if(after) return {st:"frz", t:last.t, n:nAll};
+  if(!fails && last.r==="CE") return {st:"ce", t:last.t, n:0};
+  return {st:"pen", t:last.t, n:fails};
+}
+function buildBoard(elapsed,onlyFormal){
+  var cap=capAt(elapsed), rows=[];
+  for(var ti=0;ti<TOTAL;ti++){
+    var t=TEAMS[ti];
+    if(onlyFormal && t.star) continue;
+    var solved=0, pen=0, lastAC=0, cells=[];
+    for(var p=0;p<N;p++){
+      var c=cellAt(t,p,elapsed,cap); c.p=p; cells.push(c);
+      if(c.st==="ac"||c.st==="fb"){
+        solved++; pen+=mm(c.t)+c.fails*20;
+        if(mm(c.t)>lastAC) lastAC=mm(c.t);
+      }
+    }
+    rows.push({ti:ti, t:t, solved:solved, pen:pen, last:lastAC, cells:cells, star:t.star});
+  }
+  rows.sort(function(a,b){ return b.solved-a.solved || a.pen-b.pen || a.last-b.last || a.ti-b.ti });
+  var place=0;
+  rows.forEach(function(r,ix){ r.rank=ix+1; if(!r.star) place++; r.place=r.star?null:place });
+  rows.forEach(function(r){
+    r.medal = r.star ? null
+      : r.place<=CONTEST.medal.gold ? "gold"
+      : r.place<=CONTEST.medal.silver ? "silver"
+      : r.place<=CONTEST.medal.bronze ? "bronze" : null;
+  });
+  var seen={}, sSeq=0, col=[], frzCells=0, frozenRows=0, solvedTotal=0;
+  for(var p3=0;p3<N;p3++) col.push({ac:0, frz:0});
+  rows.forEach(function(r){
+    /* S# = 学校排名（按各校最好的一支排序），只在头名那一行显示 */
+    if(!r.star){
+      if(!(r.t.org in seen)){ sSeq++; seen[r.t.org]=sSeq; r.srank=sSeq }
+      else r.srank="";
+    }else r.srank="";
+    solvedTotal+=r.solved;
+    var has=false;
+    for(var k=0;k<N;k++){
+      var x=r.cells[k];
+      if(x.st==="ac"||x.st==="fb") col[k].ac++;
+      else if(x.st==="frz"){ col[k].frz++; has=true; frzCells++ }
+    }
+    if(has) frozenRows++;
+  });
+  return {rows:rows, col:col, frzCells:frzCells, frozenRows:frozenRows, solvedTotal:solvedTotal, cap:cap};
+}
+
+/* ==========================================================================
+   榜体渲染（s2 / s3 / s4 样张 = 同一函数同一份数据）
+     格子读数规则：大字 = 分钟，小字 = 次数（× / − / ?），首杀的小字让位给 FB
+   ========================================================================== */
+function cellHTML(c,ti,p){
+  var cls="pcell", body="";
+  if(c.st==="ac")       { cls+=" is-ac is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span>'+(c.n>1?'<span class="pcell__n">×'+c.n+'</span>':''); }
+  else if(c.st==="fb")  { cls+=" is-fb is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">FB</span>'; }
+  else if(c.st==="pen") { cls+=" is-pen is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">−'+c.n+'</span>'; }
+  else if(c.st==="frz") { cls+=" is-frz is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">?'+c.n+'</span>'; }
+  else if(c.st==="ce")  { cls+=" is-ce is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">CE</span>'; }
+  else cls+=" is-none";
+  return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+'</span></div>';
+}
+function boardHTML(rows,col){
+  var h='<div class="brow bhead"><div class="h-r">R#</div><div class="h-s">S#</div>'
+    +'<div class="h-org">Organization</div><div class="h-team">Team</div>'
+    +'<div class="h-sol">Slv</div><div class="h-pen">Pen</div>';
+  for(var p=0;p<N;p++)
+    h+='<div class="ph'+(col[p].ac?"":" is-zero")+'" data-hp="'+p+'"><b>'+PROB[p].label+'</b><i>'+col[p].ac+'</i></div>';
+  h+='</div>';
+  var body="";
+  rows.forEach(function(r){
+    body+='<div class="brow brow--body'+(r.medal?" m-"+r.medal:"")+(r.star?" is-star":"")+'" data-t="'+r.ti+'">'
+      +'<div class="c-r"><b>'+r.rank+'</b></div>'
+      +'<div class="c-s">'+(r.srank===""?"":"<b>"+r.srank+"</b>")+'</div>'
+      +'<div class="c-org">'+esc(r.t.org)+'</div>'
+      +'<div class="c-team"><span class="c-team__n">'+esc(r.t.name)+'</span>'+(r.star?'<span class="c-team__star">★</span>':'')+'</div>'
+      +'<div class="c-sol"><b>'+r.solved+'</b></div>'
+      +'<div class="c-pen"><b>'+r.pen+'</b></div>';
+    for(var p=0;p<N;p++) body+=cellHTML(r.cells[p],r.ti,p);
+    body+='</div>';
+  });
+  return h+body;
+}
+
+/* ==========================================================================
+   时钟：秒级走 · 分钟粒度重建；点「开始模拟」就开钟，刷新按开始时刻续钟
+   ========================================================================== */
+var DEMO_T=(4*3600+12*60+7)*1000;                      /* 演示默认停在封榜段内 */
+var CK={elapsed:DEMO_T, scrub:CONTEST.dur, speed:1, hold:false, ended:false, started:Date.now()-DEMO_T};
+var CKKEY="anvil.mock04.start";
+function ckLoad(){
+  try{
+    var v=parseInt(localStorage.getItem(CKKEY)||"0",10);
+    if(v && Date.now()-v>0 && Date.now()-v<CONTEST.dur+3600000){
+      CK.started=v; CK.elapsed=Math.min(CONTEST.dur, Date.now()-v);
+    }
+  }catch(e){}
+}
+function ckSave(){ try{ localStorage.setItem(CKKEY,String(CK.started)) }catch(e){} }
+function ckGo(at){                                      /* 「开始模拟」= 开钟，没有准备页 */
+  CK.started=Date.now()-(at||0); CK.elapsed=at||0; CK.ended=false; ckSave();
+  paintClock(); repaintBoards();
+}
+function ckTick(){
+  if(CK.hold) return;                                   /* 只由「暂停」拦：reduced-motion 关的是装饰动效，不是比赛钟 */
+  var e=Math.min(CONTEST.dur,(Date.now()-CK.started)*CK.speed);
+  var crossed=mm(e)!==mm(CK.elapsed);
+  CK.elapsed=e;
+  paintClock();
+  if(crossed) repaintBoards();
+  if(e>=CONTEST.dur && !CK.ended){
+    CK.ended=true; CK.scrub=CONTEST.dur;                /* 走完自动落回顾模式 */
+    var r=$("#s3R"); if(r) r.value=mm(CK.scrub);
+    paintScrub(); repaintBoards();
+    if($(".screen:not([hidden])").id==="s2") go("s3");
+  }
+}
+
+/* ==========================================================================
+   Tooltip（全站体系沿用）/ 弹层（它的可点版）
+   ========================================================================== */
+var TIP=$("#tip");
+function showTip(cx,cy,lines){
+  TIP.innerHTML="";
+  lines.forEach(function(l){
+    var d=el("div",l.c); if(l.color) d.style.color=l.color;
+    d.textContent=l.t; TIP.appendChild(d);
+  });
+  TIP.hidden=false;
+  var half=TIP.offsetWidth/2+6;
+  TIP.style.left=Math.max(half,Math.min(window.innerWidth-half,cx))+"px";
+  TIP.style.top=Math.max(8,cy-10)+"px";
+}
+function hideTip(){ TIP.hidden=true }
+function parseTip(str){
+  var p=str.split("|"), out=[{c:"tip__d",t:p[0]}];
+  for(var i=1;i<p.length;i++) out.push({c:i===1?"tip__v":"tip__x",t:p[i]});
+  return out;
+}
+function bindTip(node){
+  node.addEventListener("mouseenter",function(){
+    var r=node.getBoundingClientRect();
+    showTip(r.left+r.width/2, r.top, node._tip||parseTip(node.getAttribute("data-tip")||""));
+  });
+  node.addEventListener("mouseleave",hideTip);
+}
+var POP=$("#pop");
+function openPop(anchor,html){
+  POP.innerHTML=html; POP.hidden=false;
+  var r=anchor.getBoundingClientRect(), w=POP.offsetWidth, h=POP.offsetHeight;
+  POP.style.left=Math.min(window.innerWidth-w-10, Math.max(10, r.left+r.width/2-w/2))+"px";
+  var y=r.bottom+8; if(y+h>window.innerHeight-10) y=Math.max(10, r.top-h-8);
+  POP.style.top=y+"px";
+  var x=$(".pop__x",POP); if(x) x.addEventListener("click",closePop);
+}
+function closePop(){ POP.hidden=true }
+document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ closePop(); hideTip() } });
+document.addEventListener("mousedown",function(e){
+  if(POP.hidden||e.target.closest(".pop")) return;
+  if(e.target.closest(".brow")) return;
+  closePop();
+});
+function subPop(ti,p,elapsed,cap){                      /* 提交明细：逐次结果 + 时刻 */
+  var t=TEAMS[ti], pr=PROB[p], fb=FB[p];
+  var subs=t.subs[p].filter(function(x){ return x.t<=elapsed });
+  var L='<div class="pop__h"><span class="pop__t">'+pr.label+" · "+esc(pr.name)+'</span>'
+    +'<button class="pop__x" aria-label="关闭">×</button></div>'
+    +'<div class="pop__sub">'+esc(t.name)+" @"+esc(t.org)+(fb&&fb.ti===ti?" · 本题首杀":"")+'</div>'
+    +'<div class="pop__rule"></div>';
+  if(!subs.length) L+='<div class="hint">本场未提交。</div>';
+  else{
+    subs.forEach(function(x){
+      var fz=x.t>cap;
+      var cls=fz?"res--frz":(x.r==="AC"?"res--ac":x.r==="FB"?"res--fb":x.r==="CE"?"res--mute":"res--bad");
+      L+='<div class="pop__row"><span class="res '+cls+'">'+(fz?"?":x.r)+'</span>'
+        +'<span class="pop__tm">'+hms(x.t)+'</span><span class="pop__lg">'+x.l+'</span></div>';
+    });
+    L+='<div class="hint" style="margin-top:8px">'
+      +(elapsed>CONTEST.freeze&&elapsed<CONTEST.dur?"封榜段内结果未公开，一律显示 ? · ":"")
+      +"罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）</div>";
+  }
+  return L;
+}
+function teamPop(ti){                                   /* 队伍：队名 / 学校 / 队员 / 打星 / 机位 */
+  var t=TEAMS[ti];
+  return '<div class="pop__h"><span class="pop__t">'+esc(t.name)+'</span>'
+    +'<button class="pop__x" aria-label="关闭">×</button></div>'
+    +'<div class="pop__sub">'+esc(t.org)+'</div><div class="pop__rule"></div>'
+    +'<div class="pop__who">'+t.members.map(function(m){
+        return '<div class="pop__p"><span class="av">'+esc(m.charAt(0))+'</span><span>'+esc(m)+'</span></div>';
+      }).join("")+'</div><div class="pop__rule"></div>'
+    +'<div class="pop__kv"><span class="pop__k">Seat</span><span class="pop__v num">#'+t.seat+'</span></div>'
+    +'<div class="pop__kv"><span class="pop__k">状态</span><span class="pop__v">'
+    +(t.star?'<span class="tgtag">打星</span>':'正式队')+'</span></div>';
+}
+
+/* ==========================================================================
+   两块榜的宿主：s2 跟时钟 · s3 跟滑条（榜体组件同一个，差异只在顶栏与滑条区）
+   ========================================================================== */
+var HOSTS=[], CACHE={};
+function elapsedFor(o){ return o.mode==="scrub"?CK.scrub:CK.elapsed }
+function dataFor(o){
+  var e=elapsedFor(o), f=!!o.onlyFormal, c=CACHE[o.id];
+  if(!c||c.e!==e||c.f!==f){
+    c=CACHE[o.id]={e:e,f:f,d:buildBoard(e,f)};
+    c.d.byT={}; c.d.rows.forEach(function(r){ c.d.byT[r.ti]=r });
+  }
+  return c.d;
+}
+function makeSim(hostId,mode){
+  var host=$("#"+hostId);
+  host.innerHTML=
+    (mode==="scrub"
+      ? '<div class="scrub">'
+        +'<span class="scrub__lab">回放</span>'
+        +'<span class="scrub__t" id="'+hostId+'T">'+hms(CONTEST.dur)+'</span>'
+        +'<span class="tl"><span class="tl__rail"></span>'
+        +  '<span class="tl__fill" id="'+hostId+'Fw"></span>'
+        +  '<span class="tl__frz" id="'+hostId+'Fz"></span>'
+        +  '<span class="tl__mk" id="'+hostId+'Mk"><span>封榜 '+hm(CONTEST.freeze)+'</span></span>'
+        +  '<input type="range" min="0" max="'+mm(CONTEST.dur)+'" step="1" value="'+mm(CONTEST.dur)
+        +  '" id="'+hostId+'R" aria-label="时间轴"></span>'
+        +'<span class="scrub__acts">'
+        +  '<button class="btn btn--xs btn--ghost" data-jump="0">起点</button>'
+        +  '<button class="btn btn--xs btn--ghost" data-jump="freeze">封榜</button>'
+        +  '<button class="btn btn--xs btn--ghost" data-jump="end">终榜</button></span>'
+        +'</div>'
+      : "")
+    +'<div class="boardwrap">'
+    +  '<div class="frost" id="'+hostId+'Frost" hidden></div>'
+    +  '<div class="boardscroll" id="'+hostId+'S"></div>'
+    +  '<div class="board__foot" id="'+hostId+'Foot"></div>'
+    +'</div>';
+  var o={id:hostId, host:host, mode:mode, onlyFormal:false,
+         scroll:$("#"+hostId+"S"), frost:$("#"+hostId+"Frost"), foot:$("#"+hostId+"Foot")};
+  HOSTS.push(o);
+  o.scroll.addEventListener("mouseover",function(e){ boardHover(o,e) });
+  o.scroll.addEventListener("mouseout",function(e){
+    var rt=e.relatedTarget;
+    if(!rt||!rt.closest||!rt.closest(".brow")) hideTip();
+  });
+  o.scroll.addEventListener("click",function(e){ boardClick(o,e) });
+  o.scroll.addEventListener("scroll",hideTip);
+  if(mode==="scrub"){
+    var rng=$("#"+hostId+"R");
+    rng.addEventListener("input",function(){ CK.scrub=+rng.value*60000; paintScrub(); repaintBoards() });
+    $$("[data-jump]",host).forEach(function(b){
+      b.addEventListener("click",function(){
+        var j=b.dataset.jump;
+        CK.scrub = j==="0"?0 : j==="end"?CONTEST.dur : CONTEST.freeze+60000;
+        $("#"+hostId+"R").value=mm(CK.scrub); paintScrub(); repaintBoards();
+      });
+    });
+  }
+  return o;
+}
+function paintScrub(){
+  var pctT=function(v){ return (v/CONTEST.dur*100) };
+  ["sim3"].forEach(function(id){
+    var host=$("#"+id); if(!host) return;
+    var e=CK.scrub, f=$("#"+id+"Fz"), w=$("#"+id+"Fw"), mk=$("#"+id+"Mk"), lab=$(".scrub__t",host);
+    f.style.left=pctT(CONTEST.freeze)+"%";
+    w.style.width=pctT(e)+"%";
+    mk.style.left=pctT(CONTEST.freeze)+"%";
+    lab.textContent=hms(e);
+    lab.style.color = e>CONTEST.freeze ? "#B4C0CF" : "var(--accent-2)";
+  });
+}
+function repaintBoards(){ HOSTS.forEach(paintBoard); paintClock() }
+function paintBoard(o){
+  var d=dataFor(o), e=elapsedFor(o);
+  o.scroll.innerHTML=boardHTML(d.rows,d.col);
+  /* 列头口径进 tooltip（UI 上不加解释性文字） */
+  [["h-r","名次 R#|全场位置 · 打星队占位不计奖牌"],
+   ["h-s","学校排名 S#|只标各校最好的一支|打星队不计"],
+   ["h-sol","过题 Slv|封榜段内定格在 "+hm(CONTEST.freeze)],
+   ["h-pen","罚时 Pen|过题分钟 + 20 × 过题前失败|CE 不罚"]
+  ].forEach(function(k){
+    var n=$("."+k[0],o.scroll); if(n){ n._tip=parseTip(k[1]); bindTip(n) }
+  });
+  var inFrz=e>CONTEST.freeze && e<CONTEST.dur;
+  o.frost.hidden=!inFrz;
+  if(inFrz){
+    o.frost.innerHTML='<svg aria-hidden="true"><use href="#i-noflag"/></svg>'
+      +'<span>封榜中 · 名次定格在 <b>'+hm(CONTEST.freeze)+'</b></span>'
+      +'<span class="frost__r">结果未知 '+d.frzCells+' 格 · 涉及 '+d.frozenRows+' 队</span>';
+    o.frost._tip=parseTip("封榜段 = 最后 1 小时|段内提交只显时刻与次数，判名显示 ?|名次与罚时定格在 "+hm(CONTEST.freeze)+" · 终局自动解封");
+    if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
+  }
+  o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b> · 金银铜 = 正式队 1–'
+    +CONTEST.medal.gold+' / '+(CONTEST.medal.gold+1)+'–'+CONTEST.medal.silver+' / '+(CONTEST.medal.silver+1)+'–'+CONTEST.medal.bronze+'</span>'
+    +'<span class="spacer"></span><span class="key">'
+    +'<span class="key__i"><i class="key__s key__s--none"></i>空</span>'
+    +'<span class="key__i"><i class="key__s key__s--pen">−</i>罚时</span>'
+    +'<span class="key__i"><i class="key__s key__s--ac">✓</i>AC</span>'
+    +'<span class="key__i"><i class="key__s key__s--fb">✦</i>首杀</span>'
+    +'<span class="key__i"><i class="key__s key__s--frz">?</i>冻结</span>'
+    +'<span class="key__i"><i class="key__m" style="background:var(--gold)"></i>金</span>'
+    +'<span class="key__i"><i class="key__m" style="background:var(--silver)"></i>银</span>'
+    +'<span class="key__i"><i class="key__m" style="background:var(--bronze)"></i>铜</span>'
+    +'</span>';
+}
+function boardHover(o,ev){
+  var n=ev.target;
+  if(!n.closest) return;
+  var c=n.closest(".pcell.is-hit"), ph=n.closest(".ph"), tm=n.closest(".c-r,.c-s,.c-org,.c-team");
+  if(c){
+    var d=dataFor(o), r=d.byT[+c.dataset.t]; if(!r) return;
+    var x=r.cells[+c.dataset.p], pr=PROB[+c.dataset.p], L;
+    var head=pr.label+" · "+pr.name;
+    if(x.st==="ac")       L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"AC "+mm(x.t)+"′ ×"+x.n}];
+    else if(x.st==="fb")  L=[{c:"tip__d",t:head},{c:"tip__v is-ok",t:"首杀 "+mm(x.t)+"′ ×"+x.n}];
+    else if(x.st==="pen") L=[{c:"tip__d",t:head},{c:"tip__v is-bad",t:"未过 −"+x.n+" · 末次 "+mm(x.t)+"′"}];
+    else if(x.st==="ce")  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"CE · 不罚 · "+mm(x.t)+"′"}];
+    else                  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"封榜 ?"+x.n+" · 末次 "+mm(x.t)+"′"}];
+    L.push({c:"tip__x",t:TEAMS[r.ti].name+" · 第 "+r.rank+" 名"});
+    L.push({c:"tip__x",t:"点击查看逐次提交"});
+    var b1=c.getBoundingClientRect(); showTip(b1.left+b1.width/2,b1.top,L); return;
+  }
+  if(ph){
+    var p=+ph.dataset.hp, d2=dataFor(o), col=d2.col[p], fb=FB[p];
+    var L2=[{c:"tip__d",t:PROB[p].label+" · "+PROB[p].name},
+            {c:"tip__v"+(col.ac?"":" is-zero"), t:col.ac+" / "+d2.rows.length+" 队过"},
+            {c:"tip__x",t:fb?("首杀 "+TEAMS[fb.ti].org+" · "+mm(fb.at)+"′"):"全场无人通过"}];
+    if(col.frz) L2.push({c:"tip__x",t:"另有 "+col.frz+" 格封榜未定"});
+    var b2=ph.getBoundingClientRect(); showTip(b2.left+b2.width/2,b2.top,L2); return;
+  }
+  if(tm){
+    var row=tm.closest(".brow"), d3=dataFor(o), r3=d3.byT[+row.dataset.t]; if(!r3) return;
+    var t3=TEAMS[r3.ti];
+    var L3=[{c:"tip__d",t:t3.name+" · "+t3.org},
+            {c:"tip__v",t:"第 "+r3.rank+" 名 · 过 "+r3.solved+" 题 · 罚时 "+r3.pen,
+             color:r3.medal?"var(--"+r3.medal+")":"var(--text-dim)"},
+            {c:"tip__x",t:"机位 #"+t3.seat+(t3.star?" · 打星不占奖牌":" · 正式队")},
+            {c:"tip__x",t:"点击查看队员"}];
+    var b3=tm.getBoundingClientRect(); showTip(b3.left+Math.min(b3.width/2,150),b3.top,L3);
+  }
+}
+function boardClick(o,ev){
+  var c=ev.target.closest(".pcell.is-hit"), tm=ev.target.closest(".c-r,.c-s,.c-org,.c-team");
+  hideTip();
+  if(c){
+    var e=elapsedFor(o);
+    openPop(c, subPop(+c.dataset.t,+c.dataset.p,e,capAt(e)));
+    return;
+  }
+  if(tm) openPop(tm.closest(".brow"), teamPop(+tm.closest(".brow").dataset.t));
+}
+function paintClock(){
+  var c2=$("#clk2"); if(c2) c2.textContent=hms(CK.elapsed);
+  var f2=$("#frz2");
+  if(f2){
+    var inFrz=CK.elapsed>CONTEST.freeze && CK.elapsed<CONTEST.dur;
+    f2.hidden=!inFrz;
+    if(inFrz) f2.innerHTML='封榜中 · 剩 '+hms(CONTEST.dur-CK.elapsed);
+  }
+  var live=$(".clock .dot"); if(live) live.className="dot "+(CK.elapsed>=CONTEST.dur?"dot--idle":"dot--live");
+  $$(".liveClk").forEach(function(n){ n.textContent=hms(CK.elapsed) });
+  var m3=$("#mode3"); if(m3) m3.textContent = CK.scrub>=CONTEST.dur?"终榜回顾":(CK.scrub>CONTEST.freeze?"回顾 · 封榜段":"回顾模式");
+}
+
+/* ==========================================================================
+   s1 · 赛事目录（official/config.yaml 的树：五类 → 年份 / 省 → 场次）
+     真实侧 394 场；本稿为演示节选 —— 只有列出的分组带逐场清单，其余给计数。
+   ========================================================================== */
+function c(d,name,tier,tl,live){ return {d:d,name:name,tier:tier,tl:tl,live:!!live} }
+var CAT=[
+  {name:"ICPC", sub:"按年份", n:214, open:true, kids:[
+    {name:"2026", n:18},
+    {name:"2025", n:12, open:true, list:[
+      c("2025-04-12","ICPC 全国邀请赛 · 西安","invitational"),
+      c("2025-05-24","ICPC 全国邀请赛 · 昆明","invitational"),
+      c("2025-09-20","ICPC 网络预选赛 第 1 场","other","网络赛"),
+      c("2025-09-27","ICPC 网络预选赛 第 2 场","other","网络赛"),
+      c("2025-10-18","ICPC 亚洲区域赛 · 成都站","regional"),
+      c("2025-11-01","ICPC 亚洲区域赛 · 南京站","regional"),
+      c("2025-11-08","ICPC 亚洲区域赛 · 哈尔滨站","regional"),
+      c("2025-11-16","ICPC 亚洲区域赛 · 沈阳站","regional"),
+      c("2025-11-23","ICPC 亚洲区域赛 · 上海站","regional",null,true),
+      c("2025-12-06","ICPC 亚洲区域赛 · 昆明站","regional"),
+      c("2025-12-13","ICPC 亚洲区域赛 · 广州站","regional"),
+      c("2025-12-20","ICPC 亚洲冠军赛 · 决赛","final")
+    ]},
+    {name:"2024", n:58},
+    {name:"2023", n:46},
+    {name:"2022", n:30},
+    {name:"2021", n:50}
+  ]},
+  {name:"CCPC", sub:"按年份", n:62, open:true, kids:[
+    {name:"2026", n:10},
+    {name:"2025", n:8, open:true, list:[
+      c("2025-03-22","CCPC 女生程序设计赛","other","女生赛"),
+      c("2025-04-19","CCPC 省赛 · 广东","provincial"),
+      c("2025-05-10","CCPC 秦皇岛 分站赛","other","分站赛"),
+      c("2025-05-31","CCPC 师范类专场","other","专场"),
+      c("2025-10-11","CCPC 省赛 · 江苏","provincial"),
+      c("2025-10-25","CCPC 省赛 · 山东","provincial"),
+      c("2025-11-08","CCPC 全国总决赛","final"),
+      c("2025-11-22","CCPC 邀请赛 · 西安","invitational")
+    ]},
+    {name:"2024", n:18},
+    {name:"2023", n:16},
+    {name:"2022", n:10}
+  ]},
+  {name:"省赛", sub:"按省分组", n:84, open:true, kids:[
+    {name:"江苏省", n:18, open:true, kids:[
+      {name:"2026", n:3, open:true, list:[
+        c("2026-04-11","江苏省大学生程序设计竞赛 · 网络赛","other","网络赛"),
+        c("2026-05-09","江苏省大学生程序设计竞赛 · 现场赛","provincial"),
+        c("2026-06-13","江苏省大学生程序设计大赛 · 高职组","other","高职组")
+      ]},
+      {name:"2025", n:4},
+      {name:"2024", n:5},
+      {name:"2023", n:6}
+    ]},
+    {name:"广东省", n:16},
+    {name:"浙江省", n:14},
+    {name:"山东省", n:12},
+    {name:"北京市", n:10},
+    {name:"湖北省", n:8},
+    {name:"四川省", n:6}
+  ]},
+  {name:"校级", sub:"按年份", n:22, kids:[
+    {name:"2026", n:6},
+    {name:"2025", n:6, open:true, list:[
+      c("2025-03-15","南京邮电大学 新生程序设计赛","other","校赛"),
+      c("2025-04-06","杭州电子科技大学 校内选拔","other","校赛"),
+      c("2025-04-20","复旦大学 校内程序设计竞赛","other","校赛"),
+      c("2025-05-11","华中科技大学 校内赛","other","校赛"),
+      c("2025-10-12","上海大学 程序设计竞赛","other","校赛"),
+      c("2025-11-09","东南大学 新生赛","other","校赛")
+    ]},
+    {name:"2024", n:5},
+    {name:"2023", n:5}
+  ]},
+  {name:"UCUP", sub:"按年份", n:12, kids:[
+    {name:"2026", n:3, open:true, list:[
+      c("2026-03-28","UCUP 第 1 期","other","统一赛"),
+      c("2026-05-16","UCUP 第 2 期","other","统一赛"),
+      c("2026-06-27","UCUP 夏季邀请赛","invitational")
+    ]},
+    {name:"2025", n:3},
+    {name:"2024", n:3},
+    {name:"2023", n:3}
+  ]}
+];
+var TIER_CN={final:"决赛", regional:"区域赛", invitational:"邀请赛", provincial:"省赛"};
+var NID=0;
+(function ids(ns){ ns.forEach(function(nd){ nd._id=++NID; if(nd.kids) ids(nd.kids) }) })(CAT);
+var LEAVES=[];
+(function flat(nodes,path){
+  nodes.forEach(function(nd){
+    var pp=path.concat(nd.name);
+    if(nd.list) nd.list.forEach(function(x){ LEAVES.push({row:x, path:pp, node:nd}) });
+    if(nd.kids) flat(nd.kids, pp);
+  });
+})(CAT,[]);
+
+var CATSTATE="ready";                                   /* ready | loading | error */
+function badge(x){
+  if(x.tier==="other") return '<span class="tier tier--other">'+x.tl+'</span>';
+  return '<span class="tier tier--'+x.tier+'">'+TIER_CN[x.tier]+'</span>';
+}
+function crowHTML(x,path){
+  var acts = x.live
+    ? '<span class="crow__live"><i class="dot dot--live"></i>回放中 <span class="num liveClk">'+hms(CK.elapsed)+'</span></span>'
+      +'<button class="btn btn--xs" data-goto="s2">回到回放</button>'
+    : '<button class="btn btn--xs btn--go" data-start="'+x.d+'"><svg aria-hidden="true"><use href="#i-play"/></svg>开始模拟</button>'
+      +'<button class="btn btn--xs btn--ghost" data-final="'+x.d+'"><svg aria-hidden="true"><use href="#i-eye"/></svg>查看终榜</button>';
+  return '<div class="crow'+(x.live?" is-live":"")+'">'
+    +'<span class="crow__d">'+x.d+'</span>'
+    +badge(x)
+    +'<span class="crow__t">'+esc(x.name)+(path?'<u>'+esc(path)+'</u>':'')+'</span>'
+    +'<span class="crow__acts">'+acts+'</span>'
+    +'</div>';
+}
+function nodeHTML(nd,depth,isTop){
+  var html="", open=!!nd.open, can=!!(nd.list||nd.kids);
+  if(isTop){
+    html+='<button class="cgrp" aria-expanded="'+open+'" data-node="'+nd._id+'">'
+      +'<svg class="cgrp__cv" aria-hidden="true"><use href="#i-chev"/></svg>'
+      +'<span class="cgrp__n">'+esc(nd.name)+'</span>'
+      +'<span class="cgrp__k">'+esc(nd.sub||"")+'</span>'
+      +'<span class="cgrp__r"><b>'+nd.n+'</b> 场</span></button>';
+  }else{
+    html+='<div class="cyear'+(nd.list?" cyear--flat":"")+(nd.kids?" cyear--grp":"")+'">'
+      +'<div class="cyear__in"'+(can?' role="button" tabindex="0" data-node="'+nd._id+'" aria-expanded="'+open+'"':'')+'>'
+      +(can?'<svg class="cgrp__cv" aria-hidden="true"><use href="#i-chev"/></svg>':'')
+      +'<b class="cyear__y">'+esc(nd.name)+'</b>'
+      +'<span class="cyear__n">'+nd.n+' 场</span>'
+      +(nd.kids?'<span class="cyear__p">按省 · 年份</span>':'')
+      +'</div></div>';
+  }
+  if(open){
+    (nd.kids||[]).forEach(function(k,i){ html+=nodeHTML(k,depth+1,false) });
+    (nd.list||[]).forEach(function(x){ html+=crowHTML(x) });
+  }
+  return html;
+}
+function searchHTML(q){
+  var s=q.trim().toLowerCase();
+  var hits=LEAVES.filter(function(x){
+    return (x.row.name+" "+x.row.d+" "+x.path.join(" ")).toLowerCase().indexOf(s)>=0;
+  });
+  var head='<div class="cyear cyear--flat"><div class="cyear__in">'
+    +'<b class="cyear__y">搜索结果</b><span class="cyear__n">'+hits.length+' 场</span>'
+    +'<span class="cyear__p">“'+esc(q)+'”</span></div></div>';
+  if(!hits.length)
+    return head+'<div style="padding:22px 18px 26px"><div class="skel"><i style="border-top-color:var(--text-mute);animation:none"></i>'
+      +'目录里没有匹配的赛事 · 换一场站名或年份</div></div>';
+  return head + hits.map(function(x){ return crowHTML(x.row, x.path.join(" / ")) }).join("");
+}
+function renderCat(){
+  var host=$("#cat"), note=$("#catNote"), n=$("#catN");
+  if(CATSTATE==="loading"){
+    host.innerHTML='<div style="padding:10px 18px 18px;display:flex;flex-direction:column;gap:6px">'
+      +'<div class="skel"><i></i>正在拉目录 <code>official/config.yaml</code>…</div>'
+      +Array.apply(null,{length:7}).map(function(){
+        return '<div class="skel skel--row"><span class="skbar" style="width:88px"></span>'
+          +'<span class="skbar" style="width:62px"></span><span class="skbar" style="flex:1"></span>'
+          +'<span class="skbar" style="width:150px"></span></div>';
+      }).join("")+'</div>';
+    n.textContent="目录加载中"; note.textContent="";
+    return;
+  }
+  if(CATSTATE==="error"){
+    host.innerHTML='<div style="padding:16px 18px 20px">'
+      +'<div class="alert alert--err"><svg aria-hidden="true"><use href="#i-plug"/></svg>'
+      +'<div><b>目录拉取失败</b>（<code>cdn.jsdelivr.net</code> 不可达 · <code>503</code>）· 已退避重试 2 次</div>'
+      +'<button class="alert__x" id="retry">重试</button></div>'
+      +'<div class="hint" style="margin-top:10px">本地没有目录缓存 · 不做假清单填空 —— 取不到就是空。</div></div>';
+    n.textContent="目录不可达"; note.textContent="";
+    $("#retry").addEventListener("click",function(){ loadCat() });
+    return;
+  }
+  var q=$("#q").value;
+  if(q.trim()){
+    host.innerHTML=searchHTML(q);
+    n.innerHTML='命中 <b>'+LEAVES.filter(function(x){
+      return (x.row.name+" "+x.row.d+" "+x.path.join(" ")).toLowerCase().indexOf(q.trim().toLowerCase())>=0;
+    }).length+'</b> / 394 场';
+  }else{
+    host.innerHTML=CAT.map(function(nd){ return nodeHTML(nd,0,true) }).join("");
+    n.innerHTML='收录 <b>394</b> 场 · 展开的分组逐场列出';
+  }
+  $$("[data-node]",host).forEach(function(b){
+    b.addEventListener("click",function(){
+      var id=+b.dataset.node;
+      function walk(nodes){
+        nodes.forEach(function(nd){
+          if(nd._id===id) nd.open=!nd.open;
+          if(nd.kids) walk(nd.kids);
+        });
+      }
+      walk(CAT); renderCat();
+    });
+  });
+  $$("[data-start]",host).forEach(function(b){
+    b.addEventListener("click",function(){ CK.hold=false; ckGo(0); go("s2") });   /* 点下去就开钟 · 无准备页 */
+  });
+  $$("[data-final]",host).forEach(function(b){
+    b.addEventListener("click",function(){
+      CK.scrub=CONTEST.dur; var r=$("#s3R"); if(r) r.value=mm(CONTEST.dur);
+      paintScrub(); repaintBoards(); go("s3");
+    });
+  });
+  note.innerHTML='目录 = <code>official/config.yaml</code>（394 场 · 五类顶层）· 单场榜单 = <code>official/&lt;路径&gt;.srk.json</code>（约 1.5 MB，进榜时拉一次）'
+    +' · 本稿为演示节选，逐场列出 '+LEAVES.length+' 场。';
+}
+function loadCat(){
+  CATSTATE="loading"; renderCat();
+  setTimeout(function(){ CATSTATE="ready"; renderCat() },1100);
+}
+
+/* ==========================================================================
+   s4 · 组件与状态（兼必答对照）
+   ========================================================================== */
+var AC={st:"ac",t:42*60000,n:2}, FBc={st:"fb",t:31*60000,n:1}, PEN={st:"pen",t:97*60000,n:3},
+    FRZ={st:"frz",t:251*60000,n:4}, NONE={st:"none"}, CE={st:"ce",t:12*60000,n:0};
+function densityNums(){
+  var navW=220, pad=64;
+  var fixed=46+34+46+56+N*30+11;                        /* 4 个信息列 + 13 题列 + 榜内纵向滚动条 */
+  var out=[];
+  [1440,1280].forEach(function(w){
+    var content=Math.min(w-navW-pad,1030), rest=content-fixed;
+    out.push({w:w, content:content, rest:Math.round(rest),
+      org:Math.round(rest/2.12), team:Math.round(rest/2.12*1.12)});
+  });
+  return out;
+}
+function renderTK(){
+  var d=dataFor(HOSTS[0]||{id:"x",mode:"live",onlyFormal:false}), rows=d.rows, col=d.col;
+  var dn=densityNums(), frzCell=null;
+  for(var a=0;a<rows.length && !frzCell;a++)
+    for(var b=0;b<N;b++) if(rows[a].cells[b].st==="frz"){ frzCell={ti:rows[a].ti,p:b}; break }
+  frzCell=frzCell||{ti:rows[3].ti,p:0};
+  var sect="";
+
+  sect+='<section><h3>Problem cell <span>题目格全状态横排（必答 3 的强度基准）· 大字 = 分钟 / 小字 = 次数</h3>'
+    +'<div style="display:flex;gap:12px;flex-wrap:wrap">'
+    +[["none","空"],["pen","罚时中 −n"],["ac","AC"],["fb","首杀 FB"],["frz","封榜 ?n"],["ce","CE 不罚"]].map(function(s){
+      var map={none:NONE,pen:PEN,ac:AC,fb:FBc,frz:FRZ,ce:CE};
+      return '<div class="state" style="align-items:center;width:96px;padding:14px 8px">'
+        +'<div style="--pcw:44px;--rowh:40px">'+cellHTML(map[s[0]],0,0)+'</div>'
+        +'<span class="state__n" style="text-align:center">'+s[1]+'</span></div>';
+    }).join("")
+    +'</div>'
+    +'<p class="hint" style="margin-top:12px">六格用放大轨宽（<code>--pcw:44px</code>）拍特写；榜内实值 30 / 32。'
+      +'冻结格 = 斜纹 + 虚线描边（与"罚时红""空"三者互斥，一眼分得开），强度只到"看得出来"，不加发光。</p></section>';
+
+  sect+='<section><h3>Medal band <span>行底三色带 + 打星行 · 按正式队名次 1–30 / 31–60 / 61–90</h3>'
+    +'<div class="boardwrap boardwrap--demo"><div>'+boardHTML(rows.slice(0,3).concat([rows[rows.length-1]]),col)+'</div></div>'
+    +'<p class="hint" style="margin-top:12px">色带 = 左缘 3px 实色 + 由左向右衰减的底（不铺满整行，压在题目格上就变脏）。'
+      +'打星行照列名次：不挂色带、名次转灰、队名后一枚 ★、不占 S# 与奖牌带 —— 上面第四行就是打星行。</p>'
+    +'<div class="spec-row"><span class="spec-row__k">奖牌带<b>色带 + 底纹</b></span>'
+    +'<div style="display:flex;gap:22px;flex-wrap:wrap">'
+    +[["gold","金 1–30"],["silver","银 31–60"],["bronze","铜 61–90"]].map(function(x){
+      return '<span class="key__i"><i style="width:3px;height:16px;border-radius:2px;background:var(--'+x[0]+')"></i>'+x[1]+'</span>';
+    }).join("")+'<span class="key__i">底纹按金属各调一档明度，不让铜色压住红绿读数</span></div></div></section>';
+
+  sect+='<section><h3>Catalog row <span>目录行 · 默认 / 悬停 / 进行中</h3>'
+    +'<div class="cat" style="max-width:760px">'
+    +crowHTML(CAT[0].kids[1].list[4])
+    +crowHTML(CAT[0].kids[1].list[5]).replace('class="crow','class="crow is-hover')
+    +crowHTML(CAT[0].kids[1].list[8])
+    +'</div>'
+    +'<p class="hint" style="margin-top:12px">默认行只给日期 + tier + 名称；两枚按钮常驻（小尺寸 <code>btn--xs</code>），'
+      +'主操作「开始模拟」走琥珀描边、次操作「查看终榜」走 ghost —— 常驻而不是 hover 才出现，因为它是这一屏唯一的动作。'
+      +'第二行是悬停态（底色 + 左缘琥珀 2px），第三行是进行中：名次条换成绿点与实时读数，动作换成「回到回放」。</p></section>';
+
+  sect+='<section><h3>Popovers <span>提交明细 / 队伍 · 结果枚举全覆盖 AC FB WA TLE RTE CE ?</h3>'
+    +'<div class="tk-grid2">'
+    +'<div><div class="pop pop--static">'+subPop(frzCell.ti,frzCell.p,CK.elapsed,capAt(CK.elapsed))+'</div></div>'
+    +'<div><div class="pop pop--static">'+teamPop(rows[3].ti)+'</div></div>'
+    +'</div>'
+    +'<div class="spec-row"><span class="spec-row__k">结果档<b>六枚举 + 冻结</b></span>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +[['res--ac','AC'],['res--fb','FB'],['res--bad','WA'],['res--bad','TLE'],['res--bad','RTE'],
+      ['res--mute','CE'],['res--frz','?']].map(function(x){
+      return '<span class="res '+x[0]+'">'+x[1]+'</span>';
+    }).join("")+'</div></div>'
+    +'<p class="hint" style="margin-top:10px">WA / TLE / RTE 同一档红（榜上只关心"没过 · 罚 n 次"，具体判名进弹层）；'
++'CE 转灰且不罚；封榜段内的判名一律替换为 ?。</p></section>';
+
+  sect+='<section><h3>States <span>目录：加载中 / CDN 不可达 / 搜索无结果</h3>'
+    +'<div class="tk-grid3">'
+    +'<div class="state"><span class="state__n">Loading</span>'
+      +'<div class="skel"><i></i>正在拉目录 <code>config.yaml</code>…</div>'
+      +'<div class="skel skel--row" style="height:30px"><span class="skbar" style="width:70px"></span><span class="skbar" style="flex:1"></span></div>'
+      +'<div class="skel skel--row" style="height:30px"><span class="skbar" style="width:70px"></span><span class="skbar" style="flex:1"></span></div></div>'
+    +'<div class="state"><span class="state__n">Error</span>'
+      +'<div class="alert alert--err"><svg aria-hidden="true"><use href="#i-plug"/></svg>'
+      +'<div><b>榜单拉取失败</b>（<code>503</code>）</div><button class="alert__x">重试</button></div>'
+      +'<span class="hint">不拿假数填空 · 取不到就空着</span></div>'
+    +'<div class="state"><span class="state__n">Empty</span>'
+      +'<div class="skel"><i style="animation:none;border-top-color:var(--text-mute)"></i>目录里没有匹配的赛事</div>'
+      +'<span class="hint">换一场站名或年份</span></div>'
+    +'</div></section>';
+
+  sect+='<section><h3>Replay chrome <span>计时 / 封榜 / 回顾 —— 三态并排（必答 3）</h3>'
+    +'<div class="tk-grid3">'
+    +'<div class="state"><span class="state__n">进行中 · 未封榜</span>'
+      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CONTEST.freeze-1000)+'</b></div>'
+      +'<span class="hint">顶栏只留一枚绿点 + 读数</span></div>'
+    +'<div class="state"><span class="state__n">进行中 · 封榜段</span>'
+      +'<div class="clock"><i class="dot dot--live"></i><b>'+hms(CK.elapsed)+'</b></div>'
+      +'<span class="pill">封榜中 · 剩 '+hms(CONTEST.dur-CK.elapsed)+'</span></div>'
+    +'<div class="state"><span class="state__n">回顾 · 终榜</span>'
+      +'<span class="pill pill--over">终榜回顾</span>'
+      +'<div class="scrub__t" style="min-width:0">'+hms(CONTEST.dur)+'</div>'
+      +'<span class="hint">无计时器 · 时间轴接管</span></div>'
+    +'</div>'
+    +'<div class="spec-row"><span class="spec-row__k">封榜带<b>榜内提示强度</b></span>'
+      +'<div class="boardwrap boardwrap--demo" style="border-radius:var(--r)">'
+      +'<div class="frost" style="flex:none"><svg aria-hidden="true"><use href="#i-noflag"/></svg>'
+      +'<span>封榜中 · 名次定格在 <b>'+hm(CONTEST.freeze)+'</b></span>'
+      +'<span class="frost__r">结果未知 '+d.frzCells+' 格 · 涉及 '+d.frozenRows+' 队</span></div></div></div>'
+    +'<div class="spec-row"><span class="spec-row__k">时间轴<b>封榜段斜纹 + 拖到任意时刻</b></span>'
+      +'<div class="scrub" style="border-radius:var(--r);border:1px solid var(--line)">'
+      +'<span class="scrub__lab">回放</span><span class="scrub__t">'+hms(CK.scrub)+'</span>'
+      +'<span class="tl"><span class="tl__rail"></span>'
+      +'<span class="tl__fill" style="width:'+(CK.scrub/CONTEST.dur*100)+'%"></span>'
+      +'<span class="tl__frz" style="left:'+(CONTEST.freeze/CONTEST.dur*100)+'%"></span>'
+      +'<span class="tl__mk" style="left:'+(CONTEST.freeze/CONTEST.dur*100)+'%"><span>封榜 '+hm(CONTEST.freeze)+'</span></span>'
+      +'<input type="range" min="0" max="'+mm(CONTEST.dur)+'" step="1" value="'+mm(CK.scrub)+'" tabindex="-1" aria-hidden="true">'
+      +'</span><span class="scrub__acts"><button class="btn btn--xs btn--ghost">起点</button>'
+      +'<button class="btn btn--xs btn--ghost">封榜</button><button class="btn btn--xs btn--ghost">终榜</button></span></div></div>'
+    +'</section>';
+
+  sect+='<section><h3>Shell · rail <span>侧栏收起态（必答 4）· 收起键骑缝，两态同一位置</h3>'
+    +'<div class="tk-grid2">'
+    +'<div><div class="app app--mini" id="miniA"></div>'
+      +'<div class="sheetnote"><b>展开态</b> · 220px · 收起键只在看护导航时显形（悬停 / 聚焦）</div></div>'
+    +'<div><div class="app app--mini is-rail" id="miniB"></div>'
+      +'<div class="sheetnote"><b>收起态</b> · 56px 图标轨道 · 当前项仍留琥珀左条 · navfoot 只剩状态点 + 计数 · 悬停出浮标</div></div>'
+    +'</div>'
+    +'<div class="spec-row spec-row--top"><span class="spec-row__k">浮标做法<b>走 tooltip 外观</b></span>'
+      +'<div class="hint" style="max-width:760px">浮标不是新组件：同 <code>.tip</code> 的黑底 / 描边 / 阴影，箭头改指左、第二行给一句口径'
++'（<code>个人数据</code> → "CF · AT · XCPC 三源"）。图标轨道里只有 4 项，浮标不需要列表式常驻文字。'
++'收起态下悬停图标 0 延迟出词，reduced-motion 下不做位移只切 opacity。</div></div>'
+    +'<div class="spec-row"><span class="spec-row__k">开关<b>两种入口</b></span>'
+      +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+      +'<button class="btn btn--sm" id="tkRail">收起 / 展开（四屏同步）</button>'
+      +'<span class="hint">也可用顶栏右侧的演示开关 · 键盘 Tab 到骑缝键可直达</span></div></div></section>';
+
+  sect+='<section><h3>Board scale <span>表密度实测读数（必答 1）· 1440 与 1280 同参数</h3>'
+    +'<div class="tk-grid2">'
+    +'<div>'+[
+      ["题目列轨","30px（内含 26×26 格 · 轨间 4px 空隙由 padding 给）"],
+      ["榜体行高","32px（两行读数 11.5 + 9）"],
+      ["列头高","46px（题号 + 该题过队数）"],
+      ["主读数","11.5px 等宽 tabular"],
+      ["次读数","9px 等宽"],
+      ["Org / Team","12.5px · 单行 ellipsis"],
+      ["名次 / 过题 / 罚时","12.5px 等宽"]
+    ].map(function(r){
+      return '<div class="spec-row" style="grid-template-columns:96px minmax(0,1fr);padding:9px 0">'
+        +'<span class="spec-row__k">'+r[0]+'</span><span class="hint" style="line-height:1.5">'+r[1]+'</span></div>';
+    }).join("")+'</div>'
+    +'<div><div class="spec-row"><span class="spec-row__k">此屏实测<b>内容区 '+Math.round(($("#s4 .content")||$(".content")).clientWidth)+'px</b></span>'
+      +'<span class="hint">榜体按 1030 度量收口（与切三长卷同宽）</span></div>'
+      +'<table class="dtable"><thead><tr>'
+      +'<th style="width:66px">视口</th><th class="r">内容区</th><th class="r">题列合计</th>'
+      +'<th class="r">Org</th><th class="r">Team</th><th class="r">横滚</th></tr></thead><tbody>'
+      +dn.map(function(x){
+        return '<tr><td><b class="num">'+x.w+'</b></td>'
+          +'<td class="r"><b class="num">'+x.content+'</b></td>'
+          +'<td class="r"><b class="num">'+(N*30)+'</b></td>'
+          +'<td class="r"><b class="num">'+x.org+'</b></td>'
+          +'<td class="r"><b class="num">'+x.team+'</b></td>'
+          +'<td class="r"><b class="num">'+(x.fit===false?"有":"无")+'</b></td></tr>';
+      }).join("")
+      +'<tr><td><b class="num">1280</b><u>收起</u></td>'
+      +'<td class="r"><b class="num">'+Math.min(1280-56-64,1030)+'</b></td><td class="r"><b class="num">'+(N*30)+'</b></td>'
+      +'<td class="r"><b class="num">'+Math.round((Math.min(1280-56-64,1030)-46-34-46-56-N*30-11)/2.12)+'</b></td>'
+      +'<td class="r"><b class="num">'+Math.round((Math.min(1280-56-64,1030)-46-34-46-56-N*30-11)/2.12*1.12)+'</b></td>'
+      +'<td class="r"><b class="num">无</b></td></tr>'
+      +'</tbody></table>'
+      +'<p class="hint" style="margin-top:8px">Org / Team 用 <code>minmax(0,1fr)</code> 吸收全部余量（Team 略宽 1.12 倍），'
++'题列固定不缩 —— 所以 1280 不需要横滚，代价是校名/队名截断，靠 tooltip 兜底。</p></div>'
+    +'</div></section>';
+
+  sect+='<section><h3>Decisions <span>必答四题的主张（docs/15 §2）</span></h3><div class="dec">'
+    +'<div class="dec__i"><div><div class="dec__t">1 · 表格密度与列宽<span class="must">主张</span></div>'
+      +'<p class="dec__p">题列 <b>30px 轨 / 26px 格</b>、行高 <b>32px</b>、主读数 11.5px 等宽 —— 四个定宽信息列 '
++'<code>46 + 34 + 46 + 56</code> 加 13 题列 <code>13×30=390</code> 加榜内滚动条 11px = <b>583px</b>，'
++'榜体仍收在 <b>1030</b> 度量里（与切三长卷同宽），余量 <b>470px</b> 全给 Org / Team（1fr : 1.12fr ≈ 221 / 248px）。'
++'<b>1280 不横滚</b>：榜体收到 996，余量仍有 435px（≈205 / 230），比切三编年表的下限宽 —— 没有推翻"不横滚"，'
++'只是把"整屏不滚"换成"榜内竖滚"（110 行的榜必须吸顶列头），代价是校名与队名截断、靠 tooltip 兜底。'
++'要更松只有一个旋钮：去掉 1030 收口，1440 下两列直接放宽到 610px；侧栏收起后 1280 也多出 164px 给同两列。</p></div></div>'
+    +'<div class="dec__i dec__i--blue"><div><div class="dec__t">2 · 模块识别色<span class="must">主张：不给</span></div>'
+      +'<p class="dec__p">模拟榜单不加第四支平台色。竞赛语义色已经把这屏的色彩预算用满（AC 绿 / 罚时红 / 冻结灰 / 金银铜），'
++'再加一支只会和奖牌带抢注意力。唯一借色 = 时间轴的<b>数据蓝 <code>--accent-2</code></b>，'
++'它在切一/切二就是"数据与刻度"的读法，放这儿语义对齐；顶栏计时器用中性白 + 绿点表示"活着"。</p></div></div>'
+    +'<div class="dec__i dec__i--ok"><div><div class="dec__t">3 · 封榜态表达<span class="must">主张</span></div>'
+      +'<p class="dec__p">三层但都不发光：<b>格</b>（斜纹 + 虚线描边 + <code>?n</code>，与"空"和"红罚时"三者互斥）、'
++'<b>带</b>（榜头上方一条 30px 窄带，写清"定格在 4:00"与未知格数，斜纹只铺在带内）、'
++'<b>顶栏</b>（一枚 ghost pill「封榜中 · 剩 x」）。名次在封榜段不动 —— 这是最强的信号，不需要额外视觉。'
++'被否掉的方案：整表盖一层磨砂（读数全糊）/ 榜体描边变灰（和不可达态撞）。</p></div></div>'
+    +'<div class="dec__i dec__i--line"><div><div class="dec__t">4 · 侧栏收起态<span class="must">主张</span></div>'
+      +'<p class="dec__p">轨道 <b>56px</b>（图标 16px + 左右各 20px 命中区），收起键<b>骑缝</b>压在分界线上、'
++'纵对齐 brand 行 —— 两态同一位置，随轨道一起走，不用先学第二次。展开态收起键默认隐身（悬停整个 app 或键盘聚焦才显形），'
++'因为它是低频操作；收起态常驻。当前项保留琥珀左条 + 底色，只剩图标时仍能认出在哪一页。<b>navfoot 只留符号</b>：'
++'一枚源状态点 + 计数 <code>394</code>，悬停出完整 navfoot 浮标 —— 三行小字在 56px 里必然碎掉，裁掉比压扁诚实。'
++'文字做法选<b>浮标</b>不选常驻：4 项不需要常驻标签，而浮标复用全站 tooltip 外观（箭头改指左）零新组件。</p></div></div>'
+    +'</div></section>';
+
+  $("#tk").innerHTML=sect;
+  /* 两块壳样张 = 与真壳同一份 template 克隆 */
+  fillMini("miniA",false,false);
+  fillMini("miniB",true,true);
+  $$("[data-tip]",$("#tk")).forEach(bindTip);
+  $("#tkRail").addEventListener("click",function(){ setRail(!RAIL) });
+}
+
+/* ==========================================================================
+   壳 · 侧栏收起态
+   ========================================================================== */
+var RAIL=false;
+function setRail(on){
+  RAIL=on;
+  document.body.classList.toggle("railon",on);
+  $$(".screen > .app").forEach(function(a){ a.classList.toggle("is-rail",on) });
+  $$("[data-rail]").forEach(function(b){
+    if(b.closest(".app--mini")) return;
+    b.setAttribute("aria-label",on?"展开侧栏":"收起侧栏");
+    b.title=on?"展开侧栏":"收起侧栏";
+  });
+  var chip=$("#chipRail"); if(chip) chip.setAttribute("aria-pressed",on?"true":"false");
+}
+
+/* ==========================================================================
+   装配 · 屏切换 · 壳开关 · 深链
+   ========================================================================== */
+var TPL=$("#tplShell");
+function fillShell(host){ host.prepend(TPL.content.cloneNode(true)) }
+$$(".screen > .app").forEach(fillShell);
+function fillMini(id,rail,labelOn){
+  var host=$("#"+id); if(!host) return;
+  host.innerHTML='<div class="main">内容区</div>';
+  host.prepend(TPL.content.cloneNode(true));
+  if(rail) host.classList.add("is-rail");
+  var b=$("[data-rail]",host); if(b){ b.style.opacity=1; b.dataset.mini="1" }
+  if(labelOn){ var labs=$$(".navitem .navlabel",host); if(labs[2]) labs[2].classList.add("is-on") }
+}
+
+/* ---------- 屏切换 ---------- */
+function go(id){
+  hideTip(); closePop();
+  $$(".screen").forEach(function(s){ s.hidden=(s.id!==id) });
+  $$(".mocktab").forEach(function(t){
+    var on=t.dataset.screen===id;
+    t.setAttribute("aria-selected",on?"true":"false");
+    t.tabIndex=on?0:-1;
+  });
+  if(id==="s2"||id==="s3"){ repaintBoards(); paintScrub() }
+  if(id==="s1") renderCat();
+  if(id==="s4") renderTK();
+}
+$$(".mocktab").forEach(function(t){ t.addEventListener("click",function(){ go(t.dataset.screen) }) });
+$(".mocktabs").addEventListener("keydown",function(e){
+  var tabs=$$(".mocktab"), i=tabs.findIndex(function(t){ return t.getAttribute("aria-selected")==="true" });
+  var j = e.key==="ArrowRight" ? (i+1)%tabs.length : e.key==="ArrowLeft" ? (i-1+tabs.length)%tabs.length : -1;
+  if(j>=0){ e.preventDefault(); tabs[j].focus(); go(tabs[j].dataset.screen) }
+});
+document.addEventListener("click",function(e){
+  var g=e.target.closest && e.target.closest("[data-goto]");
+  if(g){ e.preventDefault(); go(g.dataset.goto) }
+});
+
+/* ---------- 壳 · 收起态（骑缝键 + 顶栏演示开关等效） ---------- */
+$("#chipRail").addEventListener("click",function(){ setRail(!RAIL) });
+document.addEventListener("click",function(e){
+  var b=e.target.closest && e.target.closest("[data-rail]");
+  if(b && !b.dataset.mini) setRail(!RAIL);
+});
+
+/* ---------- 演示工具：回放倍速 / 暂停（非产品 UI） ---------- */
+var speedBtns=$$("[data-speed]");
+speedBtns.forEach(function(b){
+  b.addEventListener("click",function(){
+    var v=+b.dataset.speed;
+    CK.started=Date.now()-CK.elapsed/v;                 /* 换速不跳秒 */
+    CK.speed=v; CK.hold=false; ckSave();
+    speedBtns.forEach(function(x){ x.setAttribute("aria-pressed",x===b?"true":"false") });
+    paintClock(); repaintBoards();
+  });
+});
+$("#chipHold").addEventListener("click",function(){
+  CK.hold=!CK.hold;
+  this.setAttribute("aria-pressed",CK.hold?"true":"false");
+});
+
+/* ---------- s1 · 目录 ---------- */
+$("#q").addEventListener("input",function(){ renderCat() });
+$("#syncCat").addEventListener("click",function(){
+  var btn=this;
+  if(btn.classList.contains("is-busy")) return;
+  var old=btn.innerHTML;
+  btn.classList.add("is-busy");
+  btn.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>拉取目录…';
+  CATSTATE="loading"; renderCat();
+  setTimeout(function(){
+    btn.classList.remove("is-busy"); btn.innerHTML=old;
+    CATSTATE="ready"; renderCat();
+  },1400);
+});
+
+/* ---------- s2 / s3 · 仅正式队 ---------- */
+[["onlyFormal2","live"],["onlyFormal3","scrub"]].forEach(function(p){
+  var box=$("#"+p[0]);
+  box.addEventListener("change",function(){
+    var o=HOSTS.filter(function(h){ return h.mode===p[1] })[0];
+    o.onlyFormal=box.checked; delete CACHE[o.id];
+    paintBoard(o);
+  });
+});
+$$("[data-tip]").forEach(bindTip);
+
+/* ---------- reduced-motion / 重播 ---------- */
+var rm=$("#rmToggle");
+function setRM(on){ document.body.classList.toggle("rm-on",on); if(rm) rm.checked=on }
+if(rm) rm.addEventListener("change",function(){ setRM(rm.checked) });
+if(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) setRM(true);
+$("#replay").addEventListener("click",function(){
+  $$(".screen:not([hidden]) .rise").forEach(function(n){
+    n.style.animation="none"; void n.offsetWidth; n.style.animation="";
+  });
+  repaintBoards();
+});
+window.addEventListener("scroll",hideTip,true);
+$$(".content").forEach(function(c){ c.addEventListener("scroll",hideTip) });
+window.addEventListener("resize",function(){ if(!$("#s4").hidden) renderTK() });
+
+/* ---------- 深链 ----------
+   #s1 #s2 #s3 #s4 · rm · hold · rail · railhover · formal · load · err · new
+   at=4:12:07（把时钟摆到某刻并停住）· t3=3:20:00（滑条位置）
+   q=sh|cc|js|gx|fi|none（预置搜索词）· pop=sub|team（弹层样张）              */
+var QPRESET={sh:"上海", cc:"CCPC", js:"江苏", gx:"校赛", fi:"决赛", none:"zzz"};
+function parseHMS(s){
+  var a=s.split(":").map(function(x){ return parseInt(x,10)||0 });
+  return ((a[0]*60+a[1])*60+a[2])*1000;
+}
+var QUEUE=[], screenInit="s1";
+ckLoad();                                               /* 续钟：先接上上次开始的钟 */
+(function route(){
+  (location.hash||"").replace(/^#/,"").split(",").forEach(function(t){
+    if(/^s[1-4]$/.test(t)) screenInit=t;
+    else if(t==="rm") setRM(true);
+    else if(t==="hold") CK.hold=true;
+    else if(t==="rail") setRail(true);
+    else if(t==="railhover") setRail(true);
+    else if(t==="formal"||t==="pop=sub"||t==="pop=team") QUEUE.push(t);
+    else if(t==="load") CATSTATE="loading";
+    else if(t==="err") CATSTATE="error";
+    else if(t==="new"){ try{ localStorage.removeItem(CKKEY) }catch(e){} }
+    else if(/^at=/.test(t)){
+      CK.elapsed=parseHMS(t.slice(3)); CK.hold=true;
+      CK.started=Date.now()-CK.elapsed; CK.ended=false;
+    }
+    else if(/^t3=/.test(t)){
+      CK.scrub=parseHMS(t.slice(3));
+      var r=$("#s3R"); if(r) r.value=mm(CK.scrub);
+    }
+    else if(/^q=/.test(t) && QPRESET[t.slice(2)]) QUEUE.push(t);
+  });
+})();
+
+/* ---------- 起钟与首绘 ---------- */
+makeSim("sim2","live");
+makeSim("sim3","scrub");
+[$("#rbName2"),$("#rbName3")].forEach(function(n){
+  n.textContent=CONTEST.name;
+  n.setAttribute("data-tip",CONTEST.short+"|"+CONTEST.startAt+" 开赛 · 5 小时|封榜 "+hm(CONTEST.freeze)+"（本场未声明 · 按缺省最后 1 小时）");
+  bindTip(n);
+});
+$("#q").value=""; 
+QUEUE.forEach(function(t){ if(t.indexOf("q=")===0) $("#q").value=QPRESET[t.slice(2)] });
+paintScrub(); renderCat(); paintClock(); repaintBoards();
+go(screenInit);
+QUEUE.forEach(function(t){
+  if(t==="formal"){
+    HOSTS.forEach(function(o){ o.onlyFormal=true; delete CACHE[o.id]; paintBoard(o) });
+    $("#onlyFormal2").checked=true; $("#onlyFormal3").checked=true;
+  }else if(t==="pop=sub"){
+    var sel=".screen:not([hidden]) .boardscroll";
+    var cell=$$(sel+" .pcell.is-frz")[0]||$$(sel+" .pcell.is-fb")[0]||$$(sel+" .pcell.is-hit")[0];
+    if(cell) cell.dispatchEvent(new MouseEvent("click",{bubbles:true}));
+  }else if(t==="pop=team"){
+    var arr=$$(".screen:not([hidden]) .boardscroll .c-team");
+    if(arr[4]) arr[4].dispatchEvent(new MouseEvent("click",{bubbles:true}));
+  }
+});
+if(/railhover/.test(location.hash||"")){
+  var labs=$$(".screen:not([hidden]) .navitem .navlabel");
+  if(labs[2]) labs[2].classList.add("is-on");
+}
+setInterval(ckTick,250);
+})();
+</script>
+</body>
+</html>
