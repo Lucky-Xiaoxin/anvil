@@ -225,9 +225,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .content--fit{overflow:hidden;min-height:0}
 
 /* ---------- 4b. 壳 · 侧栏收起态（本稿唯一壳改动，必答 4） ---------- */
-/* 收起键在 nav 内部：展开态贴右缘 · 垂直居中；收起态落到轨道底部（394 之上）· 同一尺寸 */
+/* 收起键在 nav 内部，两态同高（贴底）：展开态靠右缘，收起态在轨道里居中 · 同一尺寸 */
 .railbtn{
-  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  position:absolute;right:8px;bottom:72px;
   width:20px;height:20px;border-radius:6px;z-index:30;
   display:grid;place-items:center;
   background:transparent;border:1px solid transparent;color:var(--text-mute);
@@ -238,7 +238,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .railbtn svg{width:16px;height:13px;display:block}
 .rb-out{fill:none;stroke:currentColor;stroke-width:1.5}
 .rb-bar{fill:currentColor;opacity:.95}                    /* 展开 = 小竖条亮（面板在） */
-.is-rail .railbtn{right:auto;left:50%;top:auto;bottom:72px;transform:translateX(-50%);opacity:.88}
+.is-rail .railbtn{right:auto;left:50%;transform:translateX(-50%);opacity:.88}
 .is-rail .rb-bar{opacity:.26}                             /* 收起 = 小竖条暗（面板没了） */
 .app:hover .railbtn,.app:focus-within .railbtn{opacity:1}
 .railbtn:hover{color:var(--text);border-color:var(--line);background:var(--panel-2)}
@@ -1929,12 +1929,12 @@ function renderTK(){
       +'<button class="btn btn--xs btn--ghost">封榜</button><button class="btn btn--xs btn--ghost">终榜</button></span></div></div>'
     +'</section>';
 
-  sect+='<section><h3>Shell · rail <span>侧栏收起态（必答 4）· 收起键在 nav 内：展开贴右缘居中，收起落轨道底部</h3>'
+  sect+='<section><h3>Shell · rail <span>侧栏收起态（必答 4）· 收起键在 nav 内：两态同高贴底，只换横向</h3>'
     +'<div class="tk-grid2">'
     +'<div><div class="app app--mini" id="miniA"></div>'
-      +'<div class="sheetnote"><b>展开态</b> · 220px · 收起键贴 nav 右缘、垂直居中，常驻转灰，悬停提亮</div></div>'
+      +'<div class="sheetnote"><b>展开态</b> · 220px · 收起键贴 nav 右缘、与收起态同一高度（贴底），常驻转灰，悬停提亮</div></div>'
     +'<div><div class="app app--mini is-rail" id="miniB"></div>'
-      +'<div class="sheetnote"><b>收起态</b> · 56px 图标轨道 · 收起键同尺寸落到轨道底部 · 当前项仍留琥珀左条 · navfoot 只剩状态点 + 计数 · 悬停出浮标</div></div>'
+      +'<div class="sheetnote"><b>收起态</b> · 56px 图标轨道 · 同一枚键同高、改在轨道里居中（394 之上）· 当前项仍留琥珀左条 · navfoot 只剩状态点 + 计数 · 悬停出浮标</div></div>'
     +'</div>'
     +'<div class="spec-row spec-row--top"><span class="spec-row__k">浮标做法<b>走 tooltip 外观</b></span>'
       +'<div class="hint" style="max-width:760px">浮标不是新组件：同 <code>.tip</code> 的黑底 / 描边 / 阴影，箭头改指左、第二行给一句口径'
@@ -2003,8 +2003,9 @@ function renderTK(){
       +'其余被否方案：整表盖一层磨砂（读数全糊）/ 榜体描边变灰（和不可达态撞）。</p></div></div>'
     +'<div class="dec__i dec__i--line"><div><div class="dec__t">4 · 侧栏收起态<span class="must">主张</span></div>'
       +'<p class="dec__p">轨道 <b>56px</b>（图标 16px + 左右各 20px 命中区）。收起键放在 <b>nav 内部</b>：'
-      +'展开态贴 nav 右缘、垂直居中（20×20，常驻但转灰到 .42，悬停整个 app 才提亮 —— 它低频，但不该藏起来）；'
-      +'收起态同一枚键落到轨道底部、394 之上，常驻。字形是一枚面板图标，<b>里面那根小竖条展开亮、收起暗</b>，'
+      +'两态<b>同高贴底</b>（距 nav 底 72px）：展开态靠右缘、收起态在轨道里居中，键本身同一尺寸 20×20。'
+      +'展开态常驻但转灰到 .42，悬停整个 app 才提亮 —— 它低频，但不该藏起来；收起态常驻。'
+      +'字形是一枚面板图标，<b>里面那根小竖条展开亮、收起暗</b>，'
       +'状态写在图标自己身上，不需要额外文案。当前项保留琥珀左条 + 底色，只剩图标时仍能认出在哪一页。'
       +'<b>navfoot 只留符号</b>：一枚源状态点 + 计数 <code>394</code>，悬停出完整 navfoot 浮标 —— '
       +'三行小字在 56px 里必然碎掉，裁掉比压扁诚实。文字做法选<b>浮标</b>不选常驻：'
