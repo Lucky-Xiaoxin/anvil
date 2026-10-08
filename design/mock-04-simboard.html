@@ -49,6 +49,7 @@
   --nav-w:220px;
 
   --dur:180ms;
+  --rail-dur:360ms;                                     /* 侧栏收放（宽度/文字/键位移）：常规动效的两倍 */
   --ease:cubic-bezier(.22,.71,.3,1);
 
   --bar-h:40px; --foot-h:26px;
@@ -147,7 +148,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .app{
   position:relative;--nav-now:var(--nav-w);
   display:grid;grid-template-columns:var(--nav-now) minmax(0,1fr);height:100%;min-height:0;
-  transition:grid-template-columns var(--dur) var(--ease);
+  transition:grid-template-columns var(--rail-dur) var(--ease);
 }
 .app.is-rail{--nav-now:var(--rail-w)}
 
@@ -157,9 +158,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:linear-gradient(180deg,#0E1218,#0A0D12);
   border-right:1px solid var(--line);
 }
-.brand{display:flex;align-items:center;gap:11px;padding:var(--sp-3) var(--sp-2) var(--sp-3) 17px;border-bottom:1px solid var(--line-soft)}
+.brand{display:flex;align-items:center;gap:11px;height:79px;padding:0 var(--sp-2) 0 17px;border-bottom:1px solid var(--line-soft)}
 .brand svg{width:26px;height:26px;color:var(--accent);flex:0 0 auto}
-.brand__txt{min-width:0}
+.brand__txt{min-width:0;max-width:62px;overflow:hidden;transition:max-width var(--rail-dur) var(--ease),opacity var(--rail-dur) var(--ease)}
 .brand__name{font-family:var(--font-num);font-size:15px;font-weight:600;letter-spacing:.20em;color:var(--text);line-height:1}
 .brand__sub{font-size:10px;letter-spacing:.26em;color:var(--text-mute);margin-top:5px;line-height:1}
 
@@ -182,6 +183,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .navitem .lock{margin-left:auto;width:12px;height:12px;opacity:.7}
 
 .navfoot{
+  position:relative;height:102px;                       /* 定高：两态同一高度，隔断线不随收放移动 */
   margin-top:auto;padding:var(--sp-2) 17px var(--sp-3);
   border-top:1px solid var(--line-soft);
   font-family:var(--font-num);font-size:10.5px;line-height:1.95;color:var(--text-mute);
@@ -233,31 +235,38 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:transparent;border:1px solid transparent;color:var(--text-mute);
   opacity:.42;                                          /* 常驻但安静：悬停整个 app 才提亮 */
   transition:opacity var(--dur) var(--ease),color var(--dur) var(--ease),
-             border-color var(--dur) var(--ease),background var(--dur) var(--ease);
+             border-color var(--dur) var(--ease),background var(--dur) var(--ease),
+             transform var(--rail-dur) var(--ease);
 }
 .railbtn svg{width:16px;height:13px;display:block}
 .rb-out{fill:none;stroke:currentColor;stroke-width:1.5}
 .rb-bar{fill:currentColor;opacity:.95}                    /* 展开 = 小竖条亮（面板在） */
-.is-rail .railbtn{right:auto;left:50%;transform:translateX(-50%);opacity:.88}
+.is-rail .railbtn{transform:translateX(-10px);opacity:.88}  /* 右缘锚点随宽度动画滑入 · -10px 补足到轨道居中 */
 .is-rail .rb-bar{opacity:.26}                             /* 收起 = 小竖条暗（面板没了） */
 .app:hover .railbtn,.app:focus-within .railbtn{opacity:1}
 .railbtn:hover{color:var(--text);border-color:var(--line);background:var(--panel-2)}
 .railbtn:active{background:#1A2028;color:var(--text)}
 
-.is-rail .brand{justify-content:center;padding:var(--sp-3) 0 var(--sp-2)}
-.is-rail .brand__txt{display:none}
+.is-rail .brand{padding:0 0 0 17px}
+.is-rail .brand__txt{max-width:0;opacity:0}
 /* 展开瞬间文字不能回行：过渡中轨道只有 56px，换行会把侧栏挤成一列竖字（闪一下的根因）
    —— 文字一律 nowrap，展开态把 nav 裁掉，宽度动画期间文字自左向右被逐步露出 */
 .navtxt,.brand__txt,.navfoot__full{white-space:nowrap}
+.navtxt{max-width:60px;overflow:hidden;transition:max-width var(--rail-dur) var(--ease),opacity var(--rail-dur) var(--ease)}
+.navitem .lock{transition:opacity var(--rail-dur) var(--ease)}
 .app:not(.is-rail) .nav{overflow:hidden}
-.is-rail .navlist{padding:var(--sp-2) 8px;align-items:stretch}
-.is-rail .navitem{justify-content:center;gap:0;padding:10px 0}
-.is-rail .navitem .navtxt,.is-rail .navitem .lock{display:none}
-.is-rail .navitem[aria-current="page"]::before{left:-8px}
-.is-rail .navfoot{padding:var(--sp-2) 0 var(--sp-3);display:flex;justify-content:center}
-.is-rail .navfoot__full{display:none}
-.navfoot__rail{display:none}
-.is-rail .navfoot__rail{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative}
+/* 轨道态不重排：图标位置靠 base 内边距天然对中（10+10=20=轨道中心），只把文字与锁收宽淡出 */
+.is-rail .navitem .navtxt{max-width:0;opacity:0}
+.is-rail .navitem .lock{opacity:0}
+.is-rail .navfoot{padding:0}
+.navfoot__full{transition:opacity var(--rail-dur) var(--ease)}
+.is-rail .navfoot__full{opacity:0;pointer-events:none}
+.navfoot__rail{
+  position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  opacity:0;pointer-events:none;transition:opacity var(--rail-dur) var(--ease);
+}
+.is-rail .navfoot__rail{opacity:1;pointer-events:auto}
 .navfoot__rail .dot{cursor:default}
 .navfoot__rail b{font-family:var(--font-num);font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:.02em}
 
@@ -2013,7 +2022,9 @@ function renderTK(){
       +'状态写在图标自己身上，不需要额外文案。当前项保留琥珀左条 + 底色，只剩图标时仍能认出在哪一页。'
       +'<b>navfoot 只留符号</b>：一枚源状态点 + 计数 <code>394</code>，悬停出完整 navfoot 浮标 —— '
       +'三行小字在 56px 里必然碎掉，裁掉比压扁诚实。文字做法选<b>浮标</b>不选常驻：'
-      +'4 项不需要常驻标签，而浮标复用全站 tooltip 外观（箭头改指左）零新组件。</p></div></div>'
+      +'4 项不需要常驻标签，而浮标复用全站 tooltip 外观（箭头改指左）零新组件。'
++'底部带两态同高（定高）：隔断线不随收放移动；<b>收放过渡 360ms</b>（= --dur 的 2 倍）'
++'同步覆盖侧栏宽度 / 文字收宽淡出 / 键沿右缘滑移。</p></div></div>'
     +'</div></section>';
 
   $("#tk").innerHTML=sect;
