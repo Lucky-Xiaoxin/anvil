@@ -229,8 +229,13 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
             <div className="alert alert--err">
               <Icon id="i-plug" />
               <div>
-                <b>{load.missing ? '上游没有这份榜单' : '榜单拉取失败'}</b> · {load.text}
-                {load.missing ? '' : ' · 本地没有这一场的缓存'}
+                {load.missing ? (
+                  <b>上游没有这份榜单</b>
+                ) : (
+                  <>
+                    <b>榜单拉取失败</b> · {load.text} · 本地没有这一场的缓存
+                  </>
+                )}
               </div>
               <button className="alert__x" onClick={() => setTryNo((n) => n + 1)}>
                 重试
