@@ -11,17 +11,26 @@ import type { ArenaCatalogDto, ArenaContestDto, ArenaCatalogNode } from '@anvil/
 
 export const ARENA_BASE = 'https://cdn.jsdelivr.net/gh/algoux/srk-collection@master/';
 export const CATALOG_PATH = 'official/config.yaml';
-/** 目录 20s、单场 90s（单场实测 ~1.5MB，docs/16 §2.1） */
+/**
+ * 取数预算（docs/16 §2.1）：目录 20s、单场 90s。
+ * 这两个数是**总预算** —— 重试与退避都从里面扣，不让"重试到天荒地老"把界面挂住。
+ */
 export const CATALOG_TIMEOUT_MS = 20_000;
 export const CONTEST_TIMEOUT_MS = 90_000;
-export const MAX_RETRIES = 1;
+/**
+ * 契约写"失败重试 1 次"，实测不够：jsDelivr 对**冷缓存 / 突发**会回 403，
+ * 同一文件连打几轮就通（2026-10-09 抽样 20 场：首试失败 5，全部在 2–4 轮内成功）。
+ * 所以按 3 次退避重试实现，理由与影响写进交付报告。
+ */
+export const MAX_RETRIES = 3;
+export const DEFAULT_BACKOFF_MS = [500, 1_500, 4_000];
 
 /** 路径白名单：只允许 official 下的逐段小写名 + 结尾 .srk.json（§2.1，拒 `..` / 编码绕过 / 外部域） */
 export const CONTEST_PATH_RE = /^official\/[a-z0-9_\-]+(\/[a-z0-9_\-]+)*\.srk\.json$/;
 
 const USER_AGENT = 'ANVIL/1.0 (personal ICPC training dashboard)';
 
-export type ArenaErrorKind = 'invalid' | 'unavailable';
+export type ArenaErrorKind = 'invalid' | 'unavailable' | 'not-found';
 
 export class ArenaError extends Error {
   readonly kind: ArenaErrorKind;
@@ -44,6 +53,13 @@ function reasonOf(err: unknown): string {
   if (err instanceof Error) return err.name === 'TimeoutError' ? '请求超时' : err.message;
   return String(err);
 }
+
+/** 403 在这条 CDN 上是"暂时"而不是"没有"：冷缓存与限流都回它，实测几轮后必通 */
+function isTransient(status: number): boolean {
+  return status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function mtimeSeconds(file: string): number {
   return Math.floor(statSync(file).mtimeMs / 1000);
@@ -262,35 +278,49 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
 export interface ArenaClientOptions {
   fetchImpl?: typeof fetch;
   dir?: string;
+  /** 退避节奏；单测传全 0 免等 */
+  backoffMs?: number[];
 }
 
 export class ArenaClient {
   private readonly fetchImpl: typeof fetch;
   readonly dir: string;
   private readonly catalogFile: string;
+  private readonly backoffMs: number[];
 
   constructor(options: ArenaClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.dir = options.dir ?? arenaDir;
     this.catalogFile = join(this.dir, '_catalog.yaml');
+    this.backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
   }
 
-  /** 429/5xx 与网络异常重试 1 次；其余状态码原样回给调用方判 */
-  private async send(path: string, timeoutMs: number): Promise<{ status: number; text: string }> {
+  /**
+   * 在 `budgetMs` 总预算内取文件：403/408/429/5xx 与网络异常按退避重试，
+   * 404 直接判「上游没有」（重试无意义，也不该诱导用户再点）。
+   */
+  private async send(path: string, budgetMs: number): Promise<{ status: number; text: string }> {
+    const deadline = Date.now() + budgetMs;
+    let transient = '';
     for (let attempt = 0; ; attempt++) {
-      let transient = '';
+      const left = deadline - Date.now();
+      if (left <= 0) throw new ArenaError('unavailable', `${transient || '请求超时'} · 已重试 ${attempt} 次`);
       try {
         const res = await this.fetchImpl(`${ARENA_BASE}${path}`, {
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(left),
           headers: { 'user-agent': USER_AGENT },
         });
         const text = await res.text();
-        if (res.status === 429 || res.status >= 500) transient = `HTTP ${res.status}`;
-        else return { status: res.status, text };
+        if (res.status === 404) throw new ArenaError('not-found', '上游没有这份榜单');
+        if (!isTransient(res.status)) return { status: res.status, text };
+        transient = `HTTP ${res.status}`;
       } catch (err) {
+        if (err instanceof ArenaError) throw err;
         transient = reasonOf(err);
       }
-      if (attempt >= MAX_RETRIES) throw new ArenaError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`);
+      if (attempt >= MAX_RETRIES) throw new ArenaError('unavailable', `${transient} · 已重试 ${attempt} 次`);
+      const wait = Math.min(this.backoffMs[attempt] ?? 1_000, Math.max(0, deadline - Date.now()));
+      if (wait > 0) await sleep(wait);
     }
   }
 

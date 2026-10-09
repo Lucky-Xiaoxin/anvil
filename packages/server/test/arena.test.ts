@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
 import { registerApi } from '../src/api.ts';
-import { ArenaClient, ArenaError, CATALOG_PATH, contestPathOk, parseCatalogYaml } from '../src/arena.ts';
+import { ArenaClient, ArenaError, CATALOG_PATH, MAX_RETRIES, contestPathOk, parseCatalogYaml } from '../src/arena.ts';
 import { initSchema } from '../src/db.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
 
@@ -210,6 +210,10 @@ afterEach(() => {
 
 const okResponse = (body: string, status = 200): Response => new Response(body, { status });
 
+/** 退避全 0：重试逻辑照测，单测不陪它等 6 秒 */
+const mkClient = (opts: ConstructorParameters<typeof ArenaClient>[0]): ArenaClient =>
+  new ArenaClient({ backoffMs: [0, 0, 0], ...opts });
+
 /** 记账用 fetch：记录每个 URL 被请求了几次 */
 function countingFetch(routes: Record<string, () => Promise<Response>>): { fetchImpl: typeof fetch; hits: Record<string, number> } {
   const hits: Record<string, number> = {};
@@ -230,7 +234,7 @@ const failFetch = (async () => {
 describe('目录缓存', () => {
   it('首次拉取落盘，二次命中缓存不再出网', async () => {
     const { fetchImpl, hits } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
-    const c = new ArenaClient({ fetchImpl, dir });
+    const c = mkClient({ fetchImpl, dir });
     const first = await c.catalog();
     expect(first.total).toBe(5);
     expect(existsSync(join(dir, '_catalog.yaml'))).toBe(true);
@@ -240,7 +244,7 @@ describe('目录缓存', () => {
   });
 
   it('fetchedAt = 缓存文件 mtime（epoch 秒）', async () => {
-    const c0 = new ArenaClient({ fetchImpl: failFetch, dir });
+    const c0 = mkClient({ fetchImpl: failFetch, dir });
     writeFileSync(join(dir, '_catalog.yaml'), CATALOG, 'utf8');
     const when = 1_700_000_000;
     utimesSync(join(dir, '_catalog.yaml'), new Date(when * 1000), new Date(when * 1000));
@@ -250,15 +254,15 @@ describe('目录缓存', () => {
 
   it('refresh=1 强制重拉', async () => {
     const { fetchImpl, hits } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
-    const c = new ArenaClient({ fetchImpl, dir });
+    const c = mkClient({ fetchImpl, dir });
     await c.catalog();
     await c.catalog(true);
     expect(hits[CATALOG_PATH]).toBe(2);
   });
 
-  it('无缓存且拉不通 → ArenaError(unavailable)，重试 1 次后放弃', async () => {
+  it('无缓存且拉不通 → ArenaError(unavailable)，退避重试 3 次后放弃', async () => {
     let attempts = 0;
-    const c = new ArenaClient({
+    const c = mkClient({
       fetchImpl: (async () => {
         attempts++;
         throw new Error('ECONNREFUSED');
@@ -266,28 +270,70 @@ describe('目录缓存', () => {
       dir,
     });
     await expect(c.catalog()).rejects.toBeInstanceOf(ArenaError);
-    expect(attempts).toBe(2);
+    expect(attempts).toBe(1 + MAX_RETRIES);
+  });
+
+  it('403（jsDelivr 冷缓存 / 限流）算暂时失败，几轮后通 = 目录可用', async () => {
+    let n = 0;
+    const c = mkClient({
+      fetchImpl: (async () => {
+        n++;
+        return n <= 3 ? okResponse('forbidden', 403) : okResponse(CATALOG);
+      }) as unknown as typeof fetch,
+      dir,
+    });
+    const dto = await c.catalog();
+    expect(dto.total).toBe(5);
+    expect(n).toBe(4);
+  });
+
+  it('404 = 上游没有：判 not-found、不重试（再点也没用）', async () => {
+    let n = 0;
+    const c = mkClient({
+      fetchImpl: (async () => {
+        n++;
+        return okResponse('', 404);
+      }) as unknown as typeof fetch,
+      dir,
+    });
+    await expect(c.catalog()).rejects.toMatchObject({ kind: 'not-found' });
+    expect(n).toBe(1);
+  });
+
+  it('总预算用尽就收手：不会把一次点击挂成无限重试', async () => {
+    let n = 0;
+    const c = new ArenaClient({
+      backoffMs: [0, 0, 0],
+      fetchImpl: (async () => {
+        n++;
+        throw new Error('ECONNRESET');
+      }) as unknown as typeof fetch,
+      dir,
+    });
+    await expect(c.catalog(false)).rejects.toBeInstanceOf(ArenaError);
+    // 预算 20s、退避全 0 → 上限就是 1 + MAX_RETRIES 次，不多打
+    expect(n).toBe(1 + MAX_RETRIES);
   });
 
   it('有缓存时上游失败照常回缓存（降级不崩）', async () => {
     const { fetchImpl, hits } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
-    const c = new ArenaClient({ fetchImpl, dir });
+    const c = mkClient({ fetchImpl, dir });
     await c.catalog();
-    const offline = new ArenaClient({ fetchImpl: failFetch, dir });
+    const offline = mkClient({ fetchImpl: failFetch, dir });
     const back = await offline.catalog(true);
     expect(back.total).toBe(5);
     expect(hits[CATALOG_PATH]).toBe(1);
   });
 
-  it('404 / 空响应算失败，且不把坏内容写进缓存', async () => {
-    const c = new ArenaClient({ fetchImpl: async () => okResponse('', 404) as unknown as Response, dir });
-    await expect(c.catalog()).rejects.toBeInstanceOf(ArenaError);
+  it('404 算「上游没有」，不把坏内容写进缓存', async () => {
+    const c = mkClient({ fetchImpl: async () => okResponse('', 404) as unknown as Response, dir });
+    await expect(c.catalog()).rejects.toMatchObject({ kind: 'not-found' });
     expect(existsSync(join(dir, '_catalog.yaml'))).toBe(false);
   });
 
   it('5xx 重试 1 次后成功 = 目录照样可用', async () => {
     let n = 0;
-    const c = new ArenaClient({
+    const c = mkClient({
       fetchImpl: (async () => {
         n++;
         return n === 1 ? okResponse('boom', 503) : okResponse(CATALOG);
@@ -306,7 +352,7 @@ describe('单场缓存', () => {
 
   it('按路径镜像落盘，已缓存即回 fromCache', async () => {
     const { fetchImpl, hits } = countingFetch({ [PATH]: async () => okResponse(SRK) });
-    const c = new ArenaClient({ fetchImpl, dir });
+    const c = mkClient({ fetchImpl, dir });
     const first = await c.contest(PATH);
     expect(first).toMatchObject({ fromCache: false });
     expect(first.data).toEqual({ type: 'general', contest: { title: { 'zh-CN': '上海站' } } });
@@ -317,7 +363,7 @@ describe('单场缓存', () => {
   });
 
   it('原子写入：落盘后不留 .tmp', async () => {
-    const c = new ArenaClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
+    const c = mkClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
     await c.contest(PATH);
     const leftovers = readFileSync(join(dir, PATH), 'utf8');
     expect(leftovers).toBe(SRK);
@@ -326,7 +372,7 @@ describe('单场缓存', () => {
 
   it('路径非法 → ArenaError(invalid)，不出网', async () => {
     let called = 0;
-    const c = new ArenaClient({
+    const c = mkClient({
       fetchImpl: (async () => {
         called++;
         return okResponse(SRK);
@@ -338,31 +384,31 @@ describe('单场缓存', () => {
   });
 
   it('已缓存的场次断网仍可回放（离线口径）', async () => {
-    const c = new ArenaClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
+    const c = mkClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
     await c.contest(PATH);
-    const offline = new ArenaClient({ fetchImpl: failFetch, dir });
+    const offline = mkClient({ fetchImpl: failFetch, dir });
     const back = await offline.contest(PATH, true);
     expect(back.fromCache).toBe(true);
     expect(back.data).toEqual({ type: 'general', contest: { title: { 'zh-CN': '上海站' } } });
   });
 
   it('无缓存且不可达 → unavailable；缓存是半截 JSON 时当作没有，重拉补好', async () => {
-    const offline = new ArenaClient({ fetchImpl: failFetch, dir });
+    const offline = mkClient({ fetchImpl: failFetch, dir });
     await expect(offline.contest(PATH)).rejects.toMatchObject({ kind: 'unavailable' });
 
     mkdirSync(dirname(join(dir, PATH)), { recursive: true });
     writeFileSync(join(dir, PATH), '{ 半截的 JSON', 'utf8');
-    const c = new ArenaClient({ fetchImpl: async () => okResponse(SRK), dir });
+    const c = mkClient({ fetchImpl: async () => okResponse(SRK), dir });
     const back = await c.contest(PATH);
     expect(back.fromCache).toBe(false);
     expect(back.data).toEqual({ type: 'general', contest: { title: { 'zh-CN': '上海站' } } });
     // 重拉后原子写回，坏文件不再留在磁盘上咬下一次请求
-    const again = new ArenaClient({ fetchImpl: failFetch, dir });
+    const again = mkClient({ fetchImpl: failFetch, dir });
     expect((await again.contest(PATH)).fromCache).toBe(true);
   });
 
   it('mtime 可读回（缓存时间戳跟随真实时钟，不钉死日历）', async () => {
-    const c = new ArenaClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
+    const c = mkClient({ fetchImpl: (async () => okResponse(SRK)) as unknown as typeof fetch, dir });
     const got = await c.contest(PATH);
     expect(got.fetchedAt).toBe(Math.floor(statSync(join(dir, PATH)).mtimeMs / 1000));
   });
@@ -385,7 +431,7 @@ async function makeApp(routes: Record<string, () => Promise<Response>>) {
     getHandles: () => ({ cf: '', at: '' }),
     setHandles: () => {},
     xcpc: { db, getKey: () => '', setKey: () => {}, client: new XcpcClient({ fetchImpl }) },
-    arena: new ArenaClient({ fetchImpl, dir }),
+    arena: mkClient({ fetchImpl, dir }),
   });
   await app.ready();
   return { app, hits, close: async () => { await app.close(); db.close(); } };
@@ -401,10 +447,18 @@ describe('arena 路由', () => {
   });
 
   it('GET /api/arena/catalog 无缓存且拉不通 → 502', async () => {
-    const { app, close } = await makeApp({});
+    const { app, close } = await makeApp({ [CATALOG_PATH]: async () => { throw new Error('ECONNREFUSED'); } });
     const res = await app.inject({ method: 'GET', url: '/api/arena/catalog' });
     expect(res.statusCode).toBe(502);
     expect(res.json().error.kind).toBe('unavailable');
+    await close();
+  });
+
+  it('上游没有这个文件 → 404 + not-found（与"暂时取不到"分档，界面文案不同）', async () => {
+    const { app, close } = await makeApp({});
+    const res = await app.inject({ method: 'GET', url: '/api/arena/catalog' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.kind).toBe('not-found');
     await close();
   });
 

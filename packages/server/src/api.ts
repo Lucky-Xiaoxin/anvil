@@ -98,10 +98,10 @@ function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
   return reply.code(502).send({ error: { kind: 'unavailable', message: `拉取失败：${String(err)}` } });
 }
 
-/** arena 的错误分派：路径非法 400，取不到且无缓存 502（docs/16 §2.2） */
+/** arena 的错误分派：路径非法 400，上游没有这份榜 404，取不到且无缓存 502（docs/16 §2.2） */
 function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof ArenaError) {
-    const code = err.kind === 'invalid' ? 400 : 502;
+    const code = err.kind === 'invalid' ? 400 : err.kind === 'not-found' ? 404 : 502;
     return reply.code(code).send({ error: { kind: err.kind, message: err.message } });
   }
   return reply.code(502).send({ error: { kind: 'unavailable', message: `取不到：${String(err)}` } });

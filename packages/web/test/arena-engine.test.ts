@@ -15,6 +15,7 @@ import {
   medalBands,
   minutesOf,
   pause,
+  problemHeadState,
   resume,
   startSession,
   subsUntil,
@@ -254,6 +255,44 @@ describe('罚时与排名', () => {
     expect(row.pen).toBe(114 + 2 * 20);
   });
 
+  it('罚时口径钉死为「每题折整分钟再累加」（契约 §4），不是裸秒累加最后折', () => {
+    // 两题分别在 6829s(113.8min) 与 1000s(16.6min)：分钟口径 = 113+16 = 129；裸秒口径会得 130
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '口径' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }, { alias: 'B' }],
+      rows: [
+        {
+          user: { name: '甲', official: true },
+          statuses: [
+            { result: 'AC', time: [6829, 's'], solutions: [sol('AC', 6829080)] },
+            { result: 'AC', time: [1000, 's'], solutions: [sol('AC', 1000000)] },
+          ],
+        },
+      ],
+    });
+    const b = buildBoard(m, 5 * H, false);
+    expect(b.rows[0]?.pen).toBe(129);
+  });
+
+  it('重判撤销（result RJ 而 solutions 里有 AC）不算过题', () => {
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '重判' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '甲', official: true },
+          statuses: [{ result: 'RJ', time: [200, 'min'], tries: 3, solutions: [sol('AC', 100 * M), sol('WA', 150 * M), sol('WA', 200 * M)] }],
+        },
+      ],
+    });
+    const b = buildBoard(m, 5 * H, false);
+    expect(b.rows[0]?.solved).toBe(0);
+    expect(b.rows[0]?.cells[0]?.st).toBe('pen');
+    expect(b.rows[0]?.cells[0]?.n).toBe(3);
+    // 弹层里那发 AC 按终局判名标成 RJ，不与红格自相矛盾
+    expect(subsUntil(m.teams[0]!.subs[0]!, 5 * H, 5 * H, 'RJ').map((x) => x.r)).toEqual(['RJ', 'WA', 'WA']);
+  });
+
   it('过题降序、罚时升序', () => {
     const b = buildBoard(m, 5 * H, false);
     const order = b.rows.filter((r) => !r.star).map((r) => [r.ti, r.solved, r.pen]);
@@ -391,6 +430,122 @@ describe('封榜定格', () => {
     expect(inFreezeWindow(4 * H, m.duration, m.freezeStart)).toBe(false);
     expect(inFreezeWindow(4 * H + 1, m.duration, m.freezeStart)).toBe(true);
     expect(inFreezeWindow(5 * H, m.duration, m.freezeStart)).toBe(false);
+  });
+});
+
+/* ---------- 列头四档（语义 B） ---------- */
+
+describe('题号列头状态', () => {
+  it('无人提交 / 待定 / 交而没过 / 有人过 / 封榜后才解开', () => {
+    expect(problemHeadState({ ac: 0, sub: 0, frz: 0, postAc: 0 })).toBe('quiet');
+    expect(problemHeadState({ ac: 0, sub: 7, frz: 0, postAc: 0 })).toBe('noone');
+    // 段内有活动还没定：不能报"没人交"，也不能报"没人过"
+    expect(problemHeadState({ ac: 0, sub: 0, frz: 4, postAc: 0 })).toBe('pending');
+    expect(problemHeadState({ ac: 5, sub: 20, frz: 0, postAc: 0 })).toBe('any');
+    // 全部通过都发生在封榜后 → 才叫"这题直到封榜后才被解开"
+    expect(problemHeadState({ ac: 3, sub: 9, frz: 0, postAc: 3 })).toBe('late');
+    // 有一队封榜前就过了，就不升级成黄，那几队进 tooltip
+    expect(problemHeadState({ ac: 4, sub: 9, frz: 0, postAc: 3 })).toBe('any');
+    // 已有定论的通过优先于待定：绿/黄不被斜纹盖掉
+    expect(problemHeadState({ ac: 2, sub: 9, frz: 3, postAc: 0 })).toBe('any');
+  });
+
+  it('postAc 只在解封之后才有值：回放中这类格还是 ?', () => {
+    const m = buildModel(fixture());
+    const frozen = buildBoard(m, 260 * M, false);
+    const final = buildBoard(m, 5 * H, false);
+    // A 题：T3 的 AC 落在封榜段（260 分）
+    expect(frozen.col[0]!.postAc).toBe(0);
+    expect(final.col[0]!.postAc).toBe(1);
+    expect(final.col[0]!.ac).toBe(3);
+    expect(problemHeadState(frozen.col[0]!)).toBe('any');
+    expect(problemHeadState(final.col[0]!)).toBe('any');
+    // B 题唯一一次通过来自打星队的封榜前 FB；C 题只有一发 TLE → 交而没过
+    expect(problemHeadState(final.col[1]!)).toBe('any');
+    expect(problemHeadState(final.col[2]!)).toBe('noone');
+  });
+
+  it('一题只有封榜后才被解开 → 终榜列头翻黄', () => {
+    const m = buildModel(
+      fixture({
+        rows: [
+          {
+            user: { name: '晚解队', id: 'Z1', organization: '某大学', official: true },
+            statuses: [{ result: 'AC', time: [260 * 60, 's'], solutions: [sol('AC', 260 * M)] }],
+          },
+        ],
+        problems: [{ alias: 'A', title: 'Alpha' }],
+      }),
+    );
+    const frozen = buildBoard(m, 260 * M, false);
+    const final = buildBoard(m, 5 * H, false);
+    expect(problemHeadState(frozen.col[0]!)).toBe('pending'); // 段内有活动、结果未定 → 不撒谎说"没人交"
+    expect(problemHeadState(final.col[0]!)).toBe('late'); // 终局揭晓：唯一一次通过在封榜后 → 黄
+  });
+});
+
+/* ---------- 无逐次提交场次的近似重建（实测约 1/8 的快照如此） ---------- */
+
+describe('近似榜（只有终局判名）', () => {
+  const approxDoc: SrkDoc = {
+    contest: { title: { 'zh-CN': '只有判名的一场' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+    problems: [{ alias: 'A' }, { alias: 'B' }, { alias: 'C' }],
+    rows: [
+      {
+        user: { name: '甲队', id: 'A1', organization: 'X', official: true },
+        statuses: [
+          { result: 'AC', time: [120, 'min'], tries: 3 },
+          { result: 'RJ', time: [260, 'min'], tries: 5 },
+          { result: null, time: [0, 'min'], tries: 0 },
+        ],
+      },
+      {
+        user: { name: '乙队', id: 'A2', organization: 'Y', official: true },
+        statuses: [
+          { result: 'FB', time: [30, 'min'], tries: 1 },
+          { result: null, time: [0, 'min'], tries: 0 },
+          { result: null, time: [0, 'min'], tries: 0 },
+        ],
+      },
+    ],
+  };
+
+  it('没有任何 solutions → approx = true', () => {
+    expect(buildModel(approxDoc).approx).toBe(true);
+    expect(buildModel(fixture()).approx).toBe(false);
+  });
+
+  it('格子只在判名那一刻出现；罚时按 tries 折算', () => {
+    const m = buildModel(approxDoc);
+    const early = buildBoard(m, 60 * M, false);
+    // 60 分钟时：甲队 A 题（120 分才过）还没影，乙队 A 题首杀已过
+    expect(early.rows.find((r) => r.ti === 0)?.cells[0]?.st).toBe('none');
+    expect(early.rows.find((r) => r.ti === 1)?.cells[0]?.st).toBe('fb');
+    const fin = buildBoard(m, 5 * H, false);
+    const a = fin.rows.find((r) => r.ti === 0)!;
+    expect(a.solved).toBe(1);
+    // 120 分钟 + 20 ×（3 发 − 1 发 AC）= 160
+    expect(a.pen).toBe(120 + 40);
+    expect(a.cells[1]?.st).toBe('pen');
+    expect(a.cells[1]?.n).toBe(5);
+    expect(a.cells[2]?.st).toBe('none');
+  });
+
+  it('封榜段内定论的格子照样算 ?，不提前泄露', () => {
+    const m = buildModel(approxDoc);
+    const frozen = buildBoard(m, 261 * M, false);
+    const cell = frozen.rows.find((r) => r.ti === 0)!.cells[1]!;
+    expect(cell.st).toBe('frz');
+    expect(cell.n).toBe(5);
+    // 未过的那题在定格名次里不算
+    expect(frozen.rows.find((r) => r.ti === 0)?.solved).toBe(1);
+  });
+
+  it('列头在近似榜下也不撒谎：有活动未定 → 待定而不是无人提交', () => {
+    const m = buildModel(approxDoc);
+    const frozen = buildBoard(m, 261 * M, false);
+    expect(problemHeadState(frozen.col[1]!)).toBe('pending');
+    expect(problemHeadState(buildBoard(m, 5 * H, false).col[1]!)).toBe('noone');
   });
 });
 

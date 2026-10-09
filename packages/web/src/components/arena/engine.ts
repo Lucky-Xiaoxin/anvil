@@ -118,8 +118,58 @@ export const EMPTY_CELL: Cell = { st: 'none', t: 0, n: 0, fails: 0, nCap: 0, pos
 
 const isAccept = (r: string | null | undefined): boolean => r === 'AC' || r === 'FB';
 
-/** 该题在 `elapsed` 时刻的格子状态（`cap` = 计分截止点，封榜段内即定格时刻） */
-export function cellAt(subs: SrkSolution[], elapsed: number, cap: number, freezeStart: number): Cell {
+/**
+ * 没有 `solutions[]` 时的兜底读数（实测约 1/8 的场次只有终局判名）：
+ * 判名 + 最后一次时刻 + 次数。逐次时刻上游没给，就不猜 —— 近似出来的榜用 `approx` 标出来。
+ */
+export interface StatusSummary {
+  accepted: boolean;
+  fb: boolean;
+  /** 终局判名对应的时刻（毫秒）；AC 是过题时刻，未过是末次提交时刻 */
+  t: number;
+  tries: number;
+}
+
+export function summaryOf(status: SrkStatus | undefined): StatusSummary | undefined {
+  if (status === undefined) return undefined;
+  const tries = Number.isFinite(status.tries) ? (status.tries as number) : 0;
+  const t = toMs(status.time);
+  const accepted = isAccept(status.result);
+  if (!accepted && tries === 0 && t === 0) return undefined;
+  return { accepted, fb: status.result === 'FB', t, tries };
+}
+
+/** 兜底路径下的格子：只知道"何时定论、共几发"，段内一律算未定 */
+function cellFromSummary(s: StatusSummary, elapsed: number, cap: number, freezeStart: number): Cell {
+  if (s.t > elapsed) return EMPTY_CELL;
+  const nCap = s.t <= cap ? s.tries : 0;
+  if (s.accepted) {
+    if (s.t > cap) return { st: 'frz', t: s.t, n: s.tries, fails: 0, nCap, post: false };
+    const fails = Math.max(0, s.tries - 1);
+    return { st: s.fb ? 'fb' : 'ac', t: s.t, n: fails + 1, fails, nCap, post: s.t > freezeStart };
+  }
+  if (s.t > cap) return { st: 'frz', t: s.t, n: s.tries, fails: 0, nCap, post: false };
+  return { st: 'pen', t: s.t, n: s.tries, fails: s.tries, nCap, post: s.t > freezeStart };
+}
+
+/**
+ * 该题在 `elapsed` 时刻的格子状态（`cap` = 计分截止点，封榜段内即定格时刻）。
+ *
+ * `verdict` = `statuses[].result`，**终局判名**。它优先于 `solutions[]`：实测有重判撤销的题
+ * （`result:'RJ'` 而 solutions 里仍留着那发 AC），照 solutions 数就会多数一题过
+ * （2026-10-09 东北省赛 14 届「队九王里长」即此例，上游 score 记 4、按 solutions 数出 5）。
+ * 传 undefined = 无从判断（单测 / 老数据），退回"照 solutions 信"。
+ */
+export function cellAt(
+  subs: SrkSolution[],
+  elapsed: number,
+  cap: number,
+  freezeStart: number,
+  summary?: StatusSummary,
+  verdict?: string | null,
+): Cell {
+  if (subs.length === 0 && summary !== undefined) return cellFromSummary(summary, elapsed, cap, freezeStart);
+  const trust = verdict === undefined || isAccept(verdict);
   let last: SrkSolution | null = null;
   let ac: SrkSolution | null = null;
   let fails = 0;
@@ -133,7 +183,7 @@ export function cellAt(subs: SrkSolution[], elapsed: number, cap: number, freeze
     last = x;
     if (t <= cap) {
       nCap++;
-      if (isAccept(x.result)) {
+      if (trust && isAccept(x.result)) {
         if (ac === null || t > toMs(ac.time)) ac = x;
       } else if (x.result !== 'CE') fails++;
     } else after = true;
@@ -145,7 +195,7 @@ export function cellAt(subs: SrkSolution[], elapsed: number, cap: number, freeze
     for (const y of subs) {
       const t = toMs(y.time);
       if (t > acT) break;
-      if (t <= cap && !isAccept(y.result) && y.result !== 'CE') nf++;
+      if (t <= cap && !(trust && isAccept(y.result)) && y.result !== 'CE') nf++;
     }
     return { st: ac.result === 'FB' ? 'fb' : 'ac', t: acT, n: nf + 1, fails: nf, nCap, post: acT > freezeStart };
   }
@@ -176,8 +226,8 @@ export interface BoardRow {
 
 export interface Board {
   rows: BoardRow[];
-  /** 每题列头读数：过题队数 / 提交次数 / 封榜未定格数（都按 cap 口径） */
-  col: { ac: number; sub: number; frz: number }[];
+  /** 每题列头读数：过题队数 / 提交次数 / 封榜未定格数 / 封榜后才通过的队数（都按 cap 口径） */
+  col: { ac: number; sub: number; frz: number; postAc: number }[];
   frzCells: number;
   frozenRows: number;
   solvedTotal: number;
@@ -193,12 +243,20 @@ export function capAt(elapsed: number, duration: number, freezeStart: number): n
 }
 
 /** 队伍在 `elapsed` 之前、该题的逐次提交（弹层用；`frozen` = 落在封榜段内，判名一律不泄露） */
-export function subsUntil(subs: SrkSolution[], elapsed: number, cap: number): { r: string; t: number; language: string; frozen: boolean }[] {
+export function subsUntil(
+  subs: SrkSolution[],
+  elapsed: number,
+  cap: number,
+  verdict?: string | null,
+): { r: string; t: number; language: string; frozen: boolean }[] {
+  // 重判撤销的题：solutions 里那发 AC 已经不是结果，按终局判名标出去，别和红色格子自相矛盾
+  const trust = verdict === undefined || isAccept(verdict);
   const out: { r: string; t: number; language: string; frozen: boolean }[] = [];
   for (const x of subs) {
     const t = toMs(x.time);
     if (t > elapsed) break;
-    out.push({ r: x.result ?? '?', t, language: x.language ?? '', frozen: t > cap });
+    const raw = x.result ?? '?';
+    out.push({ r: trust || !isAccept(raw) ? raw : 'RJ', t, language: x.language ?? '', frozen: t > cap });
   }
   return out;
 }
@@ -214,6 +272,10 @@ export interface TeamModel {
   star: boolean;
   /** 每题一列，已按时刻升序（§4 性能口径：solutions 预排序） */
   subs: SrkSolution[][];
+  /** 无逐次提交那批场次的兜底：每题的终局判名摘要（有 solutions 时为 undefined） */
+  summaries: (StatusSummary | undefined)[];
+  /** 每题的终局判名（`statuses[].result`）：重判撤销的题靠它才数对 */
+  verdicts: (string | null | undefined)[];
 }
 
 export interface MedalBand {
@@ -232,6 +294,8 @@ export interface ContestModel {
   freezeStart: number;
   /** `frozenDuration` 是否真由数据声明 —— 顶栏要说清「本场未声明 · 按缺省」 */
   freezeDeclared: boolean;
+  /** 本场快照没有逐次提交，榜按终局判名近似重建（界面必须标注，别假装是逐发回放） */
+  approx: boolean;
   problems: SrkProblem[];
   teams: TeamModel[];
   bands: MedalBand[];
@@ -286,6 +350,8 @@ export function buildModel(doc: SrkDoc): ContestModel {
       if (!Array.isArray(list)) return [] as SrkSolution[];
       return [...list].sort((a, b) => toMs(a.time) - toMs(b.time));
     });
+    const summaries = problems.map((_, p) => (subs[p]!.length > 0 ? undefined : summaryOf(statuses[p])));
+    const verdicts = problems.map((_, p) => (statuses[p] === undefined ? undefined : statuses[p]?.result ?? null));
     return {
       ti,
       name: str(user.name),
@@ -294,8 +360,17 @@ export function buildModel(doc: SrkDoc): ContestModel {
       seat: str(user.id),
       star: user.official !== true,
       subs,
+      summaries,
+      verdicts,
     };
   });
+
+  /*
+   * 近似榜判定：整场一发的逐次提交都没有（实测约 1/8 的场次如此，与 srk 版本号无关）。
+   * 这时榜仍能按终局判名 + 次数重建，但"哪一发在什么时候"是上游没给的信息 —— 界面必须说清，
+   * 不能让用户以为在看真·逐次回放。
+   */
+  const approx = teams.length > 0 && teams.every((t) => t.subs.every((list) => list.length === 0));
 
   return {
     title: str(contest.title?.['zh-CN']) || str(contest.title?.fallback),
@@ -303,6 +378,7 @@ export function buildModel(doc: SrkDoc): ContestModel {
     duration,
     freezeStart: Math.max(0, duration - (freezeDeclared ? frozen : DEFAULT_FREEZE_MS)),
     freezeDeclared,
+    approx,
     problems,
     teams,
     bands: medalBands(doc.series, teams.length, teams.filter((t) => !t.star).length),
@@ -312,6 +388,25 @@ export function buildModel(doc: SrkDoc): ContestModel {
 /** 并列判据 = 过题 + 罚时（与 ICPC 一致）；`last` 只做展示顺序的 tie-break */
 const sameScore = (a: { solved: number; pen: number }, b: { solved: number; pen: number }): boolean =>
   a.solved === b.solved && a.pen === b.pen;
+
+/**
+ * 题号列头的档位（用户 2026-10-09 定的语义 B：黄 = 这题直到封榜后才被解开）。
+ *
+ * 「直到封榜后才被解开」取 `ac > 0 且全部通过都在封榜后`，而不是「有任意一格在封榜后通过」——
+ * 一题有 100 队封榜前就过了、3 队封榜后才过，说它是"晚解题"是噪音，那 3 队进 tooltip。
+ *
+ * 多出来的 `pending` 档不是加分项而是必需：封榜段内的提交不计入 `sub`（口径与 cap 一致），
+ * 若只按"四档"判，一题在封榜段被人动过、却还没定，列头会显示成「无人提交」——那是撒谎。
+ * 所以段内有活动、还没有任何已定通过 → 显"待定"（斜纹灰，与格子 `?n` 同一语言），终局自动翻成红 / 绿 / 黄。
+ */
+export type HeadState = 'quiet' | 'pending' | 'noone' | 'any' | 'late';
+
+export function problemHeadState(col: { ac: number; sub: number; frz: number; postAc: number }): HeadState {
+  if (col.ac > 0) return col.postAc === col.ac ? 'late' : 'any';
+  if (col.frz > 0) return 'pending';
+  if (col.sub > 0) return 'noone';
+  return 'quiet';
+}
 
 interface Acc {
   ti: number;
@@ -341,10 +436,11 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
     let last = 0;
     const cells: Cell[] = [];
     for (let p = 0; p < n; p++) {
-      const c = cellAt(team.subs[p] ?? [], elapsed, cap, freezeStart);
+      const c = cellAt(team.subs[p] ?? [], elapsed, cap, freezeStart, team.summaries[p], team.verdicts[p]);
       cells.push(c);
       if (c.st === 'ac' || c.st === 'fb') {
         solved++;
+        // 契约 §4 的 ICPC 口径：每题时刻折整分钟再累加（上游另有按裸秒存的场次，见交付报告）
         pen += minutesOf(c.t) + c.fails * 20;
         if (minutesOf(c.t) > last) last = minutesOf(c.t);
       }
@@ -359,7 +455,7 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
    * `S#` = 每校头队（`UniqByUserField organization` · 官方队）：只有该校最好的一支拿到序号。
    */
   const rows: BoardRow[] = [];
-  const col = Array.from({ length: n }, () => ({ ac: 0, sub: 0, frz: 0 }));
+  const col = Array.from({ length: n }, () => ({ ac: 0, sub: 0, frz: 0, postAc: 0 }));
   const seenOrg = new Set<string>();
   let rank = 0;
   let place = 0;
@@ -389,8 +485,11 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
     for (let p = 0; p < n; p++) {
       const c = a.cells[p]!;
       col[p]!.sub += c.nCap;
-      if (c.st === 'ac' || c.st === 'fb') col[p]!.ac++;
-      else if (c.st === 'frz') {
+      if (c.st === 'ac' || c.st === 'fb') {
+        col[p]!.ac++;
+        // 封榜后才通过的：只有终榜 / 回顾才算得出来（回放中这类格还是 ?）
+        if (c.post) col[p]!.postAc++;
+      } else if (c.st === 'frz') {
         col[p]!.frz++;
         has = true;
         frzCells++;
