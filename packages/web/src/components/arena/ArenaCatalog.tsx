@@ -223,7 +223,7 @@ function Found({ hits, q, sessions, onEnter }: { hits: LeafRow[]; q: string; ses
           </div>
         </div>
       ) : (
-        hits.map((r) => <Row key={r.path} row={r} path={r.group.join(' / ')} live={sessions.get(r.path) ?? null} onEnter={onEnter} />)
+        hits.map((r, i) => <Row key={r.path} row={r} alt={i % 2 === 1} path={r.group.join(' / ')} live={sessions.get(r.path) ?? null} onEnter={onEnter} />)
       )}
     </>
   );
@@ -276,12 +276,14 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
   return (
     <>
       {head}
-      {node.kids.map((k) => (
-        <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} chain={key} />
-      ))}
-      {node.leaves.map((r) => (
-        <Row key={r.path} row={r} live={sessions.get(r.path) ?? null} onEnter={onEnter} />
-      ))}
+      <div className="cbody" style={{ ['--d' as string]: depth + 1 }}>
+        {node.kids.map((k) => (
+          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} chain={key} />
+        ))}
+        {node.leaves.map((r, i) => (
+          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} />
+        ))}
+      </div>
     </>
   );
 });
@@ -290,9 +292,9 @@ const TierBadge = memo(function TierBadge({ tier, label }: { tier: string; label
   return <span className={`tier tier--${tier}`}>{label}</span>;
 });
 
-const Row = memo(function Row({ row, live, path, onEnter }: { row: LeafRow; live: { elapsed: number; paused: boolean } | null; path?: string; onEnter: Props['onEnter'] }) {
+const Row = memo(function Row({ row, live, alt = false, path, onEnter }: { row: LeafRow; live: { elapsed: number; paused: boolean } | null; alt?: boolean; path?: string; onEnter: Props['onEnter'] }) {
   return (
-    <div className={`crow${live ? ' is-live' : ''}`}>
+    <div className={`crow${alt ? ' is-alt' : ''}${live ? ' is-live' : ''}`}>
       <span className="crow__d">{row.date}</span>
       <TierBadge tier={row.badge.tier} label={row.badge.label} />
       <span className="crow__t">

@@ -72,6 +72,13 @@ describe('目录行与搜索', () => {
     expect(row.name).toBe('zz');
   });
 
+  it('目录里的占位日期照原样进日期列，不假装知道月日（实测 2009 武汉网络赛）', () => {
+    const row = leafRowOf(leaf('2009-??-?? 武汉网络赛', 'official/icpc/icpc2009/icpc2009preliminary-wuhan.srk.json'), ['ICPC', 'ICPC 2009']);
+    expect(row.date).toBe('2009-??-??');
+    expect(row.name).toBe('武汉网络赛');
+    expect(row.badge).toEqual({ tier: 'other', label: '网络赛' });
+  });
+
   it('摊平后按名称 / 日期 / 分组链命中，大小写不敏感', () => {
     const rows = flattenLeaves(TREE);
     expect(rows).toHaveLength(4);

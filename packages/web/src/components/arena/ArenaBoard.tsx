@@ -6,7 +6,7 @@
  * 于是 hover / 弹层 / 计时跳动都不会带着整张表重渲。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getArenaContest } from '../../api.ts';
+import { ApiError, getArenaContest } from '../../api.ts';
 import { clockHMS, clockHM, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { useTip } from '../../tip.tsx';
@@ -18,6 +18,8 @@ import {
   finish as finishSession,
   inFreezeWindow,
   minutesOf,
+  problemHeadState,
+  type HeadState,
   pause as pauseSession,
   startSession,
   subsUntil,
@@ -44,7 +46,7 @@ interface Props {
   onBack: () => void;
 }
 
-type Load = { kind: 'loading' } | { kind: 'error'; text: string } | { kind: 'ready'; model: ContestModel };
+type Load = { kind: 'loading' } | { kind: 'error'; text: string; missing: boolean } | { kind: 'ready'; model: ContestModel };
 
 interface Pop {
   anchor: Anchor;
@@ -63,6 +65,8 @@ const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
 
 export function ArenaBoard({ row, live, store, onBack }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
+  /** 手动重试计数：CDN 暂时取不到时，界面上那一脚重试比回目录再进来快 */
+  const [tryNo, setTryNo] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [review, setReview] = useState(!live);
@@ -71,9 +75,10 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   const [pop, setPop] = useState<Pop | PopTeam | null>(null);
   const { show, hide } = useTip();
 
-  /* ---------- 取数：进回放才拉那 1.5MB ---------- */
+  /* ---------- 取数：进回放才拉那 1.5MB；失败给重试（jsDelivr 冷缓存会暂时 403） ---------- */
   useEffect(() => {
     let cancel = false;
+    setLoad({ kind: 'loading' });
     void (async () => {
       try {
         const res = await getArenaContest(row.path);
@@ -81,13 +86,15 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
         const model = buildModel(res.data as Parameters<typeof buildModel>[0]);
         setLoad({ kind: 'ready', model });
       } catch (err) {
-        if (!cancel) setLoad({ kind: 'error', text: messageOf(err) });
+        if (cancel) return;
+        const missing = err instanceof ApiError && err.kind === 'not-found';
+        setLoad({ kind: 'error', text: messageOf(err), missing });
       }
     })();
     return () => {
       cancel = true;
     };
-  }, [row.path]);
+  }, [row.path, tryNo]);
 
   /* ---------- 会话：有记录就续钟，没有就开新钟 ---------- */
   useEffect(() => {
@@ -207,22 +214,36 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
   if (load.kind === 'error') {
     return (
-      <div className="content">
-        <div className="catwrap">
-          <div className="alert alert--err">
-            <Icon id="i-plug" />
-            <div>
-              <b>榜单拉取失败</b> · {load.text} · 本地没有这一场的缓存
-            </div>
-            <button className="alert__x" onClick={onBack}>
-              回目录
-            </button>
-          </div>
-          <p className="hint">
-            不拿假数填空 · 取不到就空着。已缓存过的场次即使 CDN 不可达也照常回放（docs/16 §2.1）。
-          </p>
+      <>
+        <div className="topbar">
+          <button className="btn btn--ghost btn--sm" onClick={onBack}>
+            <Icon id="i-chev" className="flip" />
+            回到目录
+          </button>
+          <span aria-hidden="true" className="vsep" />
+          <h2 className="rbname">{row.name}</h2>
+          <span className="topbar__spacer" />
         </div>
-      </div>
+        <div className="content">
+          <div className="catwrap">
+            <div className="alert alert--err">
+              <Icon id="i-plug" />
+              <div>
+                <b>{load.missing ? '上游没有这份榜单' : '榜单拉取失败'}</b> · {load.text}
+                {load.missing ? '' : ' · 本地没有这一场的缓存'}
+              </div>
+              <button className="alert__x" onClick={() => setTryNo((n) => n + 1)}>
+                重试
+              </button>
+            </div>
+            <p className="hint">
+              {load.missing
+                ? '目录里有这一场，但快照仓库里取不到对应文件 —— 不做假数填空，取不到就是空。'
+                : 'CDN 冷缓存时会暂时回 403，隔一两秒再试通常就通；已缓存过的场次即使 CDN 不可达也照常回放（docs/16 §2.1）。'}
+            </p>
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -252,6 +273,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       `开赛 ${model.startAt}`,
       `封榜 ${freezeLabel}（${model.freezeDeclared ? '本场声明' : '本场未声明 · 按缺省最后 60 分钟'}）`,
       `时长 ${clockHM(duration)} · ${model.teams.length} 队（正式 ${model.teams.filter((t) => !t.star).length} · 打星 ${model.teams.filter((t) => t.star).length}）`,
+      model.approx ? '本场快照无逐次提交 · 榜按终局判名近似重建' : '',
     ],
   };
 
@@ -296,6 +318,26 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           </>
         )}
         <span className="topbar__spacer" />
+        {model.approx ? (
+          <span
+            className="pill"
+            onMouseEnter={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              show({
+                x: r.left + r.width / 2,
+                y: r.bottom,
+                below: true,
+                date: '近似榜',
+                value: '本场快照没有逐次提交',
+                zero: false,
+                sub: ['榜按终局判名 + 次数重建，逐发时刻上游未记', '所以格子只在判名那一刻出现，中间过程看不到'],
+              });
+            }}
+            onMouseLeave={hide}
+          >
+            近似回放
+          </span>
+        ) : null}
         <label className="switch">
           <input type="checkbox" checked={onlyFormal} onChange={(e) => setOnlyFormal(e.target.checked)} />
           仅正式队
@@ -431,7 +473,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
                   Pen
                 </div>
                 {model.problems.map((p, i) => (
-                  <ProblemHead key={p.alias ?? i} problem={p} col={board.col[i] ?? { ac: 0, sub: 0, frz: 0 }} rows={board.rows.length} cap={board.cap} model={model} board={board} index={i} />
+                  <ProblemHead key={p.alias ?? i} problem={p} col={board.col[i] ?? { ac: 0, sub: 0, frz: 0, postAc: 0 }} rows={board.rows.length} cap={board.cap} model={model} board={board} index={i} />
                 ))}
               </div>
 
@@ -453,6 +495,29 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
                 榜上 <b>{board.rows.length}</b> 队 · 累计过题 <b>{board.solvedTotal}</b>
               </span>
               <span className="spacer" />
+              {/* 列头四档图例：区分度靠颜色，读法在这里给一次，别处不再写解释 */}
+              <span className="key key--head">
+                <span className="key__i">
+                  <i className="phk is-quiet" />
+                  无人提交
+                </span>
+                <span className="key__i">
+                  <i className="phk is-pending" />
+                  待定
+                </span>
+                <span className="key__i">
+                  <i className="phk is-noone" />
+                  交而没过
+                </span>
+                <span className="key__i">
+                  <i className="phk is-any" />
+                  有人过
+                </span>
+                <span className="key__i">
+                  <i className="phk is-late" />
+                  封榜后才解开
+                </span>
+              </span>
               <span className="key">
                 <span className="key__i">
                   <i className="key__s key__s--pen">−</i>罚时
@@ -490,6 +555,14 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
 /* ---------- 列头 ---------- */
 
+const HEAD_HINT: Record<HeadState, string> = {
+  quiet: '全场无人提交',
+  pending: '封榜段内有活动 · 结果未定',
+  noone: '有人交 · 无人过',
+  any: '封榜前已有人过',
+  late: '直到封榜后才被解开',
+};
+
 const ProblemHead = memo(function ProblemHead({
   problem,
   col,
@@ -500,7 +573,7 @@ const ProblemHead = memo(function ProblemHead({
   index,
 }: {
   problem: ContestModel['problems'][number];
-  col: { ac: number; sub: number; frz: number };
+  col: Board['col'][number];
   rows: number;
   cap: number;
   model: ContestModel;
@@ -509,9 +582,10 @@ const ProblemHead = memo(function ProblemHead({
 }) {
   const { show, hide } = useTip();
   const fb = board.rows.find((r) => r.cells[index]?.st === 'fb');
+  const state = problemHeadState(col);
   return (
     <div
-      className={`ph${col.ac === 0 ? ' is-zero' : ''}`}
+      className={`ph is-${state}`}
       onMouseEnter={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
         show({
@@ -522,9 +596,11 @@ const ProblemHead = memo(function ProblemHead({
           value: `${col.ac} / ${rows} 队过`,
           zero: col.ac === 0,
           sub: [
-            fb ? `首杀 ${model.teams[fb.ti]?.org ?? ''} · ${minutesOf(fb.cells[index]?.t ?? 0)}′` : cap >= model.duration ? '全场无人通过' : '尚无通过',
+            HEAD_HINT[state],
             `交 ${col.sub} 次`,
+            fb ? `首杀 ${model.teams[fb.ti]?.org ?? ''} · ${minutesOf(fb.cells[index]?.t ?? 0)}′` : cap >= model.duration ? '全场无人通过' : '尚无通过',
             col.frz > 0 ? `另有 ${col.frz} 格封榜未定` : '',
+            col.postAc > 0 && col.postAc < col.ac ? `其中 ${col.postAc} 队封榜后才过` : '',
           ].filter((s) => s !== ''),
         });
       }}
@@ -552,7 +628,7 @@ function BoardRowView(props: RowProps) {
   const { show, hide } = useTip();
 
   const cellNodes = row.cells.map((c, p) => (
-    <CellView key={p} cell={c} ti={team.ti} p={p} problem={problems[p] ?? {}} row={row} team={team} freezeStart={model.freezeStart} onCell={onCell} />
+    <CellView key={p} cell={c} ti={team.ti} p={p} problem={problems[p] ?? {}} row={row} team={team} freezeStart={model.freezeStart} approx={model.approx} onCell={onCell} />
   ));
 
   const teamTip = (e: React.MouseEvent): void => {
@@ -606,6 +682,7 @@ const CellView = memo(function CellView({
   row,
   team,
   freezeStart,
+  approx,
   onCell,
 }: {
   cell: Cell;
@@ -615,6 +692,7 @@ const CellView = memo(function CellView({
   row: BoardRow;
   team: TeamModel;
   freezeStart: number;
+  approx: boolean;
   onCell: (ev: React.MouseEvent, ti: number, p: number) => void;
 }) {
   const { show, hide } = useTip();
@@ -631,7 +709,7 @@ const CellView = memo(function CellView({
   const sub: string[] = [];
   if (cell.post) sub.push('发生在封榜段 · 不计入定格名次');
   sub.push(`${team.name} · 第 ${row.rank} 名`);
-  sub.push('点击查看逐次提交');
+  sub.push(approx ? '点击查看判名与次数' : '点击查看逐次提交');
 
   return (
     <div
@@ -662,9 +740,28 @@ function SubPop({ model, ti, p, viewMs, cap }: { model: ContestModel; ti: number
   const team = model.teams[ti];
   const problem = model.problems[p];
   if (team === undefined || problem === undefined) return null;
-  const list = subsUntil(team.subs[p] ?? [], viewMs, cap);
+  const list = subsUntil(team.subs[p] ?? [], viewMs, cap, team.verdicts[p]);
   const fb = team.subs[p]?.find((x) => x.result === 'FB');
   const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${team.name} @${team.org}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
+  /*
+   * 近似榜（上游没给逐次提交）：只有一行终局判名，次数照 `tries` 给。
+   * 这里不能显示「本场未提交」—— 人家交了，是快照没记每一发。
+   */
+  if (list.length === 0 && model.approx) {
+    const s = team.summaries[p];
+    if (s === undefined) return <PopShell head={head}><div className="hint">本场未提交。</div></PopShell>;
+    const shown = s.t > cap;
+    return (
+      <PopShell head={head}>
+        <div className="pop__row">
+          <span className={shown ? 'res res--frz' : s.accepted ? 'res res--ac' : 'res res--bad'}>{shown ? 'Frozen' : s.accepted ? (s.fb ? 'FB' : 'AC') : '未过'}</span>
+          <span className="pop__tm num">{clockHMS(s.t)}</span>
+          <span className="pop__lg">{s.tries} 发</span>
+        </div>
+        <div className="hint" style={{ marginTop: 8 }}>本场快照没有逐次提交记录，只有终局判名与总次数。</div>
+      </PopShell>
+    );
+  }
   return (
     <PopShell head={head}>
       {list.length === 0 ? (
