@@ -13,48 +13,49 @@ import { ArenaClient, ArenaError, CATALOG_PATH, contestPathOk, parseCatalogYaml 
 import { initSchema } from '../src/db.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
 
-/* ---------- 自造目录夹具：五类里的三支 + 省赛那支按省分组 ---------- */
+/* ---------- 自造目录夹具：形状照 2026-10-09 实测的真实 config.yaml（每节点一段 path、format 认叶子） ---------- */
 
 const CATALOG = `# 自造夹具（不是真实 config.yaml）
 root:
-  name: srk-collection
   children:
-    - name: icpc
+    - path: icpc
+      name: ICPC
       children:
-        - name: '2025'
+        - path: icpc2025
+          name: ICPC 2025 (50th)
           children:
-            - name: '2025-11-23 上海站'
-              path: official/icpc/icpc2025/icpc2025shanghai.srk.json
+            - path: icpc2025shanghai
               format: srk.json
-            - name: '2025-11-16 沈阳站'
-              path: official/icpc/icpc2025/icpc2025shenyang.srk.json
+              name: 2025-11-23 上海站
+            - path: icpc2025shenyang
               format: srk.json
-        - name: '2024'
+              name: 2025-11-16 沈阳站
+        - path: icpc2024
+          name: ICPC 2024 (49th)
           children:
-            - name: '2024-11-30 南京站'
-              path: official/icpc/icpc2024/icpc2024nanjing.srk.json
+            - path: icpc2024nanjing
               format: srk.json
-    - name: ccpc
+              name: 2024-11-30 南京站
+    - path: ccpc
+      name: CCPC
       children:
-        - name: '2025'
+        - path: ccpc2025
+          name: CCPC 2025
           children:
-            - name: '2025-11-08 总决赛'
-              path: official/ccpc/ccpc2025/ccpc2025final.srk.json
+            - path: ccpc2025final
               format: srk.json
-    - name: provincial
+              name: 2025-11-08 总决赛
+    - path: provincial
+      name: 省赛
       children:
-        - name: 江苏省
+        - path: bj
+          name: 北京市赛
           children:
-            - name: '2026'
-              children:
-                - name: '2026-05-09 现场赛'
-                  path:
-                    - official
-                    - provincial
-                    - jiangsu
-                    - jsu2026final
-                  format: srk.json
-        - name: 广东省
+            - path: bjcpc2026
+              format: srk.json
+              name: 2026-05-10 2026
+        - path: gd
+          name: 广东省赛
           children: []
 other: 这一整段的子树都该被忽略
   nested: 1
@@ -62,19 +63,20 @@ other: 这一整段的子树都该被忽略
 `;
 
 describe('窄 YAML 解析', () => {
-  it('解析出顶层五类里的可用类目，并逐层计数', () => {
+  it('解析出顶层类目，并逐层计数（真实目录 394 场按同一规则）', () => {
     const { tree, total } = parseCatalogYaml(CATALOG);
     expect(total).toBe(5);
-    expect(tree.map((n) => n.name)).toEqual(['icpc', 'ccpc', 'provincial']);
+    expect(tree.map((n) => n.name)).toEqual(['ICPC', 'CCPC', '省赛']);
     expect(tree.map((n) => n.count)).toEqual([3, 1, 1]);
-    const icpc = tree[0];
-    expect(icpc?.children?.map((y) => [y.name, y.count])).toEqual([
-      ['2025', 2],
-      ['2024', 1],
+    // 广东省赛的 `children: []` 是空分组：不算叶子、不编路径，整支从树上掉下去
+    expect(tree[2]?.children?.map((p) => p.name)).toEqual(['北京市赛']);
+    expect(tree[0]?.children?.map((y) => [y.name, y.count])).toEqual([
+      ['ICPC 2025 (50th)', 2],
+      ['ICPC 2024 (49th)', 1],
     ]);
   });
 
-  it('叶子带 path 与 format；分组只有 children', () => {
+  it('叶子 = 沿链 path 段拼出的完整官方路径；分组不带 path', () => {
     const { tree } = parseCatalogYaml(CATALOG);
     const leaf = tree[0]?.children?.[0]?.children?.[0];
     expect(leaf?.path).toBe('official/icpc/icpc2025/icpc2025shanghai.srk.json');
@@ -83,51 +85,88 @@ describe('窄 YAML 解析', () => {
     expect(tree[0]?.path).toBeUndefined();
   });
 
-  it('path 的分段列表写法折成 / 连接，并补上 official/ 前缀与 .srk.json 后缀', () => {
+  it('类目下直接挂叶子（UCUP 那种两层形状）也拼得对', () => {
     const { tree, total } = parseCatalogYaml(`root:
   children:
-    - name: 省赛
+    - path: ucup
+      name: Universal Cup
       children:
-        - name: 江苏省
-          children:
-            - name: 现场赛
-              path:
-                - provincial
-                - jiangsu
-                - jsu2026
-              format: srk.json
+        - path: ucup3rdfinals
+          format: srk.json
+          name: 2026-05-10 The 3rd Finals
 `);
     expect(total).toBe(1);
-    expect(tree[0]?.children?.[0]?.children?.[0]?.path).toBe('official/provincial/jiangsu/jsu2026.srk.json');
+    expect(tree[0]?.children?.[0]?.path).toBe('official/ucup/ucup3rdfinals.srk.json');
   });
 
-  it('单引号里的冒号与井号不破坏解析', () => {
+  it('分组名与段名分离：`root:` 那层容器透明，不占一个类目位', () => {
     const { tree } = parseCatalogYaml(`root:
+  name: 不该出现在顶层的一层
   children:
-    - name: 'The 50th ICPC Asia Shanghai Regional Contest'
-      path: official/icpc/a.srk.json
-      format: srk.json
+    - path: icpc
+      name: ICPC
+      children:
+        - path: a
+          format: srk.json
+          name: A
+    - path: ccpc
+      name: CCPC
+      children:
+        - path: b
+          format: srk.json
+          name: B
 `);
-    expect(tree[0]?.name).toBe('The 50th ICPC Asia Shanghai Regional Contest');
+    expect(tree.map((n) => n.name)).toEqual(['ICPC', 'CCPC']);
   });
 
-  it('形状异常：空文档 / 无键行 / 缩进错乱 / 只有 unknown 键 → 空树而不是抛', () => {
+  it('形状异常：空文档 / 无键行 / tab 缩进 / 只有 unknown 键 → 空树而不是抛', () => {
     expect(parseCatalogYaml('')).toEqual({ tree: [], total: 0 });
     expect(parseCatalogYaml('----\n\ttab 缩进行\nrandom text\n').total).toBe(0);
     expect(parseCatalogYaml('other:\n  x: 1\n').total).toBe(0);
     // children: 后面直接接同级键 = 空列表，不该把同级键吞进去
     expect(parseCatalogYaml('root:\n  children:\n  name: icpc\n').total).toBe(0);
+    // 没有 path 段的空叶子没有可取的路径，只能丢掉而不是造一个 official/.srk.json
+    expect(parseCatalogYaml('root:\n  children:\n    - name: 缺段\n      format: srk.json\n').total).toBe(0);
   });
 
-  it('叶子名重复与嵌套深度不影响计数（394 场那种规模按同一规则）', () => {
+  it('引号里的冒号与井号不破坏解析', () => {
+    const { tree } = parseCatalogYaml(`root:
+  children:
+    - path: icpc
+      name: ICPC
+      children:
+        - path: sh
+          format: srk.json
+          name: 'The 50th ICPC Asia: Shanghai #1'
+`);
+    expect(tree[0]?.children?.[0]?.name).toBe('The 50th ICPC Asia: Shanghai #1');
+  });
+
+  it('同级兄弟叶子逐个入树，计数不互相吞（394 场规模按同一规则）', () => {
     const many = Array.from(
       { length: 12 },
-      (_, i) => `        - name: '场 ${i}'\n          path: official/icpc/p${i}.srk.json`,
+      (_, i) => `        - path: p${i}\n          format: srk.json\n          name: '场 ${i}'`,
     ).join('\n');
-    const { tree, total } = parseCatalogYaml(`root:\n  children:\n    - name: icpc\n      children:\n${many}\n`);
+    const { tree, total } = parseCatalogYaml(`root:\n  children:\n    - path: icpc\n      name: ICPC\n      children:\n${many}\n`);
     expect(total).toBe(12);
     expect(tree).toHaveLength(1);
     expect(tree[0]?.count).toBe(12);
+  });
+
+  it('path 的分段列表写法（防御）：折成 / 后仍当一段处理', () => {
+    const { tree, total } = parseCatalogYaml(`root:
+  children:
+    - path: provincial
+      name: 省赛
+      children:
+        - path:
+            - js
+            - jsu2026
+          format: srk.json
+          name: 现场赛
+`);
+    expect(total).toBe(1);
+    expect(tree[0]?.children?.[0]?.path).toBe('official/provincial/js/jsu2026.srk.json');
   });
 });
 

@@ -125,10 +125,10 @@ function tokenize(raw: string): Line[] {
 const KEYS = new Set(['name', 'path', 'format', 'children', 'root']);
 const SCALARS = new Set(['name', 'path', 'format']);
 
-/** 解析期的节点：`kids` 必带，出树时才折成 DTO 的可选 `children` */
+/** 解析期的节点：`seg` = 该节点的 `path` 段（真实目录里每个节点都带一段，不是整条路径） */
 interface Draft {
   name: string;
-  path?: string;
+  seg: string;
   format?: string;
   kids: Draft[];
 }
@@ -136,9 +136,13 @@ interface Draft {
 /**
  * 缩进式 YAML 树 → `{name, path, format?, children?, count}` + 每层叶子计数（docs/16 §2.1）。
  *
- * 手写、零依赖、只认四个键：其余键带标量值的直接跳过，带子树的当作多一层容器（实测顶层是
- * `root:` 那层包装）。读不懂的行忽略而不是抛 —— 目录里一行脏数据不该让整屏空掉。
- * `path` 实测可能是标量，也可能是分段列表（契约原文「path 以 / 连接」），两种都收。
+ * 手写、零依赖、只认四个键（实测 config.yaml 2026-10-09 的形状）：
+ * - 每个节点的 `path` 是**一段**目录名，完整官方路径 = 沿链的 `path` 段以 `/` 连接 + `official/` 前缀
+ *   + `.` + `format`（契约原文「official/<path 以 / 连接>.srk.json」）；
+ * - 叶子 = 没有 `children` 的节点，判据是 `format` 而不是 `path`（分组同样带 `path`）；
+ * - `root:` 那层容器不带 `path`，当作透明容器把 children 提上来，五类才是顶层；
+ * - 其余键带标量值的直接跳过，带子树的当作多一层容器；读不懂的行忽略而不是抛 ——
+ *   目录里一行脏数据不该让整屏空掉（§2.1 的防御要求）。
  */
 export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total: number } {
   const lines = tokenize(raw);
@@ -150,11 +154,11 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
     return l.indent > keyIndent || (l.dash !== null && l.dash > keyIndent);
   };
 
-  /** 取从 `i` 开始的整段列表项标量（`path:` 的分段写法） */
+  /** 取从 `i` 开始的整段列表项标量（`path:` 的分段写法，防御用） */
   const scalarList = (i: number, dashIndent: number): { values: string[]; next: number } => {
     const values: string[] = [];
     let p = i;
-    while (p < lines.length) {
+    for (;;) {
       const l = lines[p];
       if (l === undefined || l.dash !== dashIndent || l.key !== '') break;
       values.push(l.value);
@@ -165,7 +169,7 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
 
   /** 从 `i` 起、键列为 `keyIndent` 的一个映射节点（首键可以挂在列表项上） */
   function nodeAt(i: number, keyIndent: number): { node: Draft; next: number } {
-    const node: Draft = { name: '', kids: [] };
+    const node: Draft = { name: '', seg: '', kids: [] };
     let p = i;
     for (;;) {
       const l = lines[p];
@@ -179,17 +183,15 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
       if (SCALARS.has(l.key)) {
         if (l.value !== '') {
           if (l.key === 'name') node.name = l.value;
-          else if (l.key === 'path') node.path = l.value;
+          else if (l.key === 'path') node.seg = l.value;
           else node.format = l.value;
           continue;
         }
-        // 空值标量键：可能是分段列表（path），也可能是被忽略的空容器
         const nx = lines[p];
         if (nx !== undefined && nx.dash !== null && nx.dash > keyIndent && nx.key === '') {
           const got = scalarList(p, nx.dash);
-          if (l.key === 'path') node.path = got.values.join('/');
+          if (l.key === 'path') node.seg = got.values.join('/');
           p = got.next;
-          continue;
         }
         continue;
       }
@@ -204,7 +206,7 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
         continue;
       }
       const dashIndent = nx.dash;
-      while (p < lines.length) {
+      for (;;) {
         const item = lines[p];
         if (item === undefined || item.dash !== dashIndent) break;
         const kid = nodeAt(p, item.indent);
@@ -230,39 +232,28 @@ export function parseCatalogYaml(raw: string): { tree: ArenaCatalogNode[]; total
     i = kid.next;
   }
 
-  /*
-   * 顶层那层 `root:` 包装不是类目，五类才是。契约的形状是 `root.children[]`，包装链最多两层
-   * （`root:` 那枚键 + 它映射本身），所以这里最多剥两跳 —— 不设上限的话，一份只有一个类目的
-   * 目录会被连带剥成它的子年份，类目名就没了。
+  /**
+   * 出树：叶子拼完整官方路径，分组带 children 与计数；不带 `path` 段的容器（`root:` 那层）
+   * 透明地把 children 提到父层，所以顶层就是契约说的五类。
    */
-  let forest = wrappers.filter((n) => n.path !== undefined || n.kids.length > 0);
-  for (let hop = 0; hop < 2; hop++) {
-    const only = forest[0];
-    if (forest.length !== 1 || only === undefined || only.path !== undefined || only.kids.length === 0) break;
-    forest = only.kids;
-  }
-
-  const normalize = (path: string, format: string | undefined): string => {
-    const bare = path.replace(/^\/+/, '');
-    const withDir = bare.startsWith('official/') ? bare : `official/${bare}`;
-    const isSrk = format === undefined || format === 'srk.json';
-    return isSrk && !withDir.endsWith('.srk.json') ? `${withDir}.srk.json` : withDir;
-  };
-
-  const countLeaves = (n: Draft): number =>
-    n.path !== undefined ? 1 : n.kids.reduce((sum, c) => sum + countLeaves(c), 0);
-
-  const toDto = (n: Draft): ArenaCatalogNode => {
-    const count = countLeaves(n);
-    if (n.path !== undefined) {
-      const leaf: ArenaCatalogNode = { name: n.name, path: normalize(n.path, n.format), count };
-      if (n.format !== undefined) leaf.format = n.format;
-      return leaf;
+  const build = (n: Draft, chain: string[]): ArenaCatalogNode[] => {
+    const here = n.seg === '' ? chain : [...chain, n.seg];
+    if (n.kids.length === 0) {
+      // 叶子 = 带 `format` 的那个键（真实目录里分组同样带 path，靠 format 区分）；
+      // 既没孩子也没 format = 空分组（`children: []`），丢掉而不是编出一条取不到的路径
+      if (n.seg === '' || n.format === undefined) return [];
+      const leaf: ArenaCatalogNode = { name: n.name, path: `official/${here.join('/')}.${n.format}`, count: 1 };
+      leaf.format = n.format;
+      return [leaf];
     }
-    return { name: n.name, children: n.kids.map(toDto), count };
+    const children = n.kids.flatMap((k) => build(k, here));
+    if (children.length === 0) return [];
+    if (n.seg === '') return children;
+    const count = children.reduce((sum, c) => sum + (c.count ?? 0), 0);
+    return [{ name: n.name, children, count }];
   };
 
-  const tree = forest.map(toDto);
+  const tree = wrappers.flatMap((w) => build(w, []));
   return { tree, total: tree.reduce((sum, n) => sum + (n.count ?? 0), 0) };
 }
 
