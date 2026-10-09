@@ -96,14 +96,18 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     const prev = loadSession(store, row.path);
     if (prev === null) {
       const s = { ...startSession(Date.now()), durationMs: duration };
+      /*
+       * 「查看终榜」不是「开始模拟」：没有钟在走，就不落会话记录 ——
+       * 否则目录那一行会凭空挂上「回放中」，而它其实只是被人看了一眼终榜。
+       */
       if (live) {
         setSession(s);
         setReview(false);
+        saveSession(store, row.path, s);
       } else {
-        setSession({ ...finishSession(s, duration) });
+        setSession(finishSession(s, duration));
         setReview(true);
       }
-      saveSession(store, row.path, live ? s : { ...s, hold: true, ended: true, at: duration, scrubMs: duration });
       return;
     }
     const withDur: Session = { ...prev, durationMs: duration };
@@ -167,6 +171,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     if (session === null || model === null) return;
     patch(finishSession(session, model.duration));
     setReview(true);
+    setResumed(false);
     setElapsed(model.duration);
   };
 
@@ -299,7 +304,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
       <div className="content content--fit">
         <div className="simcol">
-          {resumed ? (
+          {resumed && !review ? (
             <div className="alert alert--ok">
               <Icon id="i-check" />
               <div>

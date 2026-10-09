@@ -58,7 +58,8 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
     const out = new Map<string, { elapsed: number; paused: boolean }>();
     for (const path of listSessionPaths(store)) {
       const s = loadSession(store, path);
-      if (s === null) continue;
+      // 走完或已「结束」的场次不再算进行中：那一行的动作回到 开始模拟 / 查看终榜
+      if (s === null || s.ended) continue;
       out.set(path, { elapsed: elapsedOf(s, s.durationMs || Number.MAX_SAFE_INTEGER, now), paused: s.paused });
     }
     return out;

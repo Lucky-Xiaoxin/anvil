@@ -43,7 +43,7 @@ const TIER_CN: Record<Exclude<Tier, 'other'>, string> = {
   provincial: '省赛',
 };
 
-const DATE_RE = /^(\d{4}-\d{2}-\d{2})\s+/;
+const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:\s+([\s\S]*))?$/;
 
 /**
  * tier 判据：先看名称与路径段里的关键词，再退到类目本身。
@@ -70,7 +70,7 @@ export function leafRowOf(node: ArenaCatalogNode, group: string[]): LeafRow {
   const raw = node.name ?? '';
   const m = DATE_RE.exec(raw);
   const date = m?.[1] ?? '';
-  const rest = m !== null ? raw.slice(m[0].length).trim() : raw.trim();
+  const rest = (m?.[2] ?? (m === null ? raw : '')).trim();
   const category = group[0] ?? '';
   const path = node.path ?? '';
   const seg = path.split('/').pop() ?? '';
