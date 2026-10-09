@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
 import { registerApi } from '../src/api.ts';
-import { ArenaClient, ArenaError, CATALOG_PATH, MAX_RETRIES, contestPathOk, parseCatalogYaml } from '../src/arena.ts';
+import { ARENA_HOSTS, ArenaClient, ArenaError, CATALOG_PATH, MAX_RETRIES, contestPathOk, parseCatalogYaml } from '../src/arena.ts';
 import { initSchema } from '../src/db.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
 
@@ -214,17 +214,21 @@ const okResponse = (body: string, status = 200): Response => new Response(body, 
 const mkClient = (opts: ConstructorParameters<typeof ArenaClient>[0]): ArenaClient =>
   new ArenaClient({ backoffMs: [0, 0, 0], ...opts });
 
-/** 记账用 fetch：记录每个 URL 被请求了几次 */
-function countingFetch(routes: Record<string, () => Promise<Response>>): { fetchImpl: typeof fetch; hits: Record<string, number> } {
+/** 记账用 fetch：记录每个路径被请求了几次、按什么顺序打过哪条源 */
+function countingFetch(routes: Record<string, () => Promise<Response>>): { fetchImpl: typeof fetch; hits: Record<string, number>; order: string[] } {
   const hits: Record<string, number> = {};
+  const order: string[] = [];
   const fetchImpl = (async (input: string | URL) => {
-    const url = String(input).replace(/^https:\/\/cdn\.jsdelivr\.net\/gh\/algoux\/srk-collection@master\//, '');
-    hits[url] = (hits[url] ?? 0) + 1;
-    const handler = routes[url];
+    const url = String(input);
+    const host = url.includes('jsdelivr') ? 'jsDelivr' : url.includes('githubusercontent') ? 'GitHub' : 'other';
+    const path = url.replace(/^https:\/\/[^/]+\/(gh\/algoux\/srk-collection@master|algoux\/srk-collection\/master)\//, '');
+    order.push(host);
+    hits[path] = (hits[path] ?? 0) + 1;
+    const handler = routes[path];
     if (handler === undefined) return okResponse('not found', 404);
     return handler();
   }) as unknown as typeof fetch;
-  return { fetchImpl, hits };
+  return { fetchImpl, hits, order };
 }
 
 const failFetch = (async () => {
@@ -260,7 +264,7 @@ describe('目录缓存', () => {
     expect(hits[CATALOG_PATH]).toBe(2);
   });
 
-  it('无缓存且拉不通 → ArenaError(unavailable)，退避重试 3 次后放弃', async () => {
+  it('无缓存且两条源都拉不通 → ArenaError(unavailable)，逐源各退避重试 3 次后放弃', async () => {
     let attempts = 0;
     const c = mkClient({
       fetchImpl: (async () => {
@@ -270,7 +274,7 @@ describe('目录缓存', () => {
       dir,
     });
     await expect(c.catalog()).rejects.toBeInstanceOf(ArenaError);
-    expect(attempts).toBe(1 + MAX_RETRIES);
+    expect(attempts).toBe(ARENA_HOSTS.length * (1 + MAX_RETRIES));
   });
 
   it('403（jsDelivr 冷缓存 / 限流）算暂时失败，几轮后通 = 目录可用', async () => {
@@ -287,7 +291,7 @@ describe('目录缓存', () => {
     expect(n).toBe(4);
   });
 
-  it('404 = 上游没有：判 not-found、不重试（再点也没用）', async () => {
+  it('两条源都 404 才判「上游没有」：单边 404 换源继续（jsDelivr 会整包超限拒人）', async () => {
     let n = 0;
     const c = mkClient({
       fetchImpl: (async () => {
@@ -297,7 +301,40 @@ describe('目录缓存', () => {
       dir,
     });
     await expect(c.catalog()).rejects.toMatchObject({ kind: 'not-found' });
-    expect(n).toBe(1);
+    expect(n).toBe(ARENA_HOSTS.length);
+  });
+
+  it('第一条源一直 403、第二条通 → 换源取到，顺序是 jsDelivr 在前', async () => {
+    const { fetchImpl, order } = countingFetch({
+      [CATALOG_PATH]: async () => okResponse(CATALOG),
+    });
+    let cdn = 0;
+    const c = mkClient({
+      fetchImpl: (async (input: string | URL) => {
+        if (String(input).includes('jsdelivr')) {
+          cdn++;
+          return okResponse('forbidden', 403);
+        }
+        return fetchImpl(input);
+      }) as unknown as typeof fetch,
+      dir,
+    });
+    const dto = await c.catalog();
+    expect(dto.total).toBe(5);
+    expect(cdn).toBe(1 + MAX_RETRIES);
+    // 记账 fetch 只看到第二条源：第一条被本例的包装挡在 403
+    expect(order).toEqual(['GitHub']);
+  });
+
+  it('第一条源 404、第二条有 → 取到，不误判成「上游没有」', async () => {
+    const PATH = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
+    const SRK = JSON.stringify({ type: 'general' });
+    const c = mkClient({
+      fetchImpl: (async (input: string | URL) =>
+        String(input).includes('jsdelivr') ? okResponse('nope', 404) : okResponse(SRK)) as unknown as typeof fetch,
+      dir,
+    });
+    expect((await c.contest(PATH)).data).toEqual({ type: 'general' });
   });
 
   it('总预算用尽就收手：不会把一次点击挂成无限重试', async () => {
@@ -311,8 +348,8 @@ describe('目录缓存', () => {
       dir,
     });
     await expect(c.catalog(false)).rejects.toBeInstanceOf(ArenaError);
-    // 预算 20s、退避全 0 → 上限就是 1 + MAX_RETRIES 次，不多打
-    expect(n).toBe(1 + MAX_RETRIES);
+    // 预算 20s、退避全 0 → 上限就是「源数 ×（1 + MAX_RETRIES）」，不多打
+    expect(n).toBe(ARENA_HOSTS.length * (1 + MAX_RETRIES));
   });
 
   it('有缓存时上游失败照常回缓存（降级不崩）', async () => {

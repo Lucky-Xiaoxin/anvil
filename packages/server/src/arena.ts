@@ -9,7 +9,15 @@ import { dirname, join } from 'node:path';
 import { vaultDir } from './config.ts';
 import type { ArenaCatalogDto, ArenaContestDto, ArenaCatalogNode } from '@anvil/shared';
 
+/**
+ * 上游镜像顺序。契约（§2.1）只钉了 jsDelivr 一条，实测不够用：
+ * srk-collection 整包已过 jsDelivr 的 50MB 上限，边缘节点命中缓存时照常 200，
+ * 一回源就稳定 403「Package size exceeded the configured limit of 50 MB」（三个镜像同答），
+ * 而 raw.githubusercontent 没有包大小限制、但大文件偶发连接重置 —— 两边互兜才拉得动。
+ */
 export const ARENA_BASE = 'https://cdn.jsdelivr.net/gh/algoux/srk-collection@master/';
+export const ARENA_RAW_BASE = 'https://raw.githubusercontent.com/algoux/srk-collection/master/';
+export const ARENA_HOSTS = [ARENA_BASE, ARENA_RAW_BASE];
 export const CATALOG_PATH = 'official/config.yaml';
 /**
  * 取数预算（docs/16 §2.1）：目录 20s、单场 90s。
@@ -52,6 +60,12 @@ export function contestPathOk(path: string): boolean {
 function reasonOf(err: unknown): string {
   if (err instanceof Error) return err.name === 'TimeoutError' ? '请求超时' : err.message;
   return String(err);
+}
+
+/** 报错文案里只留主机名：用户要看得懂是哪条源不通，不需要一整条 URL */
+function hostOf(base: string): string {
+  const h = base.split('/')[2] ?? base;
+  return h === 'cdn.jsdelivr.net' ? 'jsDelivr' : h === 'raw.githubusercontent.com' ? 'GitHub' : h;
 }
 
 /** 403 在这条 CDN 上是"暂时"而不是"没有"：冷缓存与限流都回它，实测几轮后必通 */
@@ -280,6 +294,8 @@ export interface ArenaClientOptions {
   dir?: string;
   /** 退避节奏；单测传全 0 免等 */
   backoffMs?: number[];
+  /** 上游镜像列表；单测只给一条就能钉住"逐源兜底"的顺序 */
+  hosts?: string[];
 }
 
 export class ArenaClient {
@@ -287,41 +303,53 @@ export class ArenaClient {
   readonly dir: string;
   private readonly catalogFile: string;
   private readonly backoffMs: number[];
+  private readonly hosts: string[];
 
   constructor(options: ArenaClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.dir = options.dir ?? arenaDir;
     this.catalogFile = join(this.dir, '_catalog.yaml');
     this.backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
+    this.hosts = options.hosts ?? ARENA_HOSTS;
   }
 
   /**
-   * 在 `budgetMs` 总预算内取文件：403/408/429/5xx 与网络异常按退避重试，
-   * 404 直接判「上游没有」（重试无意义，也不该诱导用户再点）。
+   * 在 `budgetMs` 总预算内取文件：逐源轮转，每源 403/408/429/5xx 与网络异常按退避重试；
+   * 某源回 404 就换下一源，**所有源都 404** 才判「上游没有」（重试无意义，也不该诱导用户再点）。
    */
   private async send(path: string, budgetMs: number): Promise<{ status: number; text: string }> {
     const deadline = Date.now() + budgetMs;
-    let transient = '';
-    for (let attempt = 0; ; attempt++) {
-      const left = deadline - Date.now();
-      if (left <= 0) throw new ArenaError('unavailable', `${transient || '请求超时'} · 已重试 ${attempt} 次`);
-      try {
-        const res = await this.fetchImpl(`${ARENA_BASE}${path}`, {
-          signal: AbortSignal.timeout(left),
-          headers: { 'user-agent': USER_AGENT },
-        });
-        const text = await res.text();
-        if (res.status === 404) throw new ArenaError('not-found', '上游没有这份榜单');
-        if (!isTransient(res.status)) return { status: res.status, text };
-        transient = `HTTP ${res.status}`;
-      } catch (err) {
-        if (err instanceof ArenaError) throw err;
-        transient = reasonOf(err);
+    const notes: string[] = [];
+    let missing = 0;
+    for (const base of this.hosts) {
+      const host = hostOf(base);
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const left = deadline - Date.now();
+        if (left <= 0) break;
+        try {
+          const res = await this.fetchImpl(`${base}${path}`, {
+            signal: AbortSignal.timeout(left),
+            headers: { 'user-agent': USER_AGENT },
+          });
+          const text = await res.text();
+          if (res.status === 404) {
+            missing += 1;
+            notes.push(`${host} 404`);
+            break;
+          }
+          if (!isTransient(res.status)) return { status: res.status, text };
+          notes.push(`${host} HTTP ${res.status}`);
+        } catch (err) {
+          if (err instanceof ArenaError) throw err;
+          notes.push(`${host} ${reasonOf(err)}`);
+        }
+        const wait = attempt < MAX_RETRIES ? Math.min(this.backoffMs[attempt] ?? 1_000, Math.max(0, deadline - Date.now())) : 0;
+        if (wait > 0) await sleep(wait);
       }
-      if (attempt >= MAX_RETRIES) throw new ArenaError('unavailable', `${transient} · 已重试 ${attempt} 次`);
-      const wait = Math.min(this.backoffMs[attempt] ?? 1_000, Math.max(0, deadline - Date.now()));
-      if (wait > 0) await sleep(wait);
     }
+    const tried = [...new Set(notes)].join(' → ');
+    if (missing === this.hosts.length) throw new ArenaError('not-found', '上游没有这份榜单');
+    throw new ArenaError('unavailable', `${tried || '请求超时'} · 已重试 ${MAX_RETRIES} 次 · ${this.hosts.length} 个源`);
   }
 
   private readCatalogCache(): { fetchedAt: number; text: string } | null {

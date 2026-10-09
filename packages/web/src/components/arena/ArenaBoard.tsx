@@ -239,7 +239,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
             <p className="hint">
               {load.missing
                 ? '目录里有这一场，但快照仓库里取不到对应文件 —— 不做假数填空，取不到就是空。'
-                : 'CDN 冷缓存时会暂时回 403，隔一两秒再试通常就通；已缓存过的场次即使 CDN 不可达也照常回放（docs/16 §2.1）。'}
+                : '两条源都试过还不通才算取不到，隔一两秒点重试通常就好；缓存过的场次断网也照常回放。'}
             </p>
           </div>
         </div>
