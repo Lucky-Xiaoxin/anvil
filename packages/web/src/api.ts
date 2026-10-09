@@ -1,4 +1,6 @@
 import type {
+  ArenaCatalogDto,
+  ArenaContestDto,
   DashboardDto,
   SourceId,
   StatusDto,
@@ -76,3 +78,12 @@ export const refreshXcpc = (): Promise<XcpcRefreshDto> => request<XcpcRefreshDto
 
 /** 源显示名：tab 条、顶栏按钮与错误文案共用一份 */
 export const SOURCE_NAME: Record<SourceId, string> = { cf: 'Codeforces', at: 'AtCoder', xcpc: 'XCPC' };
+
+/* ---------- 模拟榜单（docs/16 §2.2）：一切取数走服务端代理，前端不出网 ---------- */
+
+export const getArenaCatalog = (refresh = false): Promise<ArenaCatalogDto> =>
+  request<ArenaCatalogDto>(`/api/arena/catalog${refresh ? '?refresh=1' : ''}`);
+
+/** 单场 ~1.5MB，进回放才拉；已缓存场次离线可回放（服务端折成 fromCache） */
+export const getArenaContest = (path: string, refresh = false): Promise<ArenaContestDto> =>
+  request<ArenaContestDto>(`/api/arena/contest?path=${encodeURIComponent(path)}${refresh ? '&refresh=1' : ''}`);

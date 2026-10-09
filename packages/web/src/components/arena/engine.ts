@@ -428,6 +428,11 @@ export interface Session {
   scrubMs: number;
   /** 暂停 / 结束时冻结住的那个时刻（毫秒）：刷新回来仍停在这一秒 */
   at: number;
+  /**
+   * 本场时长（毫秒），进回放拿到 srk 后补上。
+   * 目录那行「回放中 · 时刻」要在不拉 1.5MB 榜单的前提下封顶，所以把它单独记一条。
+   */
+  durationMs: number;
 }
 
 /** 「开始模拟」= 开钟，没有准备页 */
@@ -438,6 +443,7 @@ export const startSession = (now: number): Session => ({
   ended: false,
   scrubMs: 0,
   at: 0,
+  durationMs: 0,
 });
 
 /** 当前比赛时刻：暂停 / 结束读冻结住的 `at`，否则按开始时刻推 */

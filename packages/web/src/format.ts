@@ -45,3 +45,17 @@ export function relativeTime(epochSeconds: number | null, now = Date.now()): str
   if (day < 7) return `${day} 天前`;
   return dayKeyOf(epochSeconds);
 }
+
+/* ---------- 比赛时钟读数（模拟榜单）：相对开赛的毫秒，不是墙上时钟 ---------- */
+
+/** 毫秒 → `4:12:07`（小时不补零，与视觉基线一致） */
+export function clockHMS(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 3600)}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`;
+}
+
+/** 毫秒 → `4:00`：封榜时刻这类「到分钟」的读数 */
+export function clockHM(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 3600)}:${p2(Math.floor((s % 3600) / 60))}`;
+}

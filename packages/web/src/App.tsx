@@ -17,7 +17,6 @@ import {
   ColdStart,
   Dashboard,
   LockedMaster,
-  LockedVp,
   NoticeBar,
   Unconfigured,
   type Notice,
@@ -25,13 +24,14 @@ import {
 import { Settings } from './components/Settings.tsx';
 import { SourceTabs } from './components/SourceTabs.tsx';
 import { Wizard } from './components/Wizard.tsx';
+import { Arena } from './components/arena/Arena.tsx';
 import { XcpcClaim } from './components/xcpc/XcpcClaim.tsx';
 import { XcpcDossier } from './components/xcpc/XcpcDossier.tsx';
 import { decideSwitch } from './switcher.ts';
 
 function viewFromHash(): View {
   const h = window.location.hash.replace(/^#\/?/, '');
-  return h === 'settings' || h === 'master' || h === 'vp' ? h : 'dashboard';
+  return h === 'settings' || h === 'master' || h === 'arena' ? h : 'dashboard';
 }
 
 /** 服务端把任务丢了（进程重启）时，别把进度条永远挂在那儿 */
@@ -274,14 +274,8 @@ export function App() {
         </div>
       );
     }
-    if (view === 'vp') {
-      return (
-        <div className="content">
-          {notice ? <NoticeBar {...notice} /> : null}
-          <LockedVp wide />
-        </div>
-      );
-    }
+    /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
+    if (view === 'arena') return <Arena />;
     if (view === 'settings') {
       const firstRun = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
       if (firstRun || status === null) {
@@ -401,6 +395,7 @@ export function App() {
         else void runXcpcRefresh();
       }}
       tabs={tabs}
+      bare={view === 'arena'}
     >
       {screen()}
     </AppShell>

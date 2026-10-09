@@ -1,14 +1,15 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { SourceState, SourceStatusDto, StatusDto, SourceId, XcpcProfileDto } from '@anvil/shared';
 import { SOURCE_NAME } from '../api.ts';
 import { fmtInt, relativeTime } from '../format.ts';
 import { medalRows, medalTotal, snapshotDate, snapshotDaysAgo } from './xcpc/derive.ts';
 import { useTip } from '../tip.tsx';
 import { Icon } from './ui.tsx';
+import { loadRail, saveRail } from './arena/session.ts';
 
-export type View = 'dashboard' | 'master' | 'vp' | 'settings';
+export type View = 'dashboard' | 'master' | 'arena' | 'settings';
 
-const TITLES: Record<View, string> = { dashboard: '仪表盘', master: '掌握图', vp: 'VP', settings: '设置' };
+const TITLES: Record<View, string> = { dashboard: '个人数据', master: '工坊', arena: '模拟榜单', settings: '设置' };
 const DOT: Record<SourceState, string> = {
   ok: 'var(--ok)',
   stale: 'var(--warn)',
@@ -29,11 +30,15 @@ interface Props {
   delta: number | null;
   onSync: () => void;
   tabs: ReactNode | null;
+  /** 模拟榜单自带整条顶栏（计时 / 走带 / 封榜 pill），壳就不再补一条 */
+  bare?: boolean;
   children: ReactNode;
 }
 
-export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, onSync, tabs, children }: Props) {
+export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, onSync, tabs, bare = false, children }: Props) {
   const { show, hide } = useTip();
+  const [rail, setRail] = useState(() => loadRail(window.localStorage));
+  useEffect(() => saveRail(window.localStorage, rail), [rail]);
   const x = status?.xcpc ?? null;
   const isXcpc = source === 'xcpc';
   const src: SourceStatusDto | null = isXcpc ? null : (status?.sources[source] ?? null);
@@ -44,13 +49,15 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
   const dash = view === 'dashboard';
   const name = x?.key === undefined || x?.key === null ? '' : x.key.split('@')[0] ?? '';
   const days = snapshotDaysAgo(x?.snapshotAt ?? null);
+  /** 收起态 navfoot 只留符号：一枚状态点 + 主计数（§1.2） */
+  const railCount = isXcpc ? (claimed ? fmtInt(xcpc?.player.contests ?? 0) : '—') : src ? fmtInt(src.counts.submissions) : '—';
 
   return (
-    <div className={`app${dash ? ` dash pf-${source}${isXcpc ? ' is-strong' : ''}` : ''}`}>
+    <div className={`app${dash ? ` dash pf-${source}${isXcpc ? ' is-strong' : ''}` : ''}${rail ? ' is-rail' : ''}`}>
       <aside className="nav">
         <div className="brand">
           <Icon id="i-anvil" />
-          <div>
+          <div className="brand__txt">
             <div className="brand__name">ANVIL</div>
             <div className="brand__sub">铁砧</div>
           </div>
@@ -58,58 +65,93 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
         <div className="navlist">
           <button className="navitem" aria-current={view === 'dashboard' ? 'page' : undefined} onClick={() => onNavigate('dashboard')}>
             <Icon id="i-dash" />
-            仪表盘
+            <span className="navtxt">个人数据</span>
+            <span className="navlabel">
+              个人数据
+              <small>CF · AT · XCPC 三源</small>
+            </span>
           </button>
           <button className="navitem navitem--locked" aria-current={view === 'master' ? 'page' : undefined} onClick={() => onNavigate('master')}>
             <Icon id="i-map" />
-            掌握图
+            <span className="navtxt">工坊</span>
             <Icon id="i-lock" className="lock" />
+            <span className="navlabel">
+              工坊
+              <small>切片 5 · 未解锁</small>
+            </span>
           </button>
-          <button className="navitem navitem--locked" aria-current={view === 'vp' ? 'page' : undefined} onClick={() => onNavigate('vp')}>
-            <Icon id="i-vp" />
-            VP
-            <Icon id="i-lock" className="lock" />
+          <button className="navitem" aria-current={view === 'arena' ? 'page' : undefined} onClick={() => onNavigate('arena')}>
+            <Icon id="i-board" />
+            <span className="navtxt">模拟榜单</span>
+            <span className="navlabel">
+              模拟榜单
+              <small>目录 + 回放</small>
+            </span>
           </button>
           <button className="navitem" aria-current={view === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}>
             <Icon id="i-cog" />
-            设置
+            <span className="navtxt">设置</span>
+            <span className="navlabel">设置</span>
           </button>
         </div>
         <div className="navfoot">
-          {isXcpc ? (
-            claimed ? (
-              <>
-                <b className="num">{fmtInt(xcpc?.player.contests ?? 0)}</b> 场参赛 ·{' '}
-                <b className="num">{xcpc === null ? '—' : medalTotal(medalRows(xcpc.player.medals))}</b> 枚奖牌
-                <br />
-                源 <code>heimaom</code> 社区快照
-                <br />
-                数据版本 <code>{snapshotDate(x?.snapshotAt ?? null)}</code>
-              </>
+          <div className="navfoot__full">
+            {isXcpc ? (
+              claimed ? (
+                <>
+                  <b className="num">{fmtInt(xcpc?.player.contests ?? 0)}</b> 场参赛 ·{' '}
+                  <b className="num">{xcpc === null ? '—' : medalTotal(medalRows(xcpc.player.medals))}</b> 枚奖牌
+                  <br />
+                  源 <code>heimaom</code> 社区快照
+                  <br />
+                  数据版本 <code>{snapshotDate(x?.snapshotAt ?? null)}</code>
+                </>
+              ) : (
+                <>
+                  未认领档案
+                  <br />
+                  源 <code>heimaom</code> 社区快照
+                  <br />
+                  口径 <code>official</code>
+                </>
+              )
             ) : (
               <>
-                未认领档案
+                <b className="num">{src ? fmtInt(src.counts.submissions) : '—'}</b> 条提交 ·{' '}
+                <b className="num">{src ? fmtInt(src.counts.problems) : '—'}</b> 题
                 <br />
-                源 <code>heimaom</code> 社区快照
+                本地 <code>vault/anvil.db</code>
                 <br />
-                口径 <code>official</code>
+                端口 <code>{window.location.port || '7788'}</code> · 不出网
               </>
-            )
-          ) : (
-            <>
-              <b className="num">{src ? fmtInt(src.counts.submissions) : '—'}</b> 条提交 ·{' '}
-              <b className="num">{src ? fmtInt(src.counts.problems) : '—'}</b> 题
-              <br />
-              本地 <code>vault/anvil.db</code>
-              <br />
-              端口 <code>{window.location.port || '7788'}</code> · 不出网
-            </>
-          )}
+            )}
+          </div>
+          <div className="navfoot__rail">
+            <i className="dot" style={{ background: DOT[state] }} />
+            <b>{railCount}</b>
+            <span className="navlabel">
+              {isXcpc ? 'XCPC 档案' : `${SOURCE_NAME[source]} 读数`}
+              <small>{isXcpc ? (claimed ? '社区快照 · official 口径' : '未认领档案') : 'vault/anvil.db · 本地'}</small>
+            </span>
+          </div>
         </div>
+        <button
+          className="railbtn"
+          aria-label={rail ? '展开侧栏' : '收起侧栏'}
+          title={rail ? '展开侧栏' : '收起侧栏'}
+          aria-pressed={rail}
+          onClick={() => setRail(!rail)}
+        >
+          <svg viewBox="0 0 18 14" aria-hidden="true">
+            <rect className="rb-out" x=".9" y=".9" width="16.2" height="12.2" rx="3.2" />
+            <rect className="rb-bar" x="3.4" y="3.5" width="4" height="7" rx="1.4" />
+          </svg>
+        </button>
       </aside>
 
       <div className="main">
-        <div className="topbar">
+        {bare ? null : (
+          <div className="topbar">
           <h2>{TITLES[view]}</h2>
           {isXcpc ? (
             claimed ? (
@@ -193,7 +235,8 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
               {busy && isXcpc ? '…' : null}
             </button>
           ) : null}
-        </div>
+          </div>
+        )}
         {tabs}
         {children}
       </div>
