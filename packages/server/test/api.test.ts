@@ -16,7 +16,9 @@ import type { CheckResult, SyncSource } from '../src/sync/source.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
 import { initSnapshot } from '../src/sync/runner.ts';
 
-const NOW = Math.floor(Date.UTC(2026, 9, 4, 4) / 1000);
+// 这几条断言走 /api/status（buildStatus 默认 now = 真实时钟）：种子数据的「上次同步」必须跟着
+// 现在走 —— 钉成常量 = 日历炸弹，三天后 ok 断言整片自坏（2026-10-09 实测到期）
+const NOW = Math.floor(Date.now() / 1000);
 const subRow = (id: number, key: string) => ({
   id,
   contestId: null,
