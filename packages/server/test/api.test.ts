@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
 import type { SyncStateDto } from '@anvil/shared';
 import { STALE_AFTER_SECONDS, registerApi } from '../src/api.ts';
+import { ArenaClient } from '../src/arena.ts';
 import {
   handleMetaKey,
   initSchema,
@@ -110,6 +113,8 @@ async function boot(opts: {
       },
       client: new XcpcClient({ fetchImpl: offlineFetch }),
     },
+    // arena 只在这几条路由测试里才真的取数；其余用例注入离网客户端，永不触网
+    arena: new ArenaClient({ fetchImpl: offlineFetch, dir: join(tmpdir(), 'anvil-arena-api-test') }),
   });
   // 与 index.ts 一样：进程起来先把两源快照对齐到库里的读数
   initSnapshot(db);

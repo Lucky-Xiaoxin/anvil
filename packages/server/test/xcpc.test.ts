@@ -4,11 +4,14 @@
  * 一条真实的 official:false 打星行。
  */
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
 import { countSubmissions, getSyncState, initSchema, loadXcpcPlayer, syncKey, upsertRatingHistory } from '../src/db.ts';
 import { registerApi } from '../src/api.ts';
+import { ArenaClient } from '../src/arena.ts';
 import {
   MISSING_IN_SNAPSHOT,
   XCPC_STALE_AFTER_DAYS,
@@ -608,6 +611,7 @@ describe('XCPC 路由（docs/14 §4）', () => {
       getHandles: () => ({ cf: '', at: '' }),
       setHandles: () => {},
       xcpc: { db, getKey: s.getKey, setKey: s.setKey, client: m.client },
+      arena: new ArenaClient({ fetchImpl: async () => { throw new Error('本文件不测 arena'); }, dir: join(tmpdir(), 'anvil-arena-xcpc-test') }),
     });
     await app.ready();
     // 认领态必须真的落一行：只写 config 标记不建行，状态判定会退回未认领

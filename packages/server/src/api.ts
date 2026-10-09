@@ -1,4 +1,5 @@
 import {
+  arenaContestQuerySchema,
   configBodySchema,
   dashboardQuerySchema,
   syncBodySchema,
@@ -11,6 +12,7 @@ import {
 } from '@anvil/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { ArenaError, type ArenaClient } from './arena.ts';
 import {
   countDistinctOkProblems,
   countSubmissions,
@@ -31,6 +33,8 @@ export interface ApiContext {
   setHandles: (patch: { cfHandle?: string; atHandle?: string }) => void;
   /** XCPC 不跑 /api/sync runner：认领态在 config、档案在 xcpc_players，取数客户端可注入便于测 */
   xcpc: XcpcStore & { client: XcpcClient };
+  /** 模拟榜单只走文件缓存、不进 anvil.db（docs/16 §3），客户端同样可注入 */
+  arena: ArenaClient;
 }
 
 const LABEL: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
@@ -92,6 +96,15 @@ function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
     return reply.code(code).send({ error: { kind: err.kind, message: err.message } });
   }
   return reply.code(502).send({ error: { kind: 'unavailable', message: `拉取失败：${String(err)}` } });
+}
+
+/** arena 的错误分派：路径非法 400，取不到且无缓存 502（docs/16 §2.2） */
+function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
+  if (err instanceof ArenaError) {
+    const code = err.kind === 'invalid' ? 400 : 502;
+    return reply.code(code).send({ error: { kind: err.kind, message: err.message } });
+  }
+  return reply.code(502).send({ error: { kind: 'unavailable', message: `取不到：${String(err)}` } });
 }
 
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
@@ -192,6 +205,29 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
       return await refreshXcpc(ctx.xcpc, ctx.xcpc.client);
     } catch (err) {
       return sendXcpcError(reply, err);
+    }
+  });
+
+  /* ---- 模拟榜单（docs/16 §2.2）：目录与单场都经服务端代理 + vault/arena/ 文件缓存 ---- */
+
+  app.get('/api/arena/catalog', async (request, reply) => {
+    const refresh = (request.query as { refresh?: string }).refresh === '1';
+    try {
+      return await ctx.arena.catalog(refresh);
+    } catch (err) {
+      return sendArenaError(reply, err);
+    }
+  });
+
+  app.get('/api/arena/contest', async (request, reply) => {
+    const parsed = arenaContestQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { kind: 'invalid', message: '缺少榜单路径' } });
+    }
+    try {
+      return await ctx.arena.contest(parsed.data.path, parsed.data.refresh === '1');
+    } catch (err) {
+      return sendArenaError(reply, err);
     }
   });
 

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import Fastify from 'fastify';
+import { ArenaClient } from './arena.ts';
 import { dbFile, loadConfig, portOf, saveHandles, saveXcpcPlayerKey, webDistDir } from './config.ts';
 import { openDatabase } from './db.ts';
 import { registerApi } from './api.ts';
@@ -32,6 +33,7 @@ registerApi(app, {
     setKey: (key) => saveXcpcPlayerKey(key),
     client: new XcpcClient(),
   },
+  arena: new ArenaClient(),
 });
 // `npm run dev` 会把这个置 0：开发时前端走 Vite(5173) + 代理，别再让 7788 顺带发一份
 // 可能已经过期的 packages/web/dist —— 否则很容易对着旧 bundle 调 bug
