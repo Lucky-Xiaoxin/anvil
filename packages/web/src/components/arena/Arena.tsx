@@ -11,7 +11,12 @@ import type { LeafRow } from './catalog.ts';
 
 const store = typeof window === 'undefined' ? null : window.localStorage;
 
-export function Arena() {
+interface Props {
+  /** 目录场次往上报一层：侧栏页脚在 arena 语境要报这个数，而壳自己拉不到目录 */
+  onCount: (n: number) => void;
+}
+
+export function Arena({ onCount }: Props) {
   const [open, setOpen] = useState<{ row: LeafRow; live: boolean } | null>(null);
   /** 离开回放屏就 +1：目录的「回放中」标记要立刻反映会话变化 */
   const [epoch, setEpoch] = useState(0);
@@ -23,6 +28,6 @@ export function Arena() {
   }, []);
 
   if (store === null) return null;
-  if (open === null) return <ArenaCatalog store={store} onEnter={enter} sessionEpoch={epoch} />;
+  if (open === null) return <ArenaCatalog store={store} onEnter={enter} sessionEpoch={epoch} onCount={onCount} />;
   return <ArenaBoard key={open.row.path} row={open.row} live={open.live} store={store} onBack={back} />;
 }

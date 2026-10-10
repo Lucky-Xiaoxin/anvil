@@ -27,12 +27,14 @@ interface Props {
   onEnter: (row: LeafRow, live: boolean) => void;
   /** 会话表版本号：从回放屏退回目录时 +1，让「回放中」标记立刻更新 */
   sessionEpoch: number;
+  /** 目录总场次报给壳层（侧栏页脚）；拉失败不上报，页脚保持上一次的数 */
+  onCount: (n: number) => void;
 }
 
 const subLabel = (node: GroupNode): string =>
   node.kids.length > 0 ? (node.name === '省赛' ? '按省分组' : node.name === '校赛' ? '按学校' : '按年份') : '按场次';
 
-export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
+export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const [dto, setDto] = useState<ArenaCatalogDto | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -52,13 +54,14 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
       setDto(res);
       setState('ready');
       setError('');
+      onCount(res.total);
     } catch (err) {
       setError(messageOf(err));
       if (!refresh) setState('error');
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [onCount]);
 
   useEffect(() => {
     void fetchCatalog(false);

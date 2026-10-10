@@ -54,6 +54,8 @@ export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 认领成功后停在完成条上，等用户点「看档案」再切长卷 */
   const [claiming, setClaiming] = useState(false);
+  /** 目录场次：侧栏页脚在 arena 语境下报它；null = 还没拉到（页脚显 —） */
+  const [arenaCount, setArenaCount] = useState<number | null>(null);
 
   /** 真的挂在屏上的源；切换过程中它还是旧屏 */
   const [shown, setShown] = useState<SourceId>('cf');
@@ -275,7 +277,7 @@ export function App() {
       );
     }
     /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
-    if (view === 'arena') return <Arena />;
+    if (view === 'arena') return <Arena onCount={setArenaCount} />;
     if (view === 'settings') {
       const firstRun = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
       if (firstRun || status === null) {
@@ -396,6 +398,7 @@ export function App() {
       }}
       tabs={tabs}
       bare={view === 'arena'}
+      arenaCount={arenaCount}
     >
       {screen()}
     </AppShell>
