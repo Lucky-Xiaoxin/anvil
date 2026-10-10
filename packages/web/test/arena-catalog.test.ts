@@ -4,7 +4,19 @@
 import { describe, expect, it } from 'vitest';
 import type { ArenaCatalogNode } from '@anvil/shared';
 import { catalogHeadline, flattenLeaves, leafRowOf, searchLeaves, tierOf, toGroupNode } from '../src/components/arena/catalog.ts';
-import { clearSession, loadRail, loadSession, listSessionPaths, saveRail, saveSession, type Store } from '../src/components/arena/session.ts';
+import {
+  clearSession,
+  loadOpenGroups,
+  loadRail,
+  loadScrollTop,
+  loadSession,
+  listSessionPaths,
+  saveOpenGroups,
+  saveRail,
+  saveScrollTop,
+  saveSession,
+  type Store,
+} from '../src/components/arena/session.ts';
 
 /** 内存版 localStorage：带 key()/length，够走「枚举进行中场次」那条路 */
 function memoryStore(): Store & { map: Map<string, string> } {
@@ -156,5 +168,52 @@ describe('会话与轨道状态存储', () => {
     expect(loadRail(s)).toBe(false);
     s.setItem('arena:rail', 'yes');
     expect(loadRail(s)).toBe(false);
+  });
+});
+
+describe('目录收放与停留位置存储', () => {
+  it('没存过 → 空集合（默认全收起，连顶层五类也不自动展开）', () => {
+    const s = memoryStore();
+    expect(loadOpenGroups(s).size).toBe(0);
+  });
+
+  it('存展开的组键集合，回读逐键相等；重复键自然并掉', () => {
+    const s = memoryStore();
+    saveOpenGroups(s, new Set(['ICPC', 'ICPC / ICPC 2025 (50th)', 'ICPC']));
+    expect([...loadOpenGroups(s)]).toEqual(['ICPC', 'ICPC / ICPC 2025 (50th)']);
+    expect(s.getItem('arena:tree')).toBe('["ICPC","ICPC / ICPC 2025 (50th)"]');
+  });
+
+  it('坏 JSON / 不是数组 / 混进非字符串 → 各自退回能读的部分，不抛', () => {
+    const s = memoryStore();
+    s.setItem('arena:tree', '[ "ICPC", 7, null, "省赛" ]');
+    expect([...loadOpenGroups(s)]).toEqual(['ICPC', '省赛']);
+    s.setItem('arena:tree', '{ "ICPC": true }');
+    expect(loadOpenGroups(s).size).toBe(0);
+    s.setItem('arena:tree', '半截');
+    expect(loadOpenGroups(s).size).toBe(0);
+  });
+
+  it('滚动位置：正数四舍五入回读，坏值 / 负数当 0', () => {
+    const s = memoryStore();
+    expect(loadScrollTop(s)).toBe(0);
+    saveScrollTop(s, 1234.6);
+    expect(loadScrollTop(s)).toBe(1235);
+    s.setItem('arena:tree-scroll', 'NaN');
+    expect(loadScrollTop(s)).toBe(0);
+    s.setItem('arena:tree-scroll', '-40');
+    expect(loadScrollTop(s)).toBe(0);
+  });
+
+  it('存储抛错时静默降级：读回默认、写不进去也不炸', () => {
+    const angry = {
+      getItem: () => { throw new Error('SecurityError'); },
+      setItem: () => { throw new Error('QuotaExceeded'); },
+      removeItem: () => { throw new Error('SecurityError'); },
+    };
+    expect(loadOpenGroups(angry).size).toBe(0);
+    expect(loadScrollTop(angry)).toBe(0);
+    expect(() => saveOpenGroups(angry, new Set(['ICPC']))).not.toThrow();
+    expect(() => saveScrollTop(angry, 10)).not.toThrow();
   });
 });

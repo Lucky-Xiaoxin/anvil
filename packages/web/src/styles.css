@@ -1213,39 +1213,35 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
 
-/* ---------- 22. 列头四档（2026-10-09 修订：区分度 + 语义 B） ---------- */
-/* 色只落在 2px 下缘带 + 极淡底：30px 轨宽铺满会压过奖牌带与格子读数 */
+/* ---------- 22. 列头五档（r3：整格淡底承载状态） ---------- */
+/* 原先的 2px 下缘带画在 bottom:2，正好穿过 9px 的过题数那一行；
+   改为五档统一用整格底色（两档斜纹本来就是这个语言），文字浮在底色之上，不再有重叠面 */
 .ph{position:relative}
 .ph.is-quiet b{color:var(--text-mute);opacity:.45}
 .ph.is-quiet i{color:#2C3542}
+.ph.is-noone::before,.ph.is-any::before,.ph.is-pending::before,.ph.is-late::before{
+  content:"";position:absolute;inset:-3px -2px -2px;border-radius:3px;
+}
+.ph.is-noone::before{background:rgba(248,81,73,.11)}
 .ph.is-noone b{color:var(--bad)}
-/* 待定：段内有活动、结果未公开 —— 斜纹灰，与格子的 ?n 同一语言（不铺颜色，避免和"交而没过"混） */
+.ph.is-noone i{color:rgba(248,81,73,.72)}
+.ph.is-any::before{background:rgba(63,185,80,.09)}
+.ph.is-any b{color:var(--ok)}
+.ph.is-any i{color:rgba(63,185,80,.75)}
+/* 待定：段内有活动、结果未公开 —— 斜纹灰，与格子的 ?n 同一语言（不上颜色，避免和"交而没过"混） */
+.ph.is-pending::before{background:repeating-linear-gradient(135deg,rgba(148,160,180,.2) 0 3px,rgba(148,160,180,.04) 3px 6px)}
 .ph.is-pending b{color:var(--text-dim)}
 .ph.is-pending i{color:var(--text-mute)}
-.ph.is-pending::before{
-  content:"";position:absolute;inset:0;border-radius:3px;
-  background:repeating-linear-gradient(135deg,rgba(148,160,180,.14) 0 3px,rgba(148,160,180,.02) 3px 6px);
-}
-.ph.is-pending::after{content:"";position:absolute;left:4px;right:4px;bottom:2px;height:2px;border-radius:1px;background:rgba(148,160,180,.4)}
-.ph.is-noone i{color:rgba(248,81,73,.62)}
-.ph.is-noone::after{content:"";position:absolute;left:4px;right:4px;bottom:2px;height:2px;border-radius:1px;background:rgba(248,81,73,.55)}
-.ph.is-any b{color:var(--ok)}
-.ph.is-any i{color:rgba(63,185,80,.7)}
-.ph.is-any::after{content:"";position:absolute;left:4px;right:4px;bottom:2px;height:2px;border-radius:1px;background:rgba(63,185,80,.5)}
 /* 封榜后才解开：暗一档的黄（--warn 系，不用主色 --accent，避免被读成模块识别色）+ 斜纹 */
+.ph.is-late::before{background:repeating-linear-gradient(135deg,rgba(210,153,34,.22) 0 3px,rgba(210,153,34,.05) 3px 6px)}
 .ph.is-late b{color:#E3B96A}
-.ph.is-late i{color:rgba(210,153,34,.85)}
-.ph.is-late::before{
-  content:"";position:absolute;inset:0;border-radius:3px;
-  background:repeating-linear-gradient(135deg,rgba(210,153,34,.17) 0 3px,rgba(210,153,34,.03) 3px 6px);
-}
-.ph.is-late::after{content:"";position:absolute;left:4px;right:4px;bottom:2px;height:2px;border-radius:1px;background:rgba(210,153,34,.75)}
+.ph.is-late i{color:rgba(210,153,34,.9)}
 .ph > b,.ph > i{position:relative}
-.phk{width:16px;height:10px;border-radius:2px;position:relative;background:rgba(255,255,255,.018);border:1px solid var(--line-soft)}
-.phk.is-noone{border-color:rgba(248,81,73,.3);box-shadow:inset 0 -2px 0 rgba(248,81,73,.55)}
-.phk.is-pending{border-color:rgba(148,160,180,.34);box-shadow:inset 0 -2px 0 rgba(148,160,180,.4);background:repeating-linear-gradient(135deg,rgba(148,160,180,.16) 0 3px,rgba(148,160,180,.03) 3px 6px)}
-.phk.is-any{border-color:rgba(63,185,80,.28);box-shadow:inset 0 -2px 0 rgba(63,185,80,.5)}
-.phk.is-late{border-color:rgba(210,153,34,.4);box-shadow:inset 0 -2px 0 rgba(210,153,34,.75);background:repeating-linear-gradient(135deg,rgba(210,153,34,.2) 0 3px,rgba(210,153,34,.04) 3px 6px)}
+.phk{width:16px;height:12px;border-radius:3px;position:relative;background:rgba(255,255,255,.018);border:1px solid var(--line-soft)}
+.phk.is-noone{border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.13)}
+.phk.is-any{border-color:rgba(63,185,80,.28);background:rgba(63,185,80,.11)}
+.phk.is-pending{border-color:rgba(148,160,180,.34);background:repeating-linear-gradient(135deg,rgba(148,160,180,.22) 0 3px,rgba(148,160,180,.05) 3px 6px)}
+.phk.is-late{border-color:rgba(210,153,34,.4);background:repeating-linear-gradient(135deg,rgba(210,153,34,.24) 0 3px,rgba(210,153,34,.06) 3px 6px)}
 .key--head{padding-right:14px;margin-right:14px;border-right:1px solid var(--line-soft)}
 
 /* ---------- 23. 目录层级区分度（2026-10-09 修订） ---------- */

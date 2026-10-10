@@ -4,14 +4,22 @@
  * 诚实标注两处照 §2.3 原样：顶栏「目录 N 场 · 榜单来自官方快照」、卡底「来源 algoux/srk-collection
  * （社区快照）· 回放的是已打完的比赛」。
  */
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArenaCatalogDto } from '@anvil/shared';
 import { getArenaCatalog } from '../../api.ts';
 import { clockHMS, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNode, type LeafRow } from './catalog.ts';
 import { elapsedOf } from './engine.ts';
-import { loadSession, listSessionPaths, type Store } from './session.ts';
+import {
+  loadOpenGroups,
+  loadScrollTop,
+  loadSession,
+  listSessionPaths,
+  saveOpenGroups,
+  saveScrollTop,
+  type Store,
+} from './session.ts';
 
 interface Props {
   store: Store;
@@ -29,9 +37,12 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+  /** 展开中的组键集合；落 localStorage，默认空 = 连顶层五类也收起（刷新 / 从回放退回都回到原位） */
+  const [open, setOpen] = useState<Set<string>>(() => loadOpenGroups(store));
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
+  const scrollBox = useRef<HTMLDivElement | null>(null);
+  const timer = useRef(0);
 
   const fetchCatalog = useCallback(async (refresh: boolean): Promise<void> => {
     if (refresh) setBusy(true);
@@ -76,7 +87,36 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
   const hits = useMemo(() => (q.trim() === '' ? [] : searchLeaves(leaves, q)), [leaves, q]);
   const total = dto?.total ?? 0;
 
-  const toggle = (key: string): void => setOpen((o) => ({ ...o, [key]: !o[key] }));
+  const toggle = (key: string): void =>
+    setOpen((o) => {
+      const next = new Set(o);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveOpenGroups(store, next);
+      return next;
+    });
+
+  /* 停留位置：目录到手、树按恢复出的展开态画完之后，才把滚动位置压回去 */
+  useEffect(() => {
+    if (state !== 'ready') return;
+    const el = scrollBox.current;
+    if (el === null) return;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = loadScrollTop(store);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [state, store]);
+
+  /** 搜索态是平铺结果，那一屏的位置不配当"目录停在哪儿"；防抖 150ms，不每帧写一次存储 */
+  const onScroll = useCallback((): void => {
+    if (q.trim() !== '') return;
+    const el = scrollBox.current;
+    if (el === null) return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => saveScrollTop(store, el.scrollTop), 150);
+  }, [q, store]);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const headline = state === 'loading' ? '目录加载中' : state === 'error' ? '目录不可达' : catalogHeadline(total);
 
@@ -100,7 +140,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch }: Props) {
         </button>
       </div>
 
-      <div className="content">
+      <div className="content" ref={scrollBox} onScroll={onScroll}>
         <div className="catwrap">
           <div className="srchline">
             <div className="search">
@@ -232,7 +272,7 @@ function Found({ hits, q, sessions, onEnter }: { hits: LeafRow[]; q: string; ses
 interface GroupProps {
   node: GroupNode;
   depth: number;
-  openState: Record<string, boolean>;
+  openState: Set<string>;
   toggle: (key: string) => void;
   sessions: Map<string, { elapsed: number; paused: boolean }>;
   onEnter: Props['onEnter'];
@@ -243,8 +283,8 @@ interface GroupProps {
 /** 分组行：顶层是 `.cgrp`，下层是 `.cyear`；展开态按「类目名 → 组名」这条链记，不写进存储 */
 const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, top = false, chain = '' }: GroupProps) {
   const key = chain === '' ? node.name : `${chain} / ${node.name}`;
-  // 顶层五类默认展开，往下一律折起：394 行全摊开等于没有目录
-  const open = openState[key] ?? depth === 0;
+  // 一律折起（含顶层五类）：394 行全摊开等于没有目录；展开过的那一层由 arena:tree 记着
+  const open = openState.has(key);
   const count = node.count;
 
   const head = top ? (
