@@ -11,7 +11,9 @@
    v6 修订（用户验收反馈）：
      ① 榜体放大并填满内容区 —— 题列 30→36、行高 32→36、列头 46→50、
         去掉 1030 收口（余量全归 Org/Team，题列不再是最小的一档）；
-     ② 侧栏页脚按模块语境化 —— 个人数据 = 源读数 / 模拟榜单 = 榜单缓存 / 设置·工坊 = 本地信息。
+     ② 侧栏页脚按模块语境化 —— 个人数据 = 源读数 / 模拟榜单 = 榜单缓存 / 设置·工坊 = 本地信息；
+     ③ 列头五档整格淡底回迁（r2/r3 已交付样式，附榜脚五档图例与 s4 样张）；
+     ④ 行级 content-visibility —— 收放侧栏卡顿修复的预览（与实现批次同一味药）。
    基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
      tokens / 组件 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
    契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
@@ -575,6 +577,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .bhead .h-r,.bhead .h-s,.bhead .h-sol,.bhead .h-pen{justify-content:flex-end}
 .bhead .h-r,.bhead .h-s{justify-content:flex-start}
 .brow--body{border-bottom:1px solid var(--line-soft);transition:background-image var(--dur) var(--ease),background-color var(--dur) var(--ease)}
+/* v6：行级 content-visibility —— 收放侧栏时跳过屏外行的重排（卡顿修复预览，与实现批次同一味药） */
+.brow--body{content-visibility:auto;contain-intrinsic-size:auto var(--rowh)}
 .brow--body:last-child{border-bottom:none}
 .brow--body:hover{background-image:linear-gradient(rgba(255,255,255,.032),rgba(255,255,255,.032))}
 /* 奖牌行底：左缘一条色带 + 由左向右衰减的极淡底（按正式队名次，回放中实时滚出） */
@@ -605,11 +609,35 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .brow.is-star .c-sol b,.brow.is-star .c-pen b{color:var(--text-dim);font-weight:400}
 
 /* 列头：题号 + 该题过队数（悬停全名） */
-.ph{flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
+.ph{position:relative;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
 .ph b{font-family:var(--font-num);font-size:13px;font-weight:600;color:var(--text-dim);line-height:1}
 .ph i{font-family:var(--font-num);font-size:9.5px;font-style:normal;color:var(--text-mute);line-height:1}
 .ph:hover b{color:var(--accent)}
-.ph.is-zero b{color:var(--text-mute)}
+/* 列头五档（r3 已交付样式 · v6 回迁）：整格淡底承载状态，文字浮在底色之上，不用下缘带 */
+.ph.is-quiet b{color:var(--text-mute);opacity:.45}
+.ph.is-quiet i{color:#2C3542}
+.ph.is-noone::before,.ph.is-any::before,.ph.is-pending::before,.ph.is-late::before{
+  content:"";position:absolute;inset:-3px -2px -2px;border-radius:3px;
+}
+.ph.is-noone::before{background:rgba(248,81,73,.11)}
+.ph.is-noone b{color:var(--bad)}
+.ph.is-noone i{color:rgba(248,81,73,.72)}
+.ph.is-any::before{background:rgba(63,185,80,.09)}
+.ph.is-any b{color:var(--ok)}
+.ph.is-any i{color:rgba(63,185,80,.75)}
+.ph.is-pending::before{background:repeating-linear-gradient(135deg,rgba(148,160,180,.2) 0 3px,rgba(148,160,180,.04) 3px 6px)}
+.ph.is-pending b{color:var(--text-dim)}
+.ph.is-pending i{color:var(--text-mute)}
+.ph.is-late::before{background:repeating-linear-gradient(135deg,rgba(210,153,34,.22) 0 3px,rgba(210,153,34,.05) 3px 6px)}
+.ph.is-late b{color:#E3B96A}
+.ph.is-late i{color:rgba(210,153,34,.9)}
+.ph > b,.ph > i{position:relative}
+.phk{width:16px;height:12px;border-radius:3px;position:relative;background:rgba(255,255,255,.018);border:1px solid var(--line-soft)}
+.phk.is-noone{border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.13)}
+.phk.is-any{border-color:rgba(63,185,80,.28);background:rgba(63,185,80,.11)}
+.phk.is-pending{border-color:rgba(148,160,180,.34);background:repeating-linear-gradient(135deg,rgba(148,160,180,.22) 0 3px,rgba(148,160,180,.05) 3px 6px)}
+.phk.is-late{border-color:rgba(210,153,34,.4);background:repeating-linear-gradient(135deg,rgba(210,153,34,.24) 0 3px,rgba(210,153,34,.06) 3px 6px)}
+.key--head{padding-right:14px;margin-right:14px;border-right:1px solid var(--line-soft)}
 
 /* 题目格五态（必答 3）：大字 = 分钟，小字 = 次数 */
 .pcell{padding:0 2px;height:100%;display:grid;place-items:center}
@@ -1282,12 +1310,26 @@ function cellHTML(c,ti,p){
   return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+
          (c.post?'<i class="pcell__dot"></i>':'')+'</span></div>';
 }
+/* 列头五档（与 docs/16 §5.2 判定口径一致）：quiet 无人提交 / pending 待定 / noone 交而没过 / any 有人过 / late 封榜后才解开 */
+function headState(rows,p){
+  var anyCell=false, frz=false, ac=0, preAc=0;
+  rows.forEach(function(r){
+    var c=r.cells[p];
+    if(!c || c.st==="none") return;
+    anyCell=true;
+    if(c.st==="frz") frz=true;
+    else if(c.st==="ac"||c.st==="fb"){ ac++; if(!c.post) preAc++ }
+  });
+  if(!anyCell) return "quiet";
+  if(ac===0) return frz ? "pending" : "noone";
+  return preAc>0 ? "any" : "late";
+}
 function boardHTML(rows,col){
   var h='<div class="brow bhead"><div class="h-r">R#</div><div class="h-s">S#</div>'
     +'<div class="h-org">Organization</div><div class="h-team">Team</div>'
     +'<div class="h-sol">Slv</div><div class="h-pen">Pen</div>';
   for(var p=0;p<N;p++)
-    h+='<div class="ph'+(col[p].ac?"":" is-zero")+'" data-hp="'+p+'"><b>'+PROB[p].label+'</b><i>'+col[p].ac+'</i></div>';
+    h+='<div class="ph is-'+headState(rows,p)+'" data-hp="'+p+'"><b>'+PROB[p].label+'</b><i>'+col[p].ac+'</i></div>';
   h+='</div>';
   var body="";
   rows.forEach(function(r){
@@ -1532,7 +1574,14 @@ function paintBoard(o){
     if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
   }
   o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b></span>'
-    +'<span class="spacer"></span><span class="key">'
+    +'<span class="spacer"></span>'
+    +'<span class="key key--head">'
+    +'<span class="key__i"><i class="phk is-quiet"></i>无人提交</span>'
+    +'<span class="key__i"><i class="phk is-pending"></i>待定</span>'
+    +'<span class="key__i"><i class="phk is-noone"></i>交而没过</span>'
+    +'<span class="key__i"><i class="phk is-any"></i>有人过</span>'
+    +'<span class="key__i"><i class="phk is-late"></i>封榜后才解开</span>'
+    +'</span><span class="key">'
     +'<span class="key__i"><i class="key__s key__s--pen">−</i>罚时</span>'
     +'<span class="key__i"><i class="key__s key__s--ac">✓</i>AC</span>'
     +'<span class="key__i"><i class="key__s key__s--fb">✦</i>首杀</span>'
@@ -1861,6 +1910,20 @@ function renderTK(){
       +'冻结格 = 斜纹 + 虚线描边（与"罚时红""空"三者互斥）。<b>封榜后两格</b>只在终榜（或滑到终榜）出现：'
 +'底色与字色各退一档 + 右上角一枚圆点，读法是"这一格发生在封榜段，没有改变你看到的名次"；'
 +'若首杀恰好也在封榜后，则小字仍写 FB、底色同样退档（不再叠深绿，避免盖过定格结果）。</p></section>';
+
+  sect+='<section><h3>Problem head <span>列头五档（r3 已交付 · v6 回迁）：整格淡底承载状态，榜走到哪一刻就按哪一刻算</h3>'
+    +'<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end">'
+    +["quiet","pending","noone","any","late"].map(function(st,i){
+      var L="ABCDE".charAt(i), n=(st==="late"?1:(st==="any"?8:0));
+      var lab={quiet:"无人提交",pending:"待定 · 封榜段内有活动",noone:"交而没过",any:"有人过",late:"封榜后才解开"}[st];
+      return '<div style="text-align:center"><div class="brow" style="grid-template-columns:56px;min-height:var(--headh)">'
+        +'<div class="ph is-'+st+'"><b>'+L+'</b><i>'+n+'</i></div></div>'
+        +'<div class="state__n" style="margin-top:6px">'+lab+'</div></div>';
+    }).join("")
+    +'</div>'
+    +'<p class="hint" style="margin-top:10px">五档 = <code>quiet</code> 无人提交 / <code>pending</code> 待定（封榜段内有活动、结果未定 —— 不与「交而没过」混档）/ '
+    +'<code>noone</code> 交而没过 / <code>any</code> 有人过 / <code>late</code> 封榜后才解开（该题<b>所有</b>过题都在封榜后）。'
+    +'淡底透明度压在 .09–.11 不抢奖牌带；封榜后才解开用 warn 家族暗一档的黄（<code>#E3B96A</code>），不用主色琥珀；榜脚五档图例同款底色。</p></section>';
 
   sect+='<section><h3>Medal band <span>行底三色带 + 打星行 · 按正式队名次 1–30 / 31–60 / 61–90</h3>'
     +'<div class="boardwrap boardwrap--demo"><div>'+boardHTML(rows.slice(0,3).concat([rows[rows.length-1]]),col)+'</div></div>'
