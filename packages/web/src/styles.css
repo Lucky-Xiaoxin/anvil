@@ -996,6 +996,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .bhead .h-sol,.bhead .h-pen{justify-content:flex-end}
 .brow--body{border-bottom:1px solid var(--line-soft);transition:background-image var(--dur) var(--ease),background-color var(--dur) var(--ease)}
+/* 收放侧栏时跳过屏外行的重排：轨道补间每帧都要重算榜体，行级 content-visibility 把成本压回屏内行数（mock-04 v6.1 同味药） */
+.brow--body{content-visibility:auto;contain-intrinsic-size:auto var(--rowh)}
 .brow--body:last-child{border-bottom:none}
 .brow--body:hover{background-image:linear-gradient(rgba(255,255,255,.032),rgba(255,255,255,.032))}
 /* 奖牌行底：左缘一条色带 + 由左向右衰减的极淡底（按正式队名次，回放中实时滚出） */

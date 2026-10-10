@@ -202,15 +202,16 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [pop]);
 
-  const openCellPop = (ev: React.MouseEvent, ti: number, p: number): void => {
+  /* 两个弹层回调必须稳定：每秒走钟会重渲本组件，回调一旦新建就打穿下面 `CellView` / `BoardRowView` 的 memo */
+  const openCellPop = useCallback((ev: React.MouseEvent, ti: number, p: number): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     setPop({ kind: 'sub', ti, p, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
-  };
-  const openTeamPop = (ev: React.MouseEvent, ti: number): void => {
+  }, []);
+  const openTeamPop = useCallback((ev: React.MouseEvent, ti: number): void => {
     const r = (ev.currentTarget as HTMLElement).closest('.brow')?.getBoundingClientRect();
     if (r === undefined) return;
     setPop({ kind: 'team', ti, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
-  };
+  }, []);
 
   if (load.kind === 'error') {
     return (
@@ -628,7 +629,7 @@ interface RowProps {
   onTeam: (ev: React.MouseEvent, ti: number) => void;
 }
 
-function BoardRowView(props: RowProps) {
+const BoardRowView = memo(function BoardRowView(props: RowProps) {
   const { row, team, problems, model, onCell, onTeam } = props;
   const { show, hide } = useTip();
 
@@ -677,7 +678,7 @@ function BoardRowView(props: RowProps) {
       {cellNodes}
     </div>
   );
-}
+});
 
 const CellView = memo(function CellView({
   cell,
