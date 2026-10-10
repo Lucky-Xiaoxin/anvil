@@ -30,7 +30,11 @@ if not exist "packages\web\dist\index.html" (
 )
 
 echo [ANVIL] http://localhost:%PORT%
-call npm start || goto fail
+rem The server gets its own window and node runs in its foreground: no batch file is
+rem interrupting it, so Ctrl+C stops it without asking "Terminate batch job (Y/N)?".
+rem cmd /k keeps that window open so a crash stays readable. This line mirrors the
+rem "start" script in package.json - change both if one changes.
+start "ANVIL %PORT%" cmd /k "node --disable-warning=ExperimentalWarning packages/server/src/index.ts"
 goto end
 
 :open

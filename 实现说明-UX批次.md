@@ -132,7 +132,7 @@
 
 ### 4.2 `start.bat`（改）+ `stop.bat`（新增）
 
-`start.bat`：起跑前用 `netstat -ano | findstr ":7788" | findstr "LISTENING"` 探端口（bat 内管道写成 `^|`），占用则打印占用者 PID 并用 `choice /c 123` 弹三选一；控制台文案全英文。顺手补上 `call npm start || goto fail`（原来这一行没兜错误，失败直接关窗）。
+`start.bat`：起跑前用 `netstat -ano | findstr ":7788" | findstr "LISTENING"` 探端口（bat 内管道写成 `^|`），占用则打印占用者 PID 并用 `choice /c 123` 弹三选一；控制台文案全英文。顺手补上 `call npm start || goto fail`（原来这一行没兜错误，失败直接关窗）——**这一处的形态已被 §4.3 取代**。
 `stop.bat`：找 7788 的 LISTENING PID → `taskkill /F`；没有则明说「not running」；两条路径结束前都 `pause`。
 
 自证（`cmd //c` 驱动、stdin 喂 `choice`，逐分支各走一次）：
@@ -146,6 +146,26 @@
 | `stop.bat`（在跑） | `stopping PID 34864 (port 7788) ...` → 成功终止，端口释放 |
 | `stop.bat`（没在跑） | `nothing is listening on port 7788 - ANVIL is not running.` → `pause` |
 
+### 4.3 追加一轮（用户验收反馈）· Ctrl+C 不再弹提示
+
+用户反馈：**「Ctrl+C 老弹提示好麻烦」**。根因不是退出码，是**批处理上下文**——服务原先由 `start.bat` 里的 `call npm start` 顶在前台，Ctrl+C 到达时 cmd 发现自己正压着一个 `.bat`，于是每次都问「终止批处理操作吗(Y/N)?」（而 `npm` 本身也是 `npm.cmd`，换汤不换药）。
+
+改法：服务**另起一个窗口**，那窗口的前台直接是 `node`，`start.bat` 交棒后即退出。
+
+```bat
+start "ANVIL %PORT%" cmd /k "node --disable-warning=ExperimentalWarning packages/server/src/index.ts"
+```
+
+| 点 | 说明 |
+|---|---|
+| 为什么不再问 Y/N | 新窗口跑的是 `cmd /k <一条命令行>`，不是 `.bat`；前台进程 = `node.exe`，Ctrl+C 直达它，`index.ts` 的 SIGINT 钩子 `shutdown()` → `process.exit(0)` 干净收摊 |
+| 为什么仍不丢日志 | `cmd /k` 让窗口停在退出后的状态，崩了看得见（把原清单「失败即关窗」的顾虑一并解决，且比 `startup failed` + `pause` 更有信息量） |
+| 与 `npm start` 的耦合 | 这一行与 `package.json` 的 `start` 脚本同义，bat 里已用注释点名「改那边记得改这里」；不写成 `npm start` 正是因为 `npm.cmd` 是批处理，会把 Y/N 提示带回来 |
+| `|| goto fail` | 服务这一行不再需要（`fail` 分支仍留给 install/build 与 taskkill） |
+
+实测：端口空闲跑 `start.bat` → 打印 `[ANVIL] http://localhost:7788`、独立窗口内服务起来（PID 44620 · 首页 **200**）、启动器窗口交棒后即退出；`stop.bat` 照旧按端口 PID 收掉（`port free`）。**那一下真 Ctrl+C 由用户侧确认**（本会话的桌面操作被权限层拦下，无法代跑）。
+
+
 ---
 
 ## 5. 已知问题与偏差
@@ -153,13 +173,13 @@
 1. **Org / Team 比清单约数高 4–5px**（1280 展开实测 162/182，清单写 ≈158/≈177）。这两列是 `1fr : 1.12fr` 的解析结果，公式值就是 163.2/182.8；清单数字是向下取整的近似，不是实现差。
 2. **无头帧数字不等于真机观感**：headless 的 rAF 不受 60Hz 约束（本轮中位帧 6ms ≈ 160fps），所以表里给的是**同机同法的前后对比**，绝对值比真机乐观；相对降幅（最坏帧 −56%、p95 −67%、静置尖峰 −50%）才是结论。真机 GPU 光栅下收放本就比无头软件光栅更轻。
 3. **`content-visibility` 让布局次数从 90 涨到 276**：总时长下降（914→686ms）、单次均耗降到 1/4，属该药预期形状；若日后有人按「布局次数」做回归阈值会误报。
-4. **`call npm start || goto fail` 的副作用**：用 Ctrl+C 正常停服务时 `npm` 退出码非 0，会走 fail 分支打印 `startup failed` 并 `pause`，看起来像失败。这是清单指定要补的兜法，代价如实记在这里；关窗退出（正常用法）不受影响。
+4. **~~`call npm start || goto fail` 的副作用~~ → 已由 §4.3 解决**：我原先把弹提示归因成「Ctrl+C 时 npm 退出码非 0 走了 fail 分支」，**归因错了**——真凶是 cmd 的「终止批处理操作吗(Y/N)?」，只要 Ctrl+C 落在一个正压着 `.bat` 的前台上就会出现，与退出码无关（`npm` 自己是 `npm.cmd`，也属于批处理）。服务改为独立窗口 + 前台直跑 node 后，这条不再有。
 5. **bat 控制台里的中文乱码不是本批引入**：`taskkill` / `pause` 的系统文案在 GBK 代码页下输出乱码（Git Bash 里看更是字节垃圾），我们自己的文案保持纯 ASCII。
 6. **飞屏整段实测 746ms vs 参数算出 742ms**：无头 `setTimeout` 交接抖动 ~4ms（in 段起步比标称晚 29ms 同因）。口径以参数计算值 695/742 为准。
 7. **`arenaCount` 的 `null → —` 分支未做端到端实测**：要造「目录拉取失败」才走得到（需断上游）。代码路径与个人数据页脚未知计数的既有做法一致（`—`），失败时不动旧值。
 8. **1440 收起态 Org/Team 到 315/353**：清单里「≥1600 的 Org·Team 上限」属不做项，未加上限；超宽屏下学校/队名列会更宽。
 9. **`docs/18` 未列但必须连带的两处**：`fly.test.ts` 断言数字同步（否则 334 转红）；`switcher.ts` 与 `App.tsx` 注释里「整段 1390/1484ms」的口径同步。
-10. 未合并分支、未 push、未改 `docs/` 与 `design/mock-*`、未碰 `vault/`、未新增依赖。自起的服务与无头实例收尾已全部关闭。
+10. 未合并分支、未 push、未改 `docs/` 与 `design/mock-*`、未碰 `vault/`、未新增依赖。自起的服务与无头实例收尾已全部关闭。**§4.3 的那一下真 Ctrl+C 待用户实机确认**（桌面操作在本会话被权限层拦下，无法代跑）。
 
 ---
 
@@ -184,4 +204,5 @@
 | `addd0ab` | 任务三 · 收放与走钟卡顿修复（含前后帧数字） |
 | `52c6026` | 任务二 · 侧栏页脚按模块语境化 |
 | `a2a10c4` | 任务四 · 飞屏提速 + start/stop.bat |
-| 本次 | 证据图 12 张 + 本说明 |
+| `bb895bc` | 证据图 12 张 + 本说明 |
+| 本次 | §4.3 · 服务改独立窗口（Ctrl+C 不再弹「终止批处理操作吗」） |
