@@ -47,3 +47,9 @@ export const cfEnvelopeSchema = z.object({
 });
 
 export type VaultConfig = z.infer<typeof vaultConfigSchema>;
+
+/** 单场榜单查询：路径原样交给服务端白名单（docs/16 §2.1），这里只挡长度 */
+export const arenaContestQuerySchema = z.object({
+  path: z.string().min(1, '缺少榜单路径').max(300, '路径太长'),
+  refresh: z.union([z.literal('0'), z.literal('1')]).default('0'),
+});

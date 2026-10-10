@@ -18,7 +18,7 @@ export function LockedMaster({ wide = false }: { wide?: boolean }) {
       <Icon id={wide ? 'i-lock' : 'i-map'} style={wide ? { width: 24, height: 24 } : undefined} />
       <div>
         <div className="locked__t" style={wide ? { fontSize: 15 } : undefined}>
-          掌握图 <span className="tag">{wide ? '切片 3' : '未解锁'}</span>
+          工坊 <span className="tag">{wide ? '切片 5' : '未解锁'}</span>
         </div>
         <p className="locked__p">
           {wide ? (
@@ -29,30 +29,7 @@ export function LockedMaster({ wide = false }: { wide?: boolean }) {
             <>把你做过的题铺成一张<em>技能图</em>。</>
           )}
         </p>
-        {wide ? null : <div className="locked__go">切片 3</div>}
-      </div>
-    </div>
-  );
-}
-
-export function LockedVp({ wide = false }: { wide?: boolean }) {
-  return (
-    <div className="locked rise" style={wide ? { padding: 'var(--sp-3)' } : undefined}>
-      <Icon id={wide ? 'i-lock' : 'i-vp'} style={wide ? { width: 24, height: 24 } : undefined} />
-      <div>
-        <div className="locked__t" style={wide ? { fontSize: 15 } : undefined}>
-          VP <span className="tag">{wide ? '切片 4' : '未解锁'}</span>
-        </div>
-        <p className="locked__p">
-          {wide ? (
-            <>
-              拿一份历年榜单，把<b>当时真实的名次</b>叠回你这一场 —— 幽灵队伍、自动罚时、含打星排名。
-            </>
-          ) : (
-            <>拿一份历年榜单，把当时的真实名次<em>叠回你这一场</em>。</>
-          )}
-        </p>
-        {wide ? null : <div className="locked__go">切片 4</div>}
+        {wide ? null : <div className="locked__go">切片 5</div>}
       </div>
     </div>
   );
@@ -342,9 +319,9 @@ export function ColdStart({ source, dash, status, today, notice, onGoSettings }:
         </div>
       </div>
 
-      <div className="grid-4" style={{ gridTemplateColumns: 'repeat(2,minmax(0,1fr))' }}>
+      {/* 切片 4 已交付模拟榜单，这里只剩工坊一块未解锁 */}
+      <div className="grid-4" style={{ gridTemplateColumns: 'minmax(0,1fr)' }}>
         <LockedMaster wide />
-        <LockedVp wide />
       </div>
     </div>
   );

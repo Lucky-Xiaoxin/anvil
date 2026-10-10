@@ -252,3 +252,30 @@ export interface XcpcStatusDto {
   status: SourceState;
   error: string | null;
 }
+
+/* ---------- 模拟榜单（docs/16 §2.2）：目录经服务端代理 + vault/arena/ 缓存 ---------- */
+
+/** 目录树节点：叶子带 `path`，分组带 `children`；`count` = 该节点下的叶子数 */
+export interface ArenaCatalogNode {
+  name: string;
+  /** 官方相对路径（`official/….srk.json`），叶子才有 */
+  path?: string;
+  format?: string;
+  children?: ArenaCatalogNode[];
+  count?: number;
+}
+
+export interface ArenaCatalogDto {
+  /** 缓存文件 mtime（epoch 秒）；`刷新目录` 后即本次拉取时刻 */
+  fetchedAt: number;
+  total: number;
+  tree: ArenaCatalogNode[];
+}
+
+export interface ArenaContestDto {
+  fetchedAt: number;
+  /** true = 直接回磁盘缓存（离线可回放已缓存场次） */
+  fromCache: boolean;
+  /** srk.json 原样透传，服务端不做形状改写 */
+  data: unknown;
+}

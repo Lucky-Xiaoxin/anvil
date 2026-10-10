@@ -317,7 +317,7 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
             <div style={{ display: 'flex', gap: 'var(--sp-1)', marginTop: 'var(--sp-3)' }}>
               <button className="btn btn--primary btn--lg" onClick={onEnterDashboard}>
                 <Icon id="i-dash" />
-                进入仪表盘
+                进入个人数据
               </button>
               <button className="btn btn--lg" onClick={() => void run()}>
                 再同步一次
