@@ -6,11 +6,12 @@ import { prefersReduced } from './format.ts';
  * ⇒ 起步与完成时间都严格递增 —— 任意两张卡不会同时起步、也不会同时完成。
  */
 export const FLY = {
-  out: { dur: 360, step: 41, durStep: 9, ease: 'cubic-bezier(.65,0,.35,1)' },
-  in: { dur: 520, step: 30, durStep: 14, ease: 'cubic-bezier(.4,0,.2,1)' },
+  out: { dur: 180, step: 20, durStep: 5, ease: 'cubic-bezier(.65,0,.35,1)' },
+  in: { dur: 260, step: 15, durStep: 7, ease: 'cubic-bezier(.4,0,.2,1)' },
   /* 契约定档是 step 51/40 + handoff 80（整段 1530/1644ms）；
-     用户 2026-10-05 两轮微调：空档减半、两段起步间隔各再减 10ms → 整段 1390/1484ms */
-  handoff: 40,
+     用户 2026-10-05 两轮微调：空档减半、两段起步间隔各再减 10ms → 整段 1390/1484ms；
+     用户 2026-10-10（UX 批次）：两段时长再各砍一半、step 与 durStep 同步收 → 整段 695/742ms */
+  handoff: 20,
   rise: 72,
   scale: 4,
   /** 中线 ±3% 内算「中部」：跨行宽卡（格子图 / 曲线 / 降级条）走右侧 */
