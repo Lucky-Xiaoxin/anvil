@@ -20,7 +20,7 @@
 
 - `npm run dev` / `npm run build` / `npm start` / `npm test`；`start.bat` 为双击入口；服务端口 7788。
 - 运行时数据在 `vault/`（gitignore；提供 `vault.example/` 用于初始化）。
-- 视觉基线：`design/mock-01-dashboard.html`（切片 1，已冻结）+ `design/mock-02-three-ends.html`（切片 2，已冻结）+ `design/mock-03x-xcpc-explore.html`（切片 3，已定稿）+ `design/mock-04-simboard.html`（切片 4，已冻结：模拟榜单 + 侧栏收起态）；截图见 `design/_shots/`。
+- 视觉基线：`design/mock-01-dashboard.html`（切片 1，已冻结）+ `design/mock-02-three-ends.html`（切片 2，已冻结）+ `design/mock-03x-xcpc-explore.html`（切片 3，已定稿）+ `design/mock-04-simboard.html`（切片 4，已冻结；v6 修订 2026-10-10：榜体放大 / 页脚语境化 / 列头五档回迁）；截图见 `design/_shots/`。
 
 ## 仓库结构
 
