@@ -32,10 +32,12 @@ interface Props {
   tabs: ReactNode | null;
   /** 模拟榜单自带整条顶栏（计时 / 走带 / 封榜 pill），壳就不再补一条 */
   bare?: boolean;
+  /** 目录场次：页脚在 arena 语境下要说这件事，而它只有目录屏拉得到（null = 还没拉到） */
+  arenaCount: number | null;
   children: ReactNode;
 }
 
-export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, onSync, tabs, bare = false, children }: Props) {
+export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, onSync, tabs, bare = false, arenaCount, children }: Props) {
   const { show, hide } = useTip();
   const [rail, setRail] = useState(() => loadRail(window.localStorage));
   useEffect(() => saveRail(window.localStorage, rail), [rail]);
@@ -51,6 +53,9 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
   const days = snapshotDaysAgo(x?.snapshotAt ?? null);
   /** 收起态 navfoot 只留符号：一枚状态点 + 主计数（§1.2） */
   const railCount = isXcpc ? (claimed ? fmtInt(xcpc?.player.contests ?? 0) : '—') : src ? fmtInt(src.counts.submissions) : '—';
+  /** 页脚按模块语境化（mock-04 v6）：arena 报榜单缓存、settings / master 报全局本地信息 */
+  const port = window.location.port || '7788';
+  const arenaN = arenaCount === null ? '—' : fmtInt(arenaCount);
 
   return (
     <div className={`app${dash ? ` dash pf-${source}${isXcpc ? ' is-strong' : ''}` : ''}${rail ? ' is-rail' : ''}`}>
@@ -96,43 +101,78 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
         </div>
         <div className="navfoot">
           <div className="navfoot__full">
-            {isXcpc ? (
-              claimed ? (
-                <>
-                  <b className="num">{fmtInt(xcpc?.player.contests ?? 0)}</b> 场参赛 ·{' '}
-                  <b className="num">{xcpc === null ? '—' : medalTotal(medalRows(xcpc.player.medals))}</b> 枚奖牌
-                  <br />
-                  源 <code>heimaom</code> 社区快照
-                  <br />
-                  数据版本 <code>{snapshotDate(x?.snapshotAt ?? null)}</code>
-                </>
+            {view === 'arena' ? (
+              <>
+                目录 <b className="num">{arenaN}</b> 场 · 榜单本地缓存
+                <br />
+                源 <code>srk-collection</code> 社区快照
+                <br />
+                端口 <b className="num">{port}</b> · 不出网
+              </>
+            ) : view === 'dashboard' ? (
+              isXcpc ? (
+                claimed ? (
+                  <>
+                    <b className="num">{fmtInt(xcpc?.player.contests ?? 0)}</b> 场参赛 ·{' '}
+                    <b className="num">{xcpc === null ? '—' : medalTotal(medalRows(xcpc.player.medals))}</b> 枚奖牌
+                    <br />
+                    源 <code>heimaom</code> 社区快照
+                    <br />
+                    数据版本 <code>{snapshotDate(x?.snapshotAt ?? null)}</code>
+                  </>
+                ) : (
+                  <>
+                    未认领档案
+                    <br />
+                    源 <code>heimaom</code> 社区快照
+                    <br />
+                    口径 <code>official</code>
+                  </>
+                )
               ) : (
                 <>
-                  未认领档案
+                  <b className="num">{src ? fmtInt(src.counts.submissions) : '—'}</b> 条提交 ·{' '}
+                  <b className="num">{src ? fmtInt(src.counts.problems) : '—'}</b> 题
                   <br />
-                  源 <code>heimaom</code> 社区快照
+                  本地 <code>vault/anvil.db</code>
                   <br />
-                  口径 <code>official</code>
+                  端口 <code>{window.location.port || '7788'}</code> · 不出网
                 </>
               )
             ) : (
               <>
-                <b className="num">{src ? fmtInt(src.counts.submissions) : '—'}</b> 条提交 ·{' '}
-                <b className="num">{src ? fmtInt(src.counts.problems) : '—'}</b> 题
+                本地 <code>vault/</code> · 端口 <b className="num">{port}</b>
                 <br />
-                本地 <code>vault/anvil.db</code>
-                <br />
-                端口 <code>{window.location.port || '7788'}</code> · 不出网
+                不出网 · 数据只在本机
               </>
             )}
           </div>
           <div className="navfoot__rail">
-            <i className="dot" style={{ background: DOT[state] }} />
-            <b>{railCount}</b>
-            <span className="navlabel">
-              {isXcpc ? 'XCPC 档案' : `${SOURCE_NAME[source]} 读数`}
-              <small>{isXcpc ? (claimed ? '社区快照 · official 口径' : '未认领档案') : 'vault/anvil.db · 本地'}</small>
-            </span>
+            {view === 'arena' ? (
+              <>
+                <i className="dot" style={{ background: DOT.idle }} />
+                <b>{arenaN}</b>
+                <span className="navlabel">
+                  目录 {arenaN} 场
+                  <small>vault/arena · 本地缓存</small>
+                </span>
+              </>
+            ) : view === 'dashboard' ? (
+              <>
+                <i className="dot" style={{ background: DOT[state] }} />
+                <b>{railCount}</b>
+                <span className="navlabel">
+                  {isXcpc ? 'XCPC 档案' : `${SOURCE_NAME[source]} 读数`}
+                  <small>{isXcpc ? (claimed ? '社区快照 · official 口径' : '未认领档案') : 'vault/anvil.db · 本地'}</small>
+                </span>
+              </>
+            ) : (
+              <>
+                <i className="dot" style={{ background: DOT.idle }} />
+                <b>本地</b>
+                <span className="navlabel">{`ANVIL · vault/ · 端口 ${port}`}</span>
+              </>
+            )}
           </div>
         </div>
         <button

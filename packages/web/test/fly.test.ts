@@ -5,9 +5,9 @@ const endsOf = (n: number, leg: 'out' | 'in') => legTimes(n, leg).map((t) => t.s
 
 describe('切换编排的时序不变量（docs/09 §7：任意两张卡不同时起步、也不同时完成）', () => {
   it('第 i 张 = start i×STEP、duration DUR + i×DSTEP', () => {
-    expect(legTimes(6, 'out').map((t) => t.start)).toEqual([0, 41, 82, 123, 164, 205]);
-    expect(legTimes(6, 'out').map((t) => t.duration)).toEqual([360, 369, 378, 387, 396, 405]);
-    expect(legTimes(6, 'in').map((t) => t.start)).toEqual([0, 30, 60, 90, 120, 150]);
+    expect(legTimes(6, 'out').map((t) => t.start)).toEqual([0, 20, 40, 60, 80, 100]);
+    expect(legTimes(6, 'out').map((t) => t.duration)).toEqual([180, 185, 190, 195, 200, 205]);
+    expect(legTimes(6, 'in').map((t) => t.start)).toEqual([0, 15, 30, 45, 60, 75]);
   });
 
   it('起步与完成两两不同，且都严格递增（2 到 12 张都成立）', () => {
@@ -24,16 +24,16 @@ describe('切换编排的时序不变量（docs/09 §7：任意两张卡不同�
     }
   });
 
-  it('总时长：6 卡 1390ms、AT 屏 7 卡 1484ms（含 40ms 空档）', () => {
+  it('总时长：6 卡 695ms、AT 屏 7 卡 742ms（含 20ms 空档）', () => {
     const total = (n: number) => {
       const out = Math.max(...legTimes(n, 'out').map((t) => t.start + t.duration));
       const inTotal = Math.max(...legTimes(n, 'in').map((t) => t.start + t.duration));
       return out + FLY.handoff + inTotal;
     };
-    // 契约 §7 定档是 step 51/40 + handoff 80 → 1530 / 1644；用户 2026-10-05 微调成
-    // step 41/30 + handoff 40 → 1390 / 1484
-    expect(total(6)).toBe(1390);
-    expect(total(7)).toBe(1484);
+    // 契约 §7 定档 step 51/40 + handoff 80 → 1530 / 1644；2026-10-05 微调成 step 41/30 + handoff 40
+    // → 1390 / 1484；2026-10-10 UX 批次两段再各砍一半 → 695 / 742
+    expect(total(6)).toBe(695);
+    expect(total(7)).toBe(742);
   });
 
   it('跨段不撞：飞入段整体晚于飞出段一个 handoff', () => {

@@ -59,9 +59,9 @@
   /* 切片 4 追加尺度（mock-04 §1 tokens）：侧栏轨道 + 榜体密度 */
   --rail-dur:360ms;          /* 侧栏收放（宽度 / 文字 / 键位移）= 常规动效的两倍 */
   --rail-w:56px;             /* 图标轨道宽 */
-  --pcw:30px;                /* 题目列轨宽（内含 26px 格） */
-  --rowh:32px;               /* 榜体行高 */
-  --headh:46px;              /* 榜体列头高 */
+  --pcw:36px;                /* 题目列轨宽（内含 32px 格） */
+  --rowh:36px;               /* 榜体行高 */
+  --headh:50px;              /* 榜体列头高 */
 }
 
 *,*::before,*::after{box-sizing:border-box}
@@ -887,12 +887,12 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 
 /* ==========================================================================
-   切片 4 · 模拟榜单（照 design/mock-04-simboard.html v5 逐段抄，密度与几何参数不自创）
+   切片 4 · 模拟榜单（照 design/mock-04-simboard.html v6.1 逐段抄，密度与几何参数不自创）
    ========================================================================== */
 
 /* ---------- 17. 榜体屏：外层不滚，纵向滚动只发生在榜内 ---------- */
 .content--fit{overflow:hidden;min-height:0}
-.simcol{max-width:1030px;width:100%;margin:0 auto;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px}
+.simcol{width:100%;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px}
 .simcol .scrub{border:1px solid var(--line);border-bottom:none;border-radius:var(--r) var(--r) 0 0;background:#141A22}
 .simcol .boardwrap{border-radius:0 0 var(--r) var(--r)}
 
@@ -996,6 +996,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .bhead .h-sol,.bhead .h-pen{justify-content:flex-end}
 .brow--body{border-bottom:1px solid var(--line-soft);transition:background-image var(--dur) var(--ease),background-color var(--dur) var(--ease)}
+/* 收放侧栏时跳过屏外行的重排：轨道补间每帧都要重算榜体，行级 content-visibility 把成本压回屏内行数（mock-04 v6.1 同味药） */
+.brow--body{content-visibility:auto;contain-intrinsic-size:auto var(--rowh)}
 .brow--body:last-child{border-bottom:none}
 .brow--body:hover{background-image:linear-gradient(rgba(255,255,255,.032),rgba(255,255,255,.032))}
 /* 奖牌行底：左缘一条色带 + 由左向右衰减的极淡底（按正式队名次，回放中实时滚出） */
@@ -1026,8 +1028,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 
 /* 列头：题号 + 该题过队数（悬停全名） */
 .ph{flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
-.ph b{font-family:var(--font-num);font-size:12.5px;font-weight:600;color:var(--text-dim);line-height:1}
-.ph i{font-family:var(--font-num);font-size:9px;font-style:normal;color:var(--text-mute);line-height:1}
+.ph b{font-family:var(--font-num);font-size:13px;font-weight:600;color:var(--text-dim);line-height:1}
+.ph i{font-family:var(--font-num);font-size:9.5px;font-style:normal;color:var(--text-mute);line-height:1}
 .ph:hover b{color:var(--accent)}
 .ph.is-zero b{color:var(--text-mute)}
 
@@ -1041,8 +1043,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   transition:outline-color var(--dur) var(--ease),border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
   outline:1px solid transparent;outline-offset:1px;
 }
-.pcell__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:600;line-height:1.05;color:var(--text-mute)}
-.pcell__n{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:9px;line-height:1;letter-spacing:.02em;color:var(--text-mute)}
+.pcell__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;line-height:1.05;color:var(--text-mute)}
+.pcell__n{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:9.5px;line-height:1;letter-spacing:.02em;color:var(--text-mute)}
 .pcell.is-hit{cursor:pointer}
 .pcell.is-hit:hover .pcell__b{outline-color:var(--text)}
 .pcell.is-ac .pcell__b{background:rgba(63,185,80,.11);border-color:rgba(63,185,80,.26)}

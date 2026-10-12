@@ -3,13 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ANVIL · 模拟榜单 · v5（切片 4 设计稿）</title>
+<title>ANVIL · 模拟榜单 · v6（切片 4 设计稿 · 修订）</title>
 <meta name="description" content="ANVIL（铁砧）切片 4 视觉稿：模拟榜单 —— 赛事目录 / 回放榜（计时 · 封榜）/ 回顾模式（时间轴）/ 组件与状态 + 侧栏收起态。">
 <style>
 /* ==========================================================================
-   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v5）
+   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v6 · 2026-10-10 修订）
+   v6 修订（用户验收反馈）：
+     ① 榜体放大并填满内容区 —— 题列 30→36、行高 32→36、列头 46→50、
+        去掉 1030 收口（余量全归 Org/Team，题列不再是最小的一档）；
+     ② 侧栏页脚按模块语境化 —— 个人数据 = 源读数 / 模拟榜单 = 榜单缓存 / 设置·工坊 = 本地信息；
+     ③ 列头五档整格淡底回迁（r2/r3 已交付样式，附榜脚五档图例与 s4 样张）；
+     ④ 行级 content-visibility —— 收放侧栏卡顿修复的预览（与实现批次同一味药）。
    基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
-     tokens / 组件 / 表密度 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
+     tokens / 组件 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
    契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
    壳改动：侧栏可收起（图标轨道 + 悬停浮标）+ 导航三处改名（个人数据 / 工坊 / 模拟榜单）。
    ========================================================================== */
@@ -56,9 +62,9 @@
 
   /* 本稿追加尺度（必答 1 · 表密度）：题列轨宽 / 行高 / 轨道侧栏宽 */
   --rail-w:56px;
-  --pcw:30px;      /* 题目列轨宽（内含 26px 格） */
-  --rowh:32px;     /* 榜体行高 */
-  --headh:46px;    /* 榜体列头高 */
+  --pcw:36px;      /* 题目列轨宽（内含 32px 格） */
+  --rowh:36px;     /* 榜体行高 */
+  --headh:50px;    /* 榜体列头高 */
 }
 
 *,*::before,*::after{box-sizing:border-box}
@@ -524,6 +530,11 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .crow__live{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-num);font-size:11.5px;color:var(--accent);white-space:nowrap}
 .crow__live.is-paused{color:var(--text-dim)}
 .crow__from{font-family:var(--font-num);font-size:10px;letter-spacing:.06em;color:var(--text-mute);white-space:nowrap}
+/* v6 补回 03x 的点基类（04 初稿漏带：rail / 暂停态的点此前没有样式） */
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:0 0 auto;background:#39434F}
+.dot--ok{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.12)}
+.dot--idle{background:#39434F}
+.dot--big{width:9px;height:9px}
 .dot--live{background:#4FDD6A;width:7px;height:7px;box-shadow:0 0 0 3px rgba(63,185,80,.16),0 0 9px rgba(79,221,106,.6);animation:beat 1.6s var(--ease) infinite}
 @keyframes beat{0%,100%{opacity:1}50%{opacity:.62}}
 .cat__foot{
@@ -566,6 +577,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .bhead .h-r,.bhead .h-s,.bhead .h-sol,.bhead .h-pen{justify-content:flex-end}
 .bhead .h-r,.bhead .h-s{justify-content:flex-start}
 .brow--body{border-bottom:1px solid var(--line-soft);transition:background-image var(--dur) var(--ease),background-color var(--dur) var(--ease)}
+/* v6：行级 content-visibility —— 收放侧栏时跳过屏外行的重排（卡顿修复预览，与实现批次同一味药） */
+.brow--body{content-visibility:auto;contain-intrinsic-size:auto var(--rowh)}
 .brow--body:last-child{border-bottom:none}
 .brow--body:hover{background-image:linear-gradient(rgba(255,255,255,.032),rgba(255,255,255,.032))}
 /* 奖牌行底：左缘一条色带 + 由左向右衰减的极淡底（按正式队名次，回放中实时滚出） */
@@ -596,11 +609,35 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .brow.is-star .c-sol b,.brow.is-star .c-pen b{color:var(--text-dim);font-weight:400}
 
 /* 列头：题号 + 该题过队数（悬停全名） */
-.ph{flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
-.ph b{font-family:var(--font-num);font-size:12.5px;font-weight:600;color:var(--text-dim);line-height:1}
-.ph i{font-family:var(--font-num);font-size:9px;font-style:normal;color:var(--text-mute);line-height:1}
+.ph{position:relative;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
+.ph b{font-family:var(--font-num);font-size:13px;font-weight:600;color:var(--text-dim);line-height:1}
+.ph i{font-family:var(--font-num);font-size:9.5px;font-style:normal;color:var(--text-mute);line-height:1}
 .ph:hover b{color:var(--accent)}
-.ph.is-zero b{color:var(--text-mute)}
+/* 列头五档（r3 已交付样式 · v6 回迁）：整格淡底承载状态，文字浮在底色之上，不用下缘带 */
+.ph.is-quiet b{color:var(--text-mute);opacity:.45}
+.ph.is-quiet i{color:#2C3542}
+.ph.is-noone::before,.ph.is-any::before,.ph.is-pending::before,.ph.is-late::before{
+  content:"";position:absolute;inset:-3px -2px -2px;border-radius:3px;
+}
+.ph.is-noone::before{background:rgba(248,81,73,.11)}
+.ph.is-noone b{color:var(--bad)}
+.ph.is-noone i{color:rgba(248,81,73,.72)}
+.ph.is-any::before{background:rgba(63,185,80,.09)}
+.ph.is-any b{color:var(--ok)}
+.ph.is-any i{color:rgba(63,185,80,.75)}
+.ph.is-pending::before{background:repeating-linear-gradient(135deg,rgba(148,160,180,.2) 0 3px,rgba(148,160,180,.04) 3px 6px)}
+.ph.is-pending b{color:var(--text-dim)}
+.ph.is-pending i{color:var(--text-mute)}
+.ph.is-late::before{background:repeating-linear-gradient(135deg,rgba(210,153,34,.22) 0 3px,rgba(210,153,34,.05) 3px 6px)}
+.ph.is-late b{color:#E3B96A}
+.ph.is-late i{color:rgba(210,153,34,.9)}
+.ph > b,.ph > i{position:relative}
+.phk{width:16px;height:12px;border-radius:3px;position:relative;background:rgba(255,255,255,.018);border:1px solid var(--line-soft)}
+.phk.is-noone{border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.13)}
+.phk.is-any{border-color:rgba(63,185,80,.28);background:rgba(63,185,80,.11)}
+.phk.is-pending{border-color:rgba(148,160,180,.34);background:repeating-linear-gradient(135deg,rgba(148,160,180,.22) 0 3px,rgba(148,160,180,.05) 3px 6px)}
+.phk.is-late{border-color:rgba(210,153,34,.4);background:repeating-linear-gradient(135deg,rgba(210,153,34,.24) 0 3px,rgba(210,153,34,.06) 3px 6px)}
+.key--head{padding-right:14px;margin-right:14px;border-right:1px solid var(--line-soft)}
 
 /* 题目格五态（必答 3）：大字 = 分钟，小字 = 次数 */
 .pcell{padding:0 2px;height:100%;display:grid;place-items:center}
@@ -612,8 +649,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   transition:outline-color var(--dur) var(--ease),border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
   outline:1px solid transparent;outline-offset:1px;
 }
-.pcell__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:600;line-height:1.05;color:var(--text-mute)}
-.pcell__n{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:9px;line-height:1;letter-spacing:.02em;color:var(--text-mute)}
+.pcell__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;line-height:1.05;color:var(--text-mute)}
+.pcell__n{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:9.5px;line-height:1;letter-spacing:.02em;color:var(--text-mute)}
 .pcell.is-hit{cursor:pointer}
 .pcell.is-hit:hover .pcell__b{outline-color:var(--text)}
 .pcell.is-ac .pcell__b{background:rgba(63,185,80,.11);border-color:rgba(63,185,80,.26)}
@@ -781,8 +818,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .pop--static{position:static;width:100%;animation:none}
 .backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
 
-/* ---------- 15b. 榜体列（s2 / s3 的 1030 度量）与 s4 样张壳 ---------- */
-.simcol{max-width:1030px;width:100%;margin:0 auto;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px}
+/* ---------- 15b. 榜体列（s2 / s3 · v6 起全宽填满内容区）与 s4 样张壳 ---------- */
+.simcol{width:100%;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px}
 .simcol .scrub{border:1px solid var(--line);border-bottom:none;border-radius:var(--r) var(--r) 0 0;background:#141A22}
 .simcol .boardwrap{border-radius:0 0 var(--r) var(--r)}
 .app--mini{height:252px;position:relative;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -790,6 +827,10 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .app--mini .navfoot{padding-bottom:var(--sp-2)}
 .sheetnote{font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);letter-spacing:.04em;margin-top:9px}
 .sheetnote b{color:var(--text-dim);font-weight:600}
+/* 页脚语境样张（s4 · 非产品 UI）：与真 navfoot 同一套字体 / 行高 */
+.footdemo{width:230px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--panel-2);padding:10px 14px;font-family:var(--font-num);font-size:10.5px;line-height:1.95;color:var(--text-mute)}
+.footdemo b{color:var(--text-dim);font-weight:600}
+.footdemo code{font-size:10.5px;color:var(--text-dim);background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px}
 /* 密度读数表（s4 · 非产品 UI）：外观与切三编年表一致 */
 .dtable{width:100%;border-collapse:collapse;font-size:12px}
 .dtable th{
@@ -890,8 +931,8 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg><span class="navtxt">设置</span><span class="navlabel">设置</span></button>
     </div>
     <div class="navfoot">
-      <span class="navfoot__full">目录 <b>394</b> 场 · 单场 <b>13</b> 题<br>源 <code>srk-collection</code> 社区快照<br>回放为模拟 · 演示假数据</span>
-      <span class="navfoot__rail"><i class="dot dot--ok dot--big"></i><b>394</b><span class="navlabel">目录 394 场<small>源 srk-collection · 演示假数据</small></span></span>
+      <span class="navfoot__full">目录 <b>394</b> 场 · 榜单本地缓存<br>源 <code>srk-collection</code> 社区快照<br>端口 <b>7788</b> · 不出网</span>
+      <span class="navfoot__rail"><i class="dot dot--idle dot--big"></i><b>394</b><span class="navlabel">目录 394 场<small>vault/arena · 本地缓存</small></span></span>
     </div>
     <button class="railbtn" data-rail aria-label="收起侧栏" title="收起侧栏">
       <svg viewBox="0 0 18 14" aria-hidden="true"><rect class="rb-out" x=".9" y=".9" width="16.2" height="12.2" rx="3.2"/><rect class="rb-bar" x="3.4" y="3.5" width="4" height="7" rx="1.4"/></svg>
@@ -901,7 +942,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 <!-- ================= 视觉稿导航条（非产品 UI） ================= -->
 <header class="mockbar">
-  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v5 · 切片 4</span>
+  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v6 · 切片 4 修订</span>
   <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
     <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / 赛事目录</button>
     <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / 回放榜</button>
@@ -1020,7 +1061,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 </main>
 
-<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v5（切片 4 · 模拟榜单）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v6（切片 4 · 模拟榜单 · 修订）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
 
 <div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
 <div class="pop" id="pop" role="dialog" aria-modal="false" aria-label="明细" hidden></div>
@@ -1269,12 +1310,26 @@ function cellHTML(c,ti,p){
   return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+
          (c.post?'<i class="pcell__dot"></i>':'')+'</span></div>';
 }
+/* 列头五档（与 docs/16 §5.2 判定口径一致）：quiet 无人提交 / pending 待定 / noone 交而没过 / any 有人过 / late 封榜后才解开 */
+function headState(rows,p){
+  var anyCell=false, frz=false, ac=0, preAc=0;
+  rows.forEach(function(r){
+    var c=r.cells[p];
+    if(!c || c.st==="none") return;
+    anyCell=true;
+    if(c.st==="frz") frz=true;
+    else if(c.st==="ac"||c.st==="fb"){ ac++; if(!c.post) preAc++ }
+  });
+  if(!anyCell) return "quiet";
+  if(ac===0) return frz ? "pending" : "noone";
+  return preAc>0 ? "any" : "late";
+}
 function boardHTML(rows,col){
   var h='<div class="brow bhead"><div class="h-r">R#</div><div class="h-s">S#</div>'
     +'<div class="h-org">Organization</div><div class="h-team">Team</div>'
     +'<div class="h-sol">Slv</div><div class="h-pen">Pen</div>';
   for(var p=0;p<N;p++)
-    h+='<div class="ph'+(col[p].ac?"":" is-zero")+'" data-hp="'+p+'"><b>'+PROB[p].label+'</b><i>'+col[p].ac+'</i></div>';
+    h+='<div class="ph is-'+headState(rows,p)+'" data-hp="'+p+'"><b>'+PROB[p].label+'</b><i>'+col[p].ac+'</i></div>';
   h+='</div>';
   var body="";
   rows.forEach(function(r){
@@ -1519,7 +1574,14 @@ function paintBoard(o){
     if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
   }
   o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b></span>'
-    +'<span class="spacer"></span><span class="key">'
+    +'<span class="spacer"></span>'
+    +'<span class="key key--head">'
+    +'<span class="key__i"><i class="phk is-quiet"></i>无人提交</span>'
+    +'<span class="key__i"><i class="phk is-pending"></i>待定</span>'
+    +'<span class="key__i"><i class="phk is-noone"></i>交而没过</span>'
+    +'<span class="key__i"><i class="phk is-any"></i>有人过</span>'
+    +'<span class="key__i"><i class="phk is-late"></i>封榜后才解开</span>'
+    +'</span><span class="key">'
     +'<span class="key__i"><i class="key__s key__s--pen">−</i>罚时</span>'
     +'<span class="key__i"><i class="key__s key__s--ac">✓</i>AC</span>'
     +'<span class="key__i"><i class="key__s key__s--fb">✦</i>首杀</span>'
@@ -1817,10 +1879,10 @@ var AC={st:"ac",t:42*60000,n:2}, FBc={st:"fb",t:31*60000,n:1}, PEN={st:"pen",t:9
     ACp={st:"ac",t:262*60000,n:3,post:true}, PENp={st:"pen",t:281*60000,n:2,post:true};
 function densityNums(){
   var navW=220, pad=64;
-  var fixed=46+34+46+56+N*30+11;                        /* 4 个信息列 + 13 题列 + 榜内纵向滚动条 */
+  var fixed=46+34+46+56+N*36+11;                        /* 4 个信息列 + 13 题列 + 榜内纵向滚动条 */
   var out=[];
   [1440,1280].forEach(function(w){
-    var content=Math.min(w-navW-pad,1030), rest=content-fixed;
+    var content=w-navW-pad, rest=content-fixed;          /* v6：去掉 1030 收口，榜体填满内容区 */
     out.push({w:w, content:content, rest:Math.round(rest),
       org:Math.round(rest/2.12), team:Math.round(rest/2.12*1.12)});
   });
@@ -1840,14 +1902,28 @@ function renderTK(){
       ["acp","封榜后 通过"],["penp","封榜后 未过"]].map(function(s){
       var map={none:NONE,pen:PEN,ac:AC,fb:FBc,frz:FRZ,ce:CE,acp:ACp,penp:PENp};
       return '<div class="state" style="align-items:center;width:96px;padding:14px 8px">'
-        +'<div style="--pcw:44px;--rowh:40px">'+cellHTML(map[s[0]],0,0)+'</div>'
+        +'<div style="--pcw:52px;--rowh:46px">'+cellHTML(map[s[0]],0,0)+'</div>'
         +'<span class="state__n" style="text-align:center">'+s[1]+'</span></div>';
     }).join("")
     +'</div>'
-    +'<p class="hint" style="margin-top:12px">八格用放大轨宽（<code>--pcw:44px</code>）拍特写；榜内实值 30 / 32。'
+    +'<p class="hint" style="margin-top:12px">八格用放大轨宽（<code>--pcw:52px</code>）拍特写；榜内实值 36 · 行高 36。'
       +'冻结格 = 斜纹 + 虚线描边（与"罚时红""空"三者互斥）。<b>封榜后两格</b>只在终榜（或滑到终榜）出现：'
 +'底色与字色各退一档 + 右上角一枚圆点，读法是"这一格发生在封榜段，没有改变你看到的名次"；'
 +'若首杀恰好也在封榜后，则小字仍写 FB、底色同样退档（不再叠深绿，避免盖过定格结果）。</p></section>';
+
+  sect+='<section><h3>Problem head <span>列头五档（r3 已交付 · v6 回迁）：整格淡底承载状态，榜走到哪一刻就按哪一刻算</h3>'
+    +'<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end">'
+    +["quiet","pending","noone","any","late"].map(function(st,i){
+      var L="ABCDE".charAt(i), n=(st==="late"?1:(st==="any"?8:0));
+      var lab={quiet:"无人提交",pending:"待定 · 封榜段内有活动",noone:"交而没过",any:"有人过",late:"封榜后才解开"}[st];
+      return '<div style="text-align:center"><div class="brow" style="grid-template-columns:56px;min-height:var(--headh)">'
+        +'<div class="ph is-'+st+'"><b>'+L+'</b><i>'+n+'</i></div></div>'
+        +'<div class="state__n" style="margin-top:6px">'+lab+'</div></div>';
+    }).join("")
+    +'</div>'
+    +'<p class="hint" style="margin-top:10px">五档 = <code>quiet</code> 无人提交 / <code>pending</code> 待定（封榜段内有活动、结果未定 —— 不与「交而没过」混档）/ '
+    +'<code>noone</code> 交而没过 / <code>any</code> 有人过 / <code>late</code> 封榜后才解开（该题<b>所有</b>过题都在封榜后）。'
+    +'淡底透明度压在 .09–.11 不抢奖牌带；封榜后才解开用 warn 家族暗一档的黄（<code>#E3B96A</code>），不用主色琥珀；榜脚五档图例同款底色。</p></section>';
 
   sect+='<section><h3>Medal band <span>行底三色带 + 打星行 · 按正式队名次 1–30 / 31–60 / 61–90</h3>'
     +'<div class="boardwrap boardwrap--demo"><div>'+boardHTML(rows.slice(0,3).concat([rows[rows.length-1]]),col)+'</div></div>'
@@ -1958,14 +2034,26 @@ function renderTK(){
       +'<button class="btn btn--sm" id="tkRail">收起 / 展开（四屏同步）</button>'
       +'<span class="hint">也可用顶栏右侧的演示开关 · 键盘 Tab 到收起键可直达 · 字形同一枚面板图标，里面那根小竖条展开亮 / 收起暗</span></div></div></section>';
 
+  sect+='<section><h3>Sidebar foot <span>页脚按模块语境化（v6）：只说当前模块的事 —— 个人数据读数不再被带到别的模块</h3>'
+    +'<div class="tk-grid3">'
+    +'<div><div class="footdemo"><b>253</b> 条提交 · <b>104</b> 题<br>本地 <code>vault/anvil.db</code><br>端口 <b>7788</b> · 不出网</div>'
+      +'<div class="sheetnote"><b>个人数据</b> · 保持现状：跟随当前源的读数（CF 示例）</div></div>'
+    +'<div><div class="footdemo">目录 <b>394</b> 场 · 榜单本地缓存<br>源 <code>srk-collection</code> 社区快照<br>端口 <b>7788</b> · 不出网</div>'
+      +'<div class="sheetnote"><b>模拟榜单</b> · 只报榜单缓存与来源（vault/arena）</div></div>'
+    +'<div><div class="footdemo">本地 <code>vault/</code> · 端口 <b>7788</b><br>不出网 · 数据只在本机</div>'
+      +'<div class="sheetnote"><b>设置 / 工坊</b> · 全局本地信息（不带任何源读数）</div></div>'
+    +'</div>'
+    +'<p class="hint" style="margin-top:10px">收起态 = 状态点 + 主计数：模拟榜单给目录场次 <code>394</code>（灰点 · 悬停浮标「vault/arena · 本地缓存」），'
+      +'设置 / 工坊给「本地」，个人数据结构不变；页脚定高 102 与隔断线位置不随语境变化。</p></section>';
+
   sect+='<section><h3>Board scale <span>表密度实测读数（必答 1）· 1440 与 1280 同参数</h3>'
     +'<div class="tk-grid2">'
     +'<div>'+[
-      ["题目列轨","30px（内含 26×26 格 · 轨间 4px 空隙由 padding 给）"],
-      ["榜体行高","32px（两行读数 11.5 + 9）"],
-      ["列头高","46px（题号 + 该题过队数）"],
-      ["主读数","11.5px 等宽 tabular"],
-      ["次读数","9px 等宽"],
+      ["题目列轨","36px（内含 32×32 格 · 轨间 4px 空隙由 padding 给）"],
+      ["榜体行高","36px（两行读数 12.5 + 9.5）"],
+      ["列头高","50px（题号 + 该题过队数）"],
+      ["主读数","12.5px 等宽 tabular"],
+      ["次读数","9.5px 等宽"],
       ["Org / Team","12.5px · 单行 ellipsis"],
       ["名次 / 过题 / 罚时","12.5px 等宽"]
     ].map(function(r){
@@ -1973,36 +2061,36 @@ function renderTK(){
         +'<span class="spec-row__k">'+r[0]+'</span><span class="hint" style="line-height:1.5">'+r[1]+'</span></div>';
     }).join("")+'</div>'
     +'<div><div class="spec-row"><span class="spec-row__k">此屏实测<b>内容区 '+Math.round(($("#s4 .content")||$(".content")).clientWidth)+'px</b></span>'
-      +'<span class="hint">榜体按 1030 度量收口（与切三长卷同宽）</span></div>'
+      +'<span class="hint">榜体 v6 起填满内容区（去掉 1030 收口）· 余量全归 Org / Team</span></div>'
       +'<table class="dtable"><thead><tr>'
       +'<th style="width:66px">视口</th><th class="r">内容区</th><th class="r">题列合计</th>'
       +'<th class="r">Org</th><th class="r">Team</th><th class="r">横滚</th></tr></thead><tbody>'
       +dn.map(function(x){
         return '<tr><td><b class="num">'+x.w+'</b></td>'
           +'<td class="r"><b class="num">'+x.content+'</b></td>'
-          +'<td class="r"><b class="num">'+(N*30)+'</b></td>'
+          +'<td class="r"><b class="num">'+(N*36)+'</b></td>'
           +'<td class="r"><b class="num">'+x.org+'</b></td>'
           +'<td class="r"><b class="num">'+x.team+'</b></td>'
           +'<td class="r"><b class="num">'+(x.fit===false?"有":"无")+'</b></td></tr>';
       }).join("")
       +'<tr><td><b class="num">1280</b><u>收起</u></td>'
-      +'<td class="r"><b class="num">'+Math.min(1280-56-64,1030)+'</b></td><td class="r"><b class="num">'+(N*30)+'</b></td>'
-      +'<td class="r"><b class="num">'+Math.round((Math.min(1280-56-64,1030)-46-34-46-56-N*30-11)/2.12)+'</b></td>'
-      +'<td class="r"><b class="num">'+Math.round((Math.min(1280-56-64,1030)-46-34-46-56-N*30-11)/2.12*1.12)+'</b></td>'
+      +'<td class="r"><b class="num">'+(1280-56-64)+'</b></td><td class="r"><b class="num">'+(N*36)+'</b></td>'
+      +'<td class="r"><b class="num">'+Math.round(((1280-56-64)-46-34-46-56-N*36-11)/2.12)+'</b></td>'
+      +'<td class="r"><b class="num">'+Math.round(((1280-56-64)-46-34-46-56-N*36-11)/2.12*1.12)+'</b></td>'
       +'<td class="r"><b class="num">无</b></td></tr>'
       +'</tbody></table>'
-      +'<p class="hint" style="margin-top:8px">Org / Team 用 <code>minmax(0,1fr)</code> 吸收全部余量（Team 略宽 1.12 倍），'
-+'题列固定不缩 —— 所以 1280 不需要横滚，代价是校名/队名截断，靠 tooltip 兜底。</p></div>'
+      +'<p class="hint" style="margin-top:8px">v6 去掉 1030 收口：题列合计 <code>13×36=468</code>、信息列 182、滚动条 11，剩余全归 Org / Team（<code>minmax(0,1fr)</code> · 1fr : 1.12fr），'
++'1280 依旧不横滚（余 335 ≈ 158 / 177），1440 下 ≈ 233 / 262 —— 代价还是校名 / 队名截断，靠 tooltip 兜底。</p></div>'
     +'</div></section>';
 
   sect+='<section><h3>Decisions <span>必答四题的主张（docs/15 §2）</span></h3><div class="dec">'
     +'<div class="dec__i"><div><div class="dec__t">1 · 表格密度与列宽<span class="must">主张</span></div>'
-      +'<p class="dec__p">题列 <b>30px 轨 / 26px 格</b>、行高 <b>32px</b>、主读数 11.5px 等宽 —— 四个定宽信息列 '
-+'<code>46 + 34 + 46 + 56</code> 加 13 题列 <code>13×30=390</code> 加榜内滚动条 11px = <b>583px</b>，'
-+'榜体仍收在 <b>1030</b> 度量里（与切三长卷同宽），余量 <b>470px</b> 全给 Org / Team（1fr : 1.12fr ≈ 221 / 248px）。'
-+'<b>1280 不横滚</b>：榜体收到 996，余量仍有 435px（≈205 / 230），比切三编年表的下限宽 —— 没有推翻"不横滚"，'
-+'只是把"整屏不滚"换成"榜内竖滚"（110 行的榜必须吸顶列头），代价是校名与队名截断、靠 tooltip 兜底。'
-+'要更松只有一个旋钮：去掉 1030 收口，1440 下两列直接放宽到 610px；侧栏收起后 1280 也多出 164px 给同两列。</p></div></div>'
+      +'<p class="dec__p">题列 <b>36px 轨 / 32px 格</b>、行高 <b>36px</b>、主读数 12.5px 等宽 —— 四个定宽信息列 '
++'<code>46 + 34 + 46 + 56</code> 加 13 题列 <code>13×36=468</code> 加榜内滚动条 11px = <b>661px</b>。'
++'v6 去掉 1030 收口，榜体<b>填满内容区</b>，余量全给 Org / Team（1fr : 1.12fr）。'
++'<b>1280 不横滚</b>：内容区 996，余量 335px（≈158 / 177）—— 校名与队名照旧截断、靠 tooltip 兜底，'
++'但题列不再是全场最窄的一档（旧稿 26px 格、现在 32px）。'
++'更宽的屏（≥1600）余量继续进 Org / Team；若嫌宽，可给两列加上限（多出的宽度停在表格右侧，不外扩）。</p></div></div>'
     +'<div class="dec__i dec__i--blue"><div><div class="dec__t">2 · 模块识别色<span class="must">主张：不给</span></div>'
       +'<p class="dec__p">模拟榜单不加第四支平台色。竞赛语义色已经把这屏的色彩预算用满（AC 绿 / 罚时红 / 冻结灰 / 金银铜），'
 +'再加一支只会和奖牌带抢注意力。唯一借色 = 时间轴的<b>数据蓝 <code>--accent-2</code></b>，'
