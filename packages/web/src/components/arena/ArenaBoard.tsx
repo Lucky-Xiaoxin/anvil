@@ -393,7 +393,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           {review ? (
             <div className="scrub">
               <span className="scrub__lab">回放</span>
-              <span className="scrub__t" style={{ color: viewMs > model.freezeStart ? undefined : 'var(--accent-2)' }}>
+              <span className="scrub__t" style={{ color: viewMs > model.freezeStart ? '#B4C0CF' : 'var(--accent-2)' }}>
                 {clockHMS(viewMs)}
               </span>
               <span className="tl">

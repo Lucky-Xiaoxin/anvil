@@ -150,7 +150,7 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
           <div className="navfoot__rail">
             {view === 'arena' ? (
               <>
-                <i className="dot" style={{ background: DOT.idle }} />
+                <i className="dot dot--big" style={{ background: DOT.idle }} />
                 <b>{arenaN}</b>
                 <span className="navlabel">
                   目录 {arenaN} 场
@@ -159,7 +159,7 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
               </>
             ) : view === 'dashboard' ? (
               <>
-                <i className="dot" style={{ background: DOT[state] }} />
+                <i className="dot dot--big" style={{ background: DOT[state] }} />
                 <b>{railCount}</b>
                 <span className="navlabel">
                   {isXcpc ? 'XCPC 档案' : `${SOURCE_NAME[source]} 读数`}
@@ -168,7 +168,7 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
               </>
             ) : (
               <>
-                <i className="dot" style={{ background: DOT.idle }} />
+                <i className="dot dot--big" style={{ background: DOT.idle }} />
                 <b>本地</b>
                 <span className="navlabel">{`ANVIL · vault/ · 端口 ${port}`}</span>
               </>
