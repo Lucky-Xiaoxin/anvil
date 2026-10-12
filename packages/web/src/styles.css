@@ -1182,6 +1182,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:#0F141B;border:1px solid #2C3746;border-radius:var(--r);
   box-shadow:0 18px 44px rgba(0,0,0,.62);
   padding:12px 14px;font-size:12.5px;
+  /* 发数多的格子：明细不再被视口裁掉（内部滚动；翻转定位逻辑后续再做） */
+  max-height:60vh;overflow:auto;
   animation:rise 200ms var(--ease) both;
 }
 .pop__h{display:flex;align-items:baseline;gap:8px;min-width:0;padding-right:18px}

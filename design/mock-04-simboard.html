@@ -3,17 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ANVIL · 模拟榜单 · v6（切片 4 设计稿 · 修订）</title>
-<meta name="description" content="ANVIL（铁砧）切片 4 视觉稿：模拟榜单 —— 赛事目录 / 回放榜（计时 · 封榜）/ 回顾模式（时间轴）/ 组件与状态 + 侧栏收起态。">
+<title>ANVIL · 模拟榜单 · v6.2（切片 4 设计稿 · 修订）</title>
+<meta name="description" content="ANVIL（铁砧）切片 4 视觉稿：模拟榜单 —— 赛事目录 / 回放榜（计时 · 封榜）/ 回顾模式（时间轴 · 封榜视角开关）/ 组件与状态 + 侧栏收起态。">
 <style>
 /* ==========================================================================
-   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v6 · 2026-10-10 修订）
+   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v6.2 · 2026-10-12 修订）
    v6 修订（用户验收反馈）：
      ① 榜体放大并填满内容区 —— 题列 30→36、行高 32→36、列头 46→50、
         去掉 1030 收口（余量全归 Org/Team，题列不再是最小的一档）；
      ② 侧栏页脚按模块语境化 —— 个人数据 = 源读数 / 模拟榜单 = 榜单缓存 / 设置·工坊 = 本地信息；
      ③ 列头五档整格淡底回迁（r2/r3 已交付样式，附榜脚五档图例与 s4 样张）；
      ④ 行级 content-visibility —— 收放侧栏卡顿修复的预览（与实现批次同一味药）。
+   v6.2 修订（修复批次 · docs/19 §2.2）：
+     ⑤ 回顾模式「封榜视角」开关（两个都要）—— 默认关 = 解封视界：滑动即重建、封榜段直接给结果；
+        开 = 定格回看（即 v6 的旧行为）：名次/罚时定格在封榜点、段内格回 ?n、封榜带换「定格视角」文案。
+        s3 顶栏开关真可切换；mock 自己的 capAt/buildBoard 同吃 unsealed 参数；s4 加一行两态对照。
    基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
      tokens / 组件 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
    契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
@@ -942,7 +946,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 <!-- ================= 视觉稿导航条（非产品 UI） ================= -->
 <header class="mockbar">
-  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v6 · 切片 4 修订</span>
+  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v6.2 · 切片 4 修订</span>
   <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
     <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / 赛事目录</button>
     <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / 回放榜</button>
@@ -1028,6 +1032,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <h2 class="rbname" id="rbName3"></h2>
       <span class="pill pill--over" id="mode3">回顾模式</span>
       <span class="topbar__spacer"></span>
+      <label class="switch"><input type="checkbox" id="frozen3"> 封榜视角</label>
       <label class="switch"><input type="checkbox" id="onlyFormal3"> 仅正式队</label>
     </div>
     <div class="content content--fit" data-content>
@@ -1061,7 +1066,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 </main>
 
-<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v6（切片 4 · 模拟榜单 · 修订）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v6.2（切片 4 · 模拟榜单 · 修订）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
 
 <div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
 <div class="pop" id="pop" role="dialog" aria-modal="false" aria-label="明细" hidden></div>
@@ -1108,6 +1113,9 @@ function hm(ms){ var s=Math.floor(ms/1000); return Math.floor(s/3600)+":"+pad(Ma
 function mm(ms){ return Math.floor(ms/60000) }        /* 榜上的"分钟"读数 */
 function capAt(e){                                      /* 计分口径：封榜段定格，终局解封 */
   return e>=CONTEST.dur ? e : Math.min(e,CONTEST.freeze);
+}
+function capFor(o,e){                                   /* v6.2：回顾解封视界 cap 直取时刻；定格视角/live 照旧 */
+  return (o.mode==="scrub" && !o.frozen) ? e : capAt(e);
 }
 
 /* ---------- 本场：形状严格按 docs/15 §1 的实测解剖 ---------- */
@@ -1250,8 +1258,8 @@ function cellAt(t,p,elapsed,cap){
   if(!fails && last.r==="CE") return {st:"ce", t:last.t, n:0, post:last.t>CONTEST.freeze};
   return {st:"pen", t:last.t, n:fails, post:last.t>CONTEST.freeze};
 }
-function buildBoard(elapsed,onlyFormal){
-  var cap=capAt(elapsed), rows=[];
+function buildBoard(elapsed,onlyFormal,unsealed){
+  var cap=unsealed?elapsed:capAt(elapsed), rows=[];
   for(var ti=0;ti<TOTAL;ti++){
     var t=TEAMS[ti];
     if(onlyFormal && t.star) continue;
@@ -1462,7 +1470,7 @@ function subPop(ti,p,elapsed,cap){                      /* 提交明细：逐次
         +'<span class="pop__tm">'+hms(x.t)+'</span><span class="pop__lg">'+x.l+'</span></div>';
     });
     L+='<div class="hint" style="margin-top:8px">'
-      +(elapsed>CONTEST.freeze&&elapsed<CONTEST.dur?"封榜段内结果未公开，一律显示 ? · ":"")
+      +(elapsed>CONTEST.freeze&&elapsed<CONTEST.dur&&cap<elapsed?"封榜段内结果未公开，一律显示 ? · ":"")
       +"罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）</div>";
   }
   return L;
@@ -1486,9 +1494,9 @@ function teamPop(ti){                                   /* 队伍：队名 / 学
 var HOSTS=[], CACHE={};
 function elapsedFor(o){ return o.mode==="scrub"?CK.scrub:CK.elapsed }
 function dataFor(o){
-  var e=elapsedFor(o), f=!!o.onlyFormal, c=CACHE[o.id];
-  if(!c||c.e!==e||c.f!==f){
-    c=CACHE[o.id]={e:e,f:f,d:buildBoard(e,f)};
+  var e=elapsedFor(o), f=!!o.onlyFormal, u=(o.mode==="scrub" && !o.frozen), c=CACHE[o.id];
+  if(!c||c.e!==e||c.f!==f||c.u!==u){
+    c=CACHE[o.id]={e:e,f:f,u:u,d:buildBoard(e,f,u)};
     c.d.byT={}; c.d.rows.forEach(function(r){ c.d.byT[r.ti]=r });
   }
   return c.d;
@@ -1517,7 +1525,7 @@ function makeSim(hostId,mode){
     +  '<div class="boardscroll" id="'+hostId+'S"></div>'
     +  '<div class="board__foot" id="'+hostId+'Foot"></div>'
     +'</div>';
-  var o={id:hostId, host:host, mode:mode, onlyFormal:false,
+  var o={id:hostId, host:host, mode:mode, onlyFormal:false, frozen:false,
          scroll:$("#"+hostId+"S"), frost:$("#"+hostId+"Frost"), foot:$("#"+hostId+"Foot")};
   HOSTS.push(o);
   o.scroll.addEventListener("mouseover",function(e){ boardHover(o,e) });
@@ -1564,11 +1572,12 @@ function paintBoard(o){
   ].forEach(function(k){
     var n=$("."+k[0],o.scroll); if(n){ n._tip=parseTip(k[1]); bindTip(n) }
   });
-  var inFrz=e>CONTEST.freeze && e<CONTEST.dur;
+  /* v6.2：回顾只在「封榜视角」开着时显示定格带（解封视界下格子已给结果，再挂未知计数是自相矛盾）；live 照旧 */
+  var inFrz=e>CONTEST.freeze && e<CONTEST.dur && (o.mode!=="scrub" || !!o.frozen);
   o.frost.hidden=!inFrz;
   if(inFrz){
     o.frost.innerHTML='<svg aria-hidden="true"><use href="#i-noflag"/></svg>'
-      +'<span>封榜中 · 名次定格在 <b>'+hm(CONTEST.freeze)+'</b></span>'
+      +'<span>'+(o.mode==="scrub"?"定格视角":"封榜中")+' · 名次定格在 <b>'+hm(CONTEST.freeze)+'</b></span>'
       +'<span class="frost__r">结果未知 '+d.frzCells+' 格 · 涉及 '+d.frozenRows+' 队</span>';
     o.frost._tip=parseTip("封榜段 = 最后 1 小时|段内提交只显时刻与次数，判名显示 ?|名次与罚时定格在 "+hm(CONTEST.freeze)+" · 终局自动解封");
     if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
@@ -1609,7 +1618,7 @@ function boardHover(o,ev){
   }
   if(ph){
     var p=+ph.dataset.hp, d2=dataFor(o), col=d2.col[p], e2=elapsedFor(o), fb=FB[p];
-    var fbAt=col.ac?capAt(e2):-1;                          /* 首杀只能按当前视图时刻说话，别把 69 分的事提前报出来 */
+    var fbAt=col.ac?capFor(o,e2):-1;                       /* 首杀只能按当前视图时刻说话，别把 69 分的事提前报出来 */
     var shown=(fb && fb.at<=fbAt)?fb:null;
     var L2=[{c:"tip__d",t:PROB[p].label+" · "+PROB[p].name},
             {c:"tip__v"+(col.ac?"":" is-zero"), t:col.ac+" / "+d2.rows.length+" 队过"},
@@ -1633,7 +1642,7 @@ function boardClick(o,ev){
   hideTip();
   if(c){
     var e=elapsedFor(o);
-    openPop(c, subPop(+c.dataset.t,+c.dataset.p,e,capAt(e)));
+    openPop(c, subPop(+c.dataset.t,+c.dataset.p,e,capFor(o,e)));
     return;
   }
   if(tm) openPop(tm.closest(".brow"), teamPop(+tm.closest(".brow").dataset.t));
@@ -2006,6 +2015,11 @@ function renderTK(){
       +'<div class="frost" style="flex:none"><svg aria-hidden="true"><use href="#i-noflag"/></svg>'
       +'<span>封榜中 · 名次定格在 <b>'+hm(CONTEST.freeze)+'</b></span>'
       +'<span class="frost__r">结果未知 '+d.frzCells+' 格 · 涉及 '+d.frozenRows+' 队</span></div></div></div>'
+    +'<div class="spec-row"><span class="spec-row__k">回顾两态<b>封榜视角开关</b></span>'
+      +'<span class="hint">默认关 = <b>解封视界</b>：滑到封榜段直接给结果（格上带「封榜后」点）、无定格带；'
+      +'开 = <b>定格回看</b>（即 v6 旧行为）：名次/罚时定格在 '+hm(CONTEST.freeze)+'、段内格回 <code>?n</code>、'
+      +'带子换「定格视角 · 名次定格在 '+hm(CONTEST.freeze)+'」。开关复用现有 <code>.switch</code>，只在回顾顶栏出现 —— '
+      +'live 回放屏不加（实时定格是"跟榜"的本体）。s3 顶栏可现场切换两态。</span></div>'
     +'<div class="spec-row"><span class="spec-row__k">时间轴<b>封榜段斜纹 + 拖到任意时刻</b></span>'
       +'<div class="scrub" style="border-radius:var(--r);border:1px solid var(--line)">'
       +'<span class="scrub__lab">回放</span><span class="scrub__t">'+hms(CK.scrub)+'</span>'
@@ -2223,6 +2237,13 @@ $("#syncCat").addEventListener("click",function(){
     o.onlyFormal=box.checked; delete CACHE[o.id];
     paintBoard(o);
   });
+});
+
+/* ---------- s3 · 封榜视角（v6.2：开 = 定格回看，关 = 解封视界） ---------- */
+$("#frozen3").addEventListener("change",function(){
+  var o=HOSTS.filter(function(h){ return h.mode==="scrub" })[0];
+  o.frozen=this.checked; delete CACHE[o.id];
+  paintBoard(o);
 });
 $$("[data-tip]").forEach(bindTip);
 

@@ -433,6 +433,42 @@ describe('封榜定格', () => {
   });
 });
 
+/* ---------- 回顾解封视界（unsealed = 回顾默认态） ---------- */
+
+describe('回顾解封视界（unsealed）', () => {
+  const m = buildModel(fixture());
+
+  it('unsealed=true 在封榜段内 cap === elapsed：AC 直接揭晓且带「封榜后」两态', () => {
+    const b = buildBoard(m, 260 * M, false, true);
+    expect(b.cap).toBe(260 * M);
+    // T3 的 A 题在 4:20 交并 AC（落在封榜段内）：解封视界下就是 ac + post
+    const t3 = b.rows.find((r) => r.ti === 3)!;
+    expect(t3.cells[0]?.st).toBe('ac');
+    expect(t3.cells[0]?.post).toBe(true);
+    expect(t3.solved).toBe(1);
+    expect(b.frzCells).toBe(0);
+  });
+
+  it('unsealed=false 维持现状：同一时刻同一格仍是 ?1、cap 定格在 4:00', () => {
+    const b = buildBoard(m, 260 * M, false);
+    expect(b.cap).toBe(4 * H);
+    const t3 = b.rows.find((r) => r.ti === 3)!;
+    expect(t3.cells[0]?.st).toBe('frz');
+    expect(t3.cells[0]?.post).toBe(false);
+    expect(t3.solved).toBe(0);
+    expect(b.frzCells).toBe(1);
+  });
+
+  it('unsealed 只在封榜段内有差别：封榜前与终局两态一致', () => {
+    expect(buildBoard(m, 2 * H, false, true).cap).toBe(buildBoard(m, 2 * H, false).cap);
+    const finalA = buildBoard(m, 5 * H, false, true);
+    const finalB = buildBoard(m, 5 * H, false);
+    expect(finalA.cap).toBe(finalB.cap);
+    expect(finalA.solvedTotal).toBe(finalB.solvedTotal);
+    expect(finalA.frzCells).toBe(0);
+  });
+});
+
 /* ---------- 列头四档（语义 B） ---------- */
 
 describe('题号列头状态', () => {

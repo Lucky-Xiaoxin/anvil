@@ -41,6 +41,15 @@ export function startSync(source: SyncSource, handle: string): SyncStatesDto {
         .sync(handle, (next) => {
           snapshots[source.id] = next;
         })
+        .catch((err: unknown) => {
+          // sync 自己的 try/catch 之外再抛 = unhandledRejection（Node 24 默认退进程）→ 收敛成一条 error 状态
+          snapshots[source.id] = {
+            ...snapshots[source.id],
+            phase: 'error',
+            error: `同步异常：${err instanceof Error ? err.message : String(err)}`,
+          };
+          return snapshots[source.id];
+        })
         .finally(() => {
           running.delete(source.id);
         }),
