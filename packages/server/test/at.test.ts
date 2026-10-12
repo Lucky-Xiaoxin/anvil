@@ -139,6 +139,11 @@ describe('kenkoooo 提交明细解析', () => {
     expect(parseAtSubmission(rawSub(3, { result: 'TLE' })).verdict).toBe('TLE');
   });
 
+  it('判题中的空串归 NULL：订正谓词才认得出它是"非最终判定"', () => {
+    expect(parseAtSubmission(rawSub(5, { result: '' })).verdict).toBeNull();
+    expect(parseAtSubmission(rawSub(6, { result: null })).verdict).toBeNull();
+  });
+
   it('难度 / 标签本切片不拉 → NULL；题号缺失退化到提交键，绝不把两道题并成一道', () => {
     const r = parseAtSubmission(rawSub(4, { problem_id: null }));
     expect(r.problemRating).toBeNull();

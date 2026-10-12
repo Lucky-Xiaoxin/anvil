@@ -4,9 +4,10 @@
  * 许可证纪律（§2.4，AGPL-3.0）：只运行时拉取、只落 `vault/`（gitignore），
  * 不把 srk-collection 的代码或数据文件带进本仓。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { vaultDir } from './config.ts';
+import { writeFileAtomic } from './atomic.ts';
 import type { ArenaCatalogDto, ArenaContestDto, ArenaCatalogNode } from '@anvil/shared';
 
 /**
@@ -77,14 +78,6 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 function mtimeSeconds(file: string): number {
   return Math.floor(statSync(file).mtimeMs / 1000);
-}
-
-/** 原子写入：先落同目录 tmp 再 rename，避免半截文件被下一次命中当缓存读走 */
-function writeFileAtomic(file: string, text: string): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, text, 'utf8');
-  renameSync(tmp, file);
 }
 
 /* ---------- 窄 YAML 解析（§2.1：手写、零依赖、缩进 2 空格、只认四个键） ---------- */
@@ -368,8 +361,15 @@ export class ArenaClient {
     try {
       const res = await this.send(CATALOG_PATH, CATALOG_TIMEOUT_MS);
       if (res.status !== 200 || res.text.trim() === '') throw new ArenaError('unavailable', '目录返回的不是 YAML');
+      /*
+       * 先解析后落盘（与 contest() 同纪）：`parseCatalogYaml` 吃垃圾**不抛错**（返回空树），
+       * 一个 200 的垃圾响应若先落盘，会把好缓存覆盖成「目录 0 场」且回退分支永远走不到。
+       * 空树视为无效 → 抛 unavailable，降级路径（有旧缓存回旧缓存）保持原样。
+       */
+      const parsed = parseCatalogYaml(res.text);
+      if (parsed.tree.length === 0) throw new ArenaError('unavailable', '目录内容不合法');
       writeFileAtomic(this.catalogFile, res.text);
-      return this.toCatalogDto(mtimeSeconds(this.catalogFile), res.text);
+      return { fetchedAt: mtimeSeconds(this.catalogFile), total: parsed.total, tree: parsed.tree };
     } catch (err) {
       if (cached !== null) return this.toCatalogDto(cached.fetchedAt, cached.text);
       throw err instanceof ArenaError ? err : new ArenaError('unavailable', reasonOf(err));

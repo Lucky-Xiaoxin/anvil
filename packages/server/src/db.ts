@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { dayKeyOf, type AcEvent, type RatingRow, type SourceId, type SyncSourceId } from '@anvil/shared';
 
 export const SCHEMA_VERSION = 3;
@@ -199,11 +199,13 @@ function withTransaction<T>(db: DatabaseSync, fn: () => T): T {
 
 /**
  * 落库提交。重复拉取同一批不会重复计数（主键 (source, id)），但**评测中的提交允许被订正**：
- * CF 的 verdict 枚举含 `TESTING`、AT 的 result 也可能是空，用户在评测队列里点一次同步就会把
- * 那一行以 NULL/`TESTING` 写死；此后每次同步都会重新拉到它（CF 首页最新在前、AT 的游标含当天），
- * 可纯 `INSERT OR IGNORE` 会把订正后的行丢掉 —— 那条 AC 就永久从格子/连续训练/总过题里缺席，
- * 只能靠换 handle 清库才能修。这里的 `DO UPDATE … WHERE` 只订正"原来没有结论、现在有了"的行，
- * 普通重拉仍然 `changes = 0`，`stored < fetched` 的增量早退判据不受影响。
+ * 非最终判定的落库形态不止一种 —— CF 的 verdict 枚举含 `TESTING` / `IN_QUEUE` / `FROZEN` /
+ * `WAITING`，AT 判题中的 result 是空串（`parseAtSubmission` 归一后为空串不会进来，但老库/旁路
+ * 仍可能存 `''`）；用户在评测队列里点一次同步就会把那一行先写成这些形态。此后同步能重新拉到它
+ * （CF 首页最新在前；AT 从已存最晚时刻 `max(created_ts)` 重叠一秒续拉，重叠行靠主键去重），
+ * 纯 `INSERT OR IGNORE` 会把订正后的行丢掉 —— 那条 AC 就永久从格子/连续训练/总过题里缺席，
+ * 只能靠换 handle 清库才能修。这里的 `DO UPDATE … WHERE` 只订正"原来没有结论（含非最终判定）、
+ * 现在有了"的行，普通重拉仍然 `changes = 0`，`stored < fetched` 的增量早退判据不受影响。
  */
 export function insertSubmissions(db: DatabaseSync, source: SyncSourceId, rows: readonly SubmissionRow[]): number {
   const stmt = db.prepare(
@@ -212,7 +214,7 @@ export function insertSubmissions(db: DatabaseSync, source: SyncSourceId, rows: 
         verdict, language, participant_type, created_ts, relative_ts)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(source, id) DO UPDATE SET verdict = excluded.verdict
-       WHERE (submissions.verdict IS NULL OR submissions.verdict = 'TESTING')
+       WHERE (submissions.verdict IS NULL OR submissions.verdict IN ('TESTING','IN_QUEUE','FROZEN','WAITING',''))
          AND excluded.verdict IS NOT NULL
          AND excluded.verdict <> 'TESTING'`,
   );
@@ -279,9 +281,7 @@ export function submissionTimeRange(db: DatabaseSync, source: SyncSourceId): { m
   return { min: Number(row.min), max: Number(row.max) };
 }
 
-export function upsertRatingHistory(db: DatabaseSync, source: SyncSourceId, rows: readonly RatingInput[]): number {
-  const stmt = db.prepare(
-    `INSERT INTO rating_history (source, contest_key, contest_name, rank, old_rating, new_rating, is_rated, performance, updated_ts)
+const RATING_UPSERT_SQL = `INSERT INTO rating_history (source, contest_key, contest_name, rank, old_rating, new_rating, is_rated, performance, updated_ts)
      VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(source, contest_key) DO UPDATE SET
        contest_name = excluded.contest_name,
@@ -290,23 +290,40 @@ export function upsertRatingHistory(db: DatabaseSync, source: SyncSourceId, rows
        new_rating = excluded.new_rating,
        is_rated = excluded.is_rated,
        performance = excluded.performance,
-       updated_ts = excluded.updated_ts`,
-  );
+       updated_ts = excluded.updated_ts`;
+
+function runRatingRows(stmt: StatementSync, source: SyncSourceId, rows: readonly RatingInput[]): number {
+  for (const r of rows) {
+    stmt.run(
+      source,
+      r.contestKey,
+      r.contestName,
+      r.rank,
+      r.oldRating,
+      r.newRating,
+      r.isRated ? 1 : 0,
+      r.performance,
+      r.updatedTs,
+    );
+  }
+  return rows.length;
+}
+
+export function upsertRatingHistory(db: DatabaseSync, source: SyncSourceId, rows: readonly RatingInput[]): number {
+  const stmt = db.prepare(RATING_UPSERT_SQL);
+  return withTransaction(db, () => runRatingRows(stmt, source, rows));
+}
+
+/**
+ * 参赛史整域重建（AT）：先清本源、再逐行写入，**同一事务**内完成 ——
+ * 中途抛错整体回滚，不会留下「曲线被清空且没恢复」的半截状态（docs/09 §3.3）。
+ * CF 的增量路径不走这里，只 upsert（job.ts）。
+ */
+export function replaceRatingHistory(db: DatabaseSync, source: SyncSourceId, rows: readonly RatingInput[]): number {
+  const stmt = db.prepare(RATING_UPSERT_SQL);
   return withTransaction(db, () => {
-    for (const r of rows) {
-      stmt.run(
-        source,
-        r.contestKey,
-        r.contestName,
-        r.rank,
-        r.oldRating,
-        r.newRating,
-        r.isRated ? 1 : 0,
-        r.performance,
-        r.updatedTs,
-      );
-    }
-    return rows.length;
+    db.prepare('DELETE FROM rating_history WHERE source = ?').run(source);
+    return runRatingRows(stmt, source, rows);
   });
 }
 

@@ -245,6 +245,12 @@ function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
 export function Settings(props: Props) {
   return (
     <div className="content" style={{ maxWidth: 760 }}>
+      {props.status.configWarning !== undefined ? (
+        <div className="alert alert--warn rise" role="status" style={{ marginBottom: 'var(--sp-2)' }}>
+          <Icon id="i-warn" />
+          <div>{props.status.configWarning}</div>
+        </div>
+      ) : null}
       <div className="card rise" style={{ padding: 'var(--sp-3)' }}>
         <div className="srcrows">
           <Row source="cf" {...props} />

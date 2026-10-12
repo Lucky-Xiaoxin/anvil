@@ -1,19 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { SyncStateDto } from '@anvil/shared';
 import {
-  clearRatingHistory,
   countDistinctOkProblems,
   countRatingEntries,
   countSubmissions,
   getMeta,
   handleMetaKey,
   insertSubmissions,
+  replaceRatingHistory,
   resetSourceData,
   setMeta,
   setSyncState,
   submissionTimeRange,
   syncKey,
-  upsertRatingHistory,
   type RatingInput,
   type SubmissionRow,
 } from '../db.ts';
@@ -242,8 +241,9 @@ export function parseAtSubmission(s: AtSubmissionRaw): SubmissionRow {
     // 题目难度 / 标签本切片不拉（docs/09 §10）→ 存 NULL，界面渲染 —
     problemRating: null,
     problemTagsJson: null,
-    // AC → OK：与 CF 用同一个判定词，shared 的聚合函数才能直接复用（docs/09 §5）
-    verdict: s.result === 'AC' ? 'OK' : (s.result ?? null),
+    // AC → OK：与 CF 用同一个判定词，shared 的聚合函数才能直接复用（docs/09 §5）；
+    // 判题中的 result 是空串 → 归 NULL（`??` 拦不住空串），否则订正谓词认不出它是"非最终判定"
+    verdict: s.result === 'AC' ? 'OK' : (s.result || null),
     language: s.language ?? null,
     participantType: null,
     createdTs: s.epoch_second,
@@ -339,9 +339,9 @@ export async function syncAt(
     publish({ phase: 'storing', total: countSubmissions(db, SOURCE) });
     const history = await client.history(handle);
     const rows = history.map(parseAtHistory).filter((r): r is RatingInput => r !== null);
-    // 参赛史整域重建：官方不给"这场撤了"的事件，上游删掉的一场必须从本地消失
-    clearRatingHistory(db, SOURCE);
-    upsertRatingHistory(db, SOURCE, rows);
+    // 参赛史整域重建：官方不给"这场撤了"的事件，上游删掉的一场必须从本地消失；
+    // 清空 + 写入并进一个事务 —— 中途抛错不会把整条曲线丢在"已清空"状态
+    replaceRatingHistory(db, SOURCE, rows);
     setSyncState(db, syncKey(SOURCE, 'last_sync_at'), String(Math.floor(Date.now() / 1000)));
     setSyncState(db, syncKey(SOURCE, 'last_error'), '');
     publish({ phase: 'done', ...deriveAtState(db) });
