@@ -1202,6 +1202,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   max-height:60vh;overflow:auto;
   animation:rise 200ms var(--ease) both;
 }
+/* 「我的成绩」录入面板：13 行 + 底部开关 + 小注比明细高，60vh 会把小注裁到滚动区外，
+   并和 `.ghgrid` 形成双滚动 —— 放开这一种弹层的高度，滚动只交给题目网格。 */
+.pop--panel{max-height:min(82vh,560px)}
 .pop__h{display:flex;align-items:baseline;gap:8px;min-width:0;padding-right:18px}
 .pop__t{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pop__x{position:absolute;right:12px;top:11px;font-family:var(--font-num);font-size:13px;color:var(--text-mute);line-height:1}

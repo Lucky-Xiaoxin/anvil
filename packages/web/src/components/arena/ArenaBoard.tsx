@@ -619,8 +619,9 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           viewport={{ w: window.innerWidth, h: window.innerHeight }}
           onClose={() => setPop(null)}
           width={pop.kind === 'ghost' ? 330 : 270}
-          height={pop.kind === 'ghost' ? 470 : 260}
+          height={pop.kind === 'ghost' ? 500 : 260}
           label={pop.kind === 'ghost' ? '我的成绩' : '明细'}
+          cls={pop.kind === 'ghost' ? 'pop--panel' : undefined}
         >
           {pop.kind === 'sub' ? (
             <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} ghost={ghost} />
