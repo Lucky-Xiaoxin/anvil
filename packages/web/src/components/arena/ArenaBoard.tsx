@@ -620,6 +620,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           onClose={() => setPop(null)}
           width={pop.kind === 'ghost' ? 330 : 270}
           height={pop.kind === 'ghost' ? 470 : 260}
+          label={pop.kind === 'ghost' ? '我的成绩' : '明细'}
         >
           {pop.kind === 'sub' ? (
             <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} ghost={ghost} />

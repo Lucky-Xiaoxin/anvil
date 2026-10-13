@@ -18,6 +18,9 @@ export interface Anchor {
 /**
  * 弹层外壳。`width` / `height` 是稿内定值（默认 270 × 260 = 提交明细与队伍弹层），
  * 幽灵面板更高（330 × 470）—— 翻转判定按传入值算，默认值保证现有两弹层零变化。
+ *
+ * `label` 同规格：默认「明细」= 提交明细 / 队伍两弹层原样，幽灵弹层传「我的成绩」
+ * （它不是"明细"，是一块录入面板，无障碍名跟着语义走）。
  */
 export function Popover({
   anchor,
@@ -25,6 +28,7 @@ export function Popover({
   onClose,
   width = 270,
   height = 260,
+  label = '明细',
   children,
 }: {
   anchor: Anchor;
@@ -32,6 +36,8 @@ export function Popover({
   onClose: () => void;
   width?: number;
   height?: number;
+  /** 弹层的无障碍名（默认「明细」） */
+  label?: string;
   children: ReactNode;
 }) {
   /*
@@ -45,7 +51,7 @@ export function Popover({
   return (
     <>
       <div className="backdrop" onMouseDown={onClose} />
-      <div className="pop" role="dialog" aria-modal="false" aria-label="明细" style={{ left, top, width }}>
+      <div className="pop" role="dialog" aria-modal="false" aria-label={label} style={{ left, top, width }}>
         {children}
         <button className="pop__x" aria-label="关闭" onClick={onClose}>
           ×
