@@ -466,7 +466,7 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter, cached, b
       </span>
       {err === '' ? null : (
         <span className="crow__err" title={err}>
-          预拉取失败：{err}
+          {err}
         </span>
       )}
     </div>

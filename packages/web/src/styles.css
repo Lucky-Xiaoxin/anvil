@@ -953,8 +953,11 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 /* v7 · 目录「预拉取」：已缓存行的「本地」小标（照 design/mock-04-simboard.html v7 原样抄） */
 .crow__cache{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
 .crow__cache .dot{width:5px;height:5px}
-/* 预拉取失败 = 该行 actions 后的一行小字，不弹大 alert、不动全屏 error 态（docs/20 §1） */
-.crow__err{font-size:10.5px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:240px}
+/* 预拉取失败 = 该行下方的小字，不弹大 alert、不动全屏 error 态（docs/20 §1）。
+   `.crow` 是四列定高网格，小字是第 5 个网格项 —— 让它整行跨列独占第二行，
+   并给带小字的行放开高度（第一行仍是 38px，四件套对齐不变）。 */
+.crow__err{grid-column:1 / -1;font-size:10.5px;color:var(--bad);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.crow:has(.crow__err){height:auto;grid-template-rows:38px auto;padding-bottom:5px}
 .btn--xs{height:24px;padding:0 9px;font-size:11.5px;gap:6px;font-weight:600}
 .btn--xs svg{width:12px;height:12px}
 .btn--go{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
