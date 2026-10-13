@@ -212,6 +212,31 @@ export function cellAt(
 
 /* ---------- 重建后的榜 ---------- */
 
+/** 「我的成绩」单题录入（docs/20 §2.1）：`ac` 缺省 = 未过；单位 = **比赛分钟** */
+export interface GhostMark {
+  p: number;
+  ac?: number;
+  fails?: number;
+}
+
+/**
+ * 幽灵行的一格（docs/20 §2.2）：手动录入没有逐发时刻，**不伪造 `SrkSolution` 去骗 `cellAt`**。
+ *
+ * 罚时口径与全榜逐字一致：AC 前的失败计入（×20），未过题的失败不计 —— 那由 `buildBoard`
+ * 只在 `st === 'ac'` 时取 `fails` 来保证。未过格 `t = 0` = 无时刻，显示层只出 `−n`。
+ */
+export function ghostCell(mark: GhostMark | undefined, elapsed: number, cap: number, freezeStart: number): Cell {
+  const fails = mark?.fails ?? 0;
+  const unmet: Cell = { st: 'pen', t: 0, n: fails, fails, nCap: fails, post: false };
+  if (mark?.ac === undefined) return fails > 0 ? unmet : EMPTY_CELL;
+  const t = mark.ac * 60_000;
+  // 还没走到这一分钟：这一格在当前的榜上还不存在
+  if (t > elapsed) return fails > 0 ? unmet : EMPTY_CELL;
+  if (t <= cap) return { st: 'ac', t, n: fails + 1, fails, nCap: fails + 1, post: t > freezeStart };
+  // 落在封榜段内（`cap < t ≤ elapsed`）：只说次数，不透露判名
+  return { st: 'frz', t, n: fails + 1, fails: 0, nCap: fails + 1, post: false };
+}
+
 export interface BoardRow {
   /** 队伍序号（= `rows[]` 下标），弹层寻址与稳定 tie-break 用 */
   ti: number;
@@ -225,6 +250,8 @@ export interface BoardRow {
   solved: number;
   pen: number;
   star: boolean;
+  /** 「我的成绩」幽灵行：占名额与奖牌，但不进 S# / 列头 / 榜脚读数 */
+  ghost?: boolean;
   cells: Cell[];
 }
 
@@ -236,6 +263,8 @@ export interface Board {
   frozenRows: number;
   solvedTotal: number;
   cap: number;
+  /** 榜上有幽灵行时给的合成队伍（弹层寻址 `ti === -1` 用）；没有幽灵 = null */
+  ghostTeam?: TeamModel | null;
 }
 
 /**
@@ -430,7 +459,21 @@ interface Acc {
   star: boolean;
   org: string;
   cells: Cell[];
+  ghost?: boolean;
 }
+
+/** 幽灵行的合成队伍（docs/22 §2.2）：`ti = -1` 是它与弹层之间的寻址暗号，不在 `model.teams[]` 里 */
+const ghostTeamModel = (): TeamModel => ({
+  ti: -1,
+  name: '你',
+  org: '我的成绩',
+  members: [],
+  seat: '—',
+  star: false,
+  subs: [],
+  summaries: [],
+  verdicts: [],
+});
 
 /**
  * 按 `elapsed` 重建整张榜（§4）。
@@ -438,9 +481,20 @@ interface Acc {
  * `unsealed = true` 时 cap 直接取 `elapsed`（回顾模式的「解封视界」：封榜段的格子显示真实结果，
  * 名次 / 罚时 / 列头读数全部按该时刻全量解封算）；默认 false = 现状（封榜即定格）。
  *
+ * `ghost` = 「我的成绩」的录入（docs/20 §2.2）：传来就注入成一行合成队，**占名额** ——
+ * 走正式队通道占 `place`、吃奖牌带，其下队伍的名次与奖牌随之重排一位；`S#` 不给号、
+ * 不进列头读数、不进榜脚「榜上 N 队 / 累计过题」，但封榜带的「结果未知」读数**计入**。
+ * 是否注入由界面判（「展示我」关或全空就不传）。
+ *
  * 每秒的成本只在「队伍 × 题数」的一遍扫描；行组件按 `cells` 引用 memo，未变动的行不重渲。
  */
-export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boolean, unsealed = false): Board {
+export function buildBoard(
+  model: ContestModel,
+  elapsed: number,
+  onlyFormal: boolean,
+  unsealed = false,
+  ghost?: GhostMark[] | null,
+): Board {
   const { duration, freezeStart, teams, problems, bands } = model;
   const cap = unsealed ? elapsed : capAt(elapsed, duration, freezeStart);
   const n = problems.length;
@@ -463,6 +517,28 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
       }
     }
     accs.push({ ti: team.ti, solved, pen, last, star: team.star, org: team.org, cells });
+  }
+
+  /* 「我的成绩」：同一套 solved / pen / last 口径，格子走 ghostCell（手动录入，没有逐发时刻可用） */
+  let ghostTeam: TeamModel | null = null;
+  if (ghost !== undefined && ghost !== null) {
+    const byP = new Map<number, GhostMark>();
+    for (const m of ghost) byP.set(m.p, m);
+    let solved = 0;
+    let pen = 0;
+    let last = 0;
+    const cells: Cell[] = [];
+    for (let p = 0; p < n; p++) {
+      const c = ghostCell(byP.get(p), elapsed, cap, freezeStart);
+      cells.push(c);
+      if (c.st === 'ac' || c.st === 'fb') {
+        solved++;
+        pen += minutesOf(c.t) + c.fails * 20;
+        if (minutesOf(c.t) > last) last = minutesOf(c.t);
+      }
+    }
+    accs.push({ ti: -1, solved, pen, last, star: false, org: '我的成绩', cells, ghost: true });
+    ghostTeam = ghostTeamModel();
   }
   accs.sort((a, b) => b.solved - a.solved || a.pen - b.pen || a.last - b.last || a.ti - b.ti);
 
@@ -494,26 +570,33 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
 
     const band = a.star ? undefined : bands.find((b) => place <= b.upTo);
     let srank = '';
-    if (!a.star && !seenOrg.has(a.org)) {
+    if (!a.star && !a.ghost && !seenOrg.has(a.org)) {
       seenOrg.add(a.org);
       srank = String(seenOrg.size);
     }
-    let has = false;
-    for (let p = 0; p < n; p++) {
-      const c = a.cells[p]!;
-      col[p]!.sub += c.nCap;
-      if (c.st === 'ac' || c.st === 'fb') {
-        col[p]!.ac++;
-        // 封榜后才通过的：只有终榜 / 回顾才算得出来（回放中这类格还是 ?）
-        if (c.post) col[p]!.postAc++;
-      } else if (c.st === 'frz') {
-        col[p]!.frz++;
-        has = true;
-        frzCells++;
+    /* 列头读数与榜脚「累计过题」按官方口径：幽灵整行跳过（docs/20 §2.2 三排除） */
+    if (!a.ghost) {
+      for (let p = 0; p < n; p++) {
+        const c = a.cells[p]!;
+        col[p]!.sub += c.nCap;
+        if (c.st === 'ac' || c.st === 'fb') {
+          col[p]!.ac++;
+          // 封榜后才通过的：只有终榜 / 回顾才算得出来（回放中这类格还是 ?）
+          if (c.post) col[p]!.postAc++;
+        } else if (c.st === 'frz') {
+          col[p]!.frz++;
+        }
       }
     }
+    /* 封榜带「结果未知 N 格 · 涉及 N 队」含幽灵 —— 我也有未定的格 */
+    let has = false;
+    for (let p = 0; p < n; p++) {
+      if (a.cells[p]!.st !== 'frz') continue;
+      has = true;
+      frzCells++;
+    }
     if (has) frozenRows++;
-    solvedTotal += a.solved;
+    if (!a.ghost) solvedTotal += a.solved;
     rows.push({
       ti: a.ti,
       rank,
@@ -524,11 +607,12 @@ export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boo
       solved: a.solved,
       pen: a.pen,
       star: a.star,
+      ghost: a.ghost,
       cells: a.cells,
     });
   });
 
-  return { rows, col, frzCells, frozenRows, solvedTotal, cap };
+  return { rows, col, frzCells, frozenRows, solvedTotal, cap, ghostTeam };
 }
 
 /* ---------- 时钟（§3：localStorage 每场一条会话，刷新按开始时刻续钟） ---------- */

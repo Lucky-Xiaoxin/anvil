@@ -5,12 +5,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FREEZE_MS,
+  EMPTY_CELL,
   buildBoard,
   buildModel,
   capAt,
   cellAt,
   elapsedOf,
   finish,
+  ghostCell,
   inFreezeWindow,
   medalBands,
   minutesOf,
@@ -22,6 +24,7 @@ import {
   tick,
   toMs,
   unpause,
+  type GhostMark,
   type SrkDoc,
   type SrkSolution,
 } from '../src/components/arena/engine.ts';
@@ -658,6 +661,168 @@ describe('近似榜（只有终局判名）', () => {
     const frozen = buildBoard(m, 261 * M, false);
     expect(problemHeadState(frozen.col[1]!)).toBe('pending');
     expect(problemHeadState(buildBoard(m, 5 * H, false).col[1]!)).toBe('noone');
+  });
+});
+
+/* ---------- 幽灵行「我的成绩」（docs/20 §2.2） ---------- */
+
+describe('幽灵格 ghostCell', () => {
+  const freezeStart = 4 * H; // 5 小时场 · 未声明封榜 → 缺省最后 60 分钟
+  const liveCap = 4 * H; // 回放中封榜段内的定格点
+
+  it('没录入 / 录了个空 → 空格，不占任何读数', () => {
+    expect(ghostCell(undefined, 5 * H, 5 * H, freezeStart)).toEqual(EMPTY_CELL);
+    expect(ghostCell({ p: 3 }, 5 * H, 5 * H, freezeStart)).toEqual(EMPTY_CELL);
+  });
+
+  it('只有失败 → pen 且 t = 0：输入里没有末次时刻，显示层只出 −n', () => {
+    expect(ghostCell({ p: 1, fails: 2 }, 260 * M, liveCap, freezeStart)).toEqual({
+      st: 'pen', t: 0, n: 2, fails: 2, nCap: 2, post: false,
+    });
+    expect(minutesOf(ghostCell({ p: 1, fails: 2 }, 5 * H, 5 * H, freezeStart).t)).toBe(0);
+  });
+
+  it('ac ≤ cap → ac，n = fails + 1，罚时按「AC 分钟 + 20 × AC 前失败」', () => {
+    const c = ghostCell({ p: 0, ac: 113, fails: 2 }, 5 * H, 5 * H, freezeStart);
+    expect(c).toEqual({ st: 'ac', t: 113 * M, n: 3, fails: 2, nCap: 3, post: false });
+    expect(minutesOf(c.t) + c.fails * 20).toBe(113 + 40);
+  });
+
+  it('封榜前 AC 且一发就过 → ×1（界面靠 n > 1 才显次数）', () => {
+    expect(ghostCell({ p: 0, ac: 45 }, 5 * H, 5 * H, freezeStart)).toEqual({
+      st: 'ac', t: 45 * M, n: 1, fails: 0, nCap: 1, post: false,
+    });
+  });
+
+  it('封榜段（cap < ac ≤ elapsed）→ frz ?(fails+1)，不提前泄判名', () => {
+    expect(ghostCell({ p: 0, ac: 250, fails: 1 }, 260 * M, liveCap, freezeStart)).toEqual({
+      st: 'frz', t: 250 * M, n: 2, fails: 0, nCap: 2, post: false,
+    });
+  });
+
+  it('还没走到那一刻（ac > elapsed）→ 按未过处理：有失败显 −fails，没有就空', () => {
+    expect(ghostCell({ p: 0, ac: 250, fails: 3 }, 60 * M, 60 * M, freezeStart)).toEqual({
+      st: 'pen', t: 0, n: 3, fails: 3, nCap: 3, post: false,
+    });
+    expect(ghostCell({ p: 0, ac: 250 }, 60 * M, 60 * M, freezeStart)).toEqual(EMPTY_CELL);
+  });
+
+  it('解封视界（cap = elapsed）下段内的 AC 直接显结果并挂 post', () => {
+    expect(ghostCell({ p: 0, ac: 250, fails: 1 }, 260 * M, 260 * M, freezeStart)).toEqual({
+      st: 'ac', t: 250 * M, n: 2, fails: 1, nCap: 2, post: true,
+    });
+  });
+});
+
+describe('幽灵行入榜（占名额 + 三排除）', () => {
+  const m = buildModel(fixture());
+
+  it('走正式队通道：占 place、吃奖牌带，其下队伍的名次与奖牌重排一位', () => {
+    const plain = buildBoard(m, 5 * H, false);
+    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    expect(b.rows.map((r) => r.ti)).toEqual([2, 1, -1, 0, 3, 4]);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect(g).toMatchObject({ ti: -1, rank: 3, place: 2, medal: 'silver', srank: '', solved: 1, pen: 100 });
+    const byTi = new Map(b.rows.map((r) => [r.ti, r]));
+    const before = new Map(plain.rows.map((r) => [r.ti, r]));
+    // 幽灵之下的队伍：名次 +1、奖牌往下挪一档（原来 gold 的 T1 不动，silver 的 T0 变 bronze）
+    expect(before.get(0)).toMatchObject({ rank: 3, place: 2, medal: 'silver' });
+    expect(byTi.get(0)).toMatchObject({ rank: 4, place: 3, medal: 'bronze' });
+    expect(byTi.get(0)).toMatchObject({ rank: 4, place: 3, medal: 'bronze' });
+    expect(byTi.get(3)).toMatchObject({ rank: 5, place: 4, medal: null });
+    expect(byTi.get(1)!.medal).toBe('gold');
+  });
+
+  it('三排除：S# 不给号、列头读数不动、榜脚「累计过题」不计', () => {
+    const plain = buildBoard(m, 5 * H, false);
+    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    expect(b.rows.find((r) => r.ghost)?.srank).toBe('');
+    // 幽灵的 B 题 AC 不进列头「过 N / 交 M」
+    expect(b.col).toEqual(plain.col);
+    // 榜脚累计过题 = 没有幽灵时一样（幽灵那 1 题不算）
+    expect(b.solvedTotal).toBe(plain.solvedTotal);
+    expect(b.solvedTotal).toBe(4);
+    // S# 序号不被幽灵的「我的成绩」吃掉：北大头队照旧是 2
+    const byTi = new Map(b.rows.map((r) => [r.ti, r]));
+    expect(byTi.get(0)?.srank).toBe('2');
+    expect(byTi.get(1)?.srank).toBe('1');
+  });
+
+  it('并列时 ti = -1 排在最前（沿用引擎既有 sameScore + (last, ti) 裁决）', () => {
+    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 60 }]);
+    expect(b.rows.map((r) => r.ti)).toEqual([2, -1, 1, 0, 3, 4]);
+    expect(b.rows.map((r) => r.rank)).toEqual([1, 2, 2, 4, 5, 6]);
+  });
+
+  it('仅正式队开着也显示：打星队退场，幽灵不是打星队', () => {
+    const b = buildBoard(m, 5 * H, true, false, [{ p: 1, ac: 100 }]);
+    expect(b.rows.map((r) => r.ti)).toEqual([1, -1, 0, 3, 4]);
+    expect(b.rows.every((r) => !r.star)).toBe(true);
+  });
+
+  it('封榜带读数计入：幽灵的段内格也是「结果未知」', () => {
+    const plain = buildBoard(m, 260 * M, false);
+    const b = buildBoard(m, 260 * M, false, false, [{ p: 0, ac: 250 }]);
+    expect([plain.frzCells, plain.frozenRows]).toEqual([1, 1]);
+    expect([b.frzCells, b.frozenRows]).toEqual([2, 2]);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect(g.cells[0]).toMatchObject({ st: 'frz', n: 1 });
+    expect([g.solved, g.pen]).toEqual([0, 0]);
+  });
+
+  it('回顾解封视界：段内的 AC 进门次与罚时，格上带「封榜后」', () => {
+    const b = buildBoard(m, 260 * M, false, true, [{ p: 0, ac: 250, fails: 1 }]);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect(g.cells[0]).toMatchObject({ st: 'ac', post: true, n: 2 });
+    expect([g.solved, g.pen]).toEqual([1, 250 + 20]);
+    expect(b.frzCells).toBe(0);
+  });
+
+  it('ghostTeam 是合成队伍：ti = -1 / 队名「你」/ 校名「我的成绩」/ 机位「—」', () => {
+    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    expect(b.ghostTeam).toMatchObject({ ti: -1, name: '你', org: '我的成绩', seat: '—', star: false, members: [] });
+    expect(buildBoard(m, 5 * H, false).ghostTeam).toBeNull();
+    expect(buildBoard(m, 5 * H, false, false, null).ghostTeam).toBeNull();
+  });
+
+  /** 13 题 A–M 的空场：只为把 mock v7 `GHOSTVAL` 的手算钉进单测（docs/20 §2.4 验收 1） */
+  const sheet = buildModel({
+    contest: { title: { 'zh-CN': '手算场' }, startAt: '', duration: [5, 'h'], frozenDuration: [0, 'h'] },
+    problems: 'ABCDEFGHIJKLM'.split('').map((a) => ({ alias: a })),
+    rows: [
+      {
+        user: { name: '参照队', id: 'R1', organization: '参照大学', official: true },
+        statuses: [{ result: 'AC', time: [3600, 's'], tries: 1, solutions: [sol('AC', 60 * M)] }],
+      },
+    ],
+  });
+  const GHOSTVAL: GhostMark[] = [
+    { p: 0, ac: 113 }, { p: 1, ac: 45, fails: 2 }, { p: 2, ac: 231 }, { p: 3, ac: 210 }, { p: 4, ac: 65 },
+    { p: 5, ac: 40 }, { p: 6, ac: 187, fails: 1 }, { p: 7, ac: 96 }, { p: 8, ac: 88 }, { p: 9, ac: 55 },
+    { p: 10, fails: 2 }, { p: 11, ac: 250 }, { p: 12, ac: 30 },
+  ];
+
+  it('手算：拖到 4:32 · 定格视角 = 11 过 / 罚时 1220（L 的 250′ 还在封榜段）', () => {
+    const b = buildBoard(sheet, 272 * M, false, false, GHOSTVAL);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect([g.solved, g.pen]).toEqual([11, 1220]);
+    expect(g.cells[11]).toMatchObject({ st: 'frz', n: 1 }); // L：250′ 段内 → ?1
+    expect(g.cells[10]).toMatchObject({ st: 'pen', t: 0, n: 2 }); // K：只 2 发、未过
+    expect(g.cells[0]).toMatchObject({ st: 'ac', t: 113 * M, n: 1 });
+  });
+
+  it('手算：同一场关「封榜视角」（解封视界）= 12 过 / 罚时 1470', () => {
+    const b = buildBoard(sheet, 272 * M, false, true, GHOSTVAL);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect([g.solved, g.pen]).toEqual([12, 1470]);
+    expect(g.cells[11]).toMatchObject({ st: 'ac', t: 250 * M, post: true });
+    expect(b.frzCells).toBe(0);
+  });
+
+  it('未过题的失败不计罚时：K 的 2 发不进 pen，AC 前的失败才 ×20', () => {
+    const b = buildBoard(sheet, 272 * M, false, false, [{ p: 0, ac: 100, fails: 1 }, { p: 1, fails: 9 }]);
+    const g = b.rows.find((r) => r.ghost)!;
+    expect([g.solved, g.pen]).toEqual([1, 100 + 20]);
   });
 });
 

@@ -5,12 +5,16 @@ import { describe, expect, it } from 'vitest';
 import type { ArenaCatalogNode } from '@anvil/shared';
 import { catalogHeadline, flattenLeaves, leafRowOf, searchLeaves, tierOf, toGroupNode } from '../src/components/arena/catalog.ts';
 import {
+  clearGhost,
   clearSession,
+  ghostKey,
+  loadGhost,
   loadOpenGroups,
   loadRail,
   loadScrollTop,
   loadSession,
   listSessionPaths,
+  saveGhost,
   saveOpenGroups,
   saveRail,
   saveScrollTop,
@@ -186,6 +190,84 @@ describe('会话与轨道状态存储', () => {
     expect(loadRail(s)).toBe(false);
     s.setItem('arena:rail', 'yes');
     expect(loadRail(s)).toBe(false);
+  });
+});
+
+describe('「我的成绩」幽灵行存储（docs/20 §2.1）', () => {
+  const PATH = 'official/icpc/icpc2025/a.srk.json';
+
+  it('键族是 arena:ghost:<官方路径>，且不混进「进行中场次」的枚举', () => {
+    expect(ghostKey(PATH)).toBe(`arena:ghost:${PATH}`);
+    const s = memoryStore();
+    saveGhost(s, PATH, { show: true, marks: [{ p: 0, ac: 113 }] });
+    // 目录那行「回放中」只认 arena:session: 前缀，幽灵键不该被当成一场活着的回放
+    expect(listSessionPaths(s)).toEqual([]);
+  });
+
+  it('存 ↔ 回读逐字段一致；marks 按 p 升序落盘，稀疏的空洞原样留着', () => {
+    const s = memoryStore();
+    saveGhost(s, PATH, { show: true, marks: [{ p: 7, ac: 187, fails: 1 }, { p: 0, ac: 113 }, { p: 10, fails: 2 }] });
+    expect(s.getItem(ghostKey(PATH))).toBe(
+      '{"show":true,"marks":[{"p":0,"ac":113},{"p":7,"ac":187,"fails":1},{"p":10,"fails":2}]}',
+    );
+    expect(loadGhost(s, PATH)).toEqual({ show: true, marks: [{ p: 0, ac: 113 }, { p: 7, ac: 187, fails: 1 }, { p: 10, fails: 2 }] });
+  });
+
+  it('「展示我」关掉也照样留数据；全空的 marks 存得下（清除后重录）', () => {
+    const s = memoryStore();
+    saveGhost(s, PATH, { show: false, marks: [{ p: 0, ac: 113 }] });
+    expect(loadGhost(s, PATH)).toEqual({ show: false, marks: [{ p: 0, ac: 113 }] });
+    saveGhost(s, PATH, { show: true, marks: [] });
+    expect(loadGhost(s, PATH)).toEqual({ show: true, marks: [] });
+  });
+
+  it('没存过 / 空串 / 坏 JSON / 形状不对 → null（当没有，而不是半条榜）', () => {
+    const s = memoryStore();
+    expect(loadGhost(s, PATH)).toBeNull();
+    for (const raw of ['', '{ 半截', '[]', '3', 'null', '{"marks":"不是数组"}', '{"show":true}']) {
+      s.setItem(ghostKey(PATH), raw);
+      expect(loadGhost(s, PATH)).toBeNull();
+    }
+  });
+
+  it('缺 show 默认开（手改的键不该把行悄悄藏掉）', () => {
+    const s = memoryStore();
+    s.setItem(ghostKey(PATH), '{"marks":[{"p":1,"ac":60}]}');
+    expect(loadGhost(s, PATH)).toEqual({ show: true, marks: [{ p: 1, ac: 60 }] });
+  });
+
+  it('非法项逐条丢弃：p 不是非负整数、ac 不是正有限数、fails 不是 ≥1 整数都不要', () => {
+    const s = memoryStore();
+    // 1e999 是 JSON 里唯一能写出「无穷大」的形状（stringify 会把它变成 null，故手写原文）
+    s.setItem(
+      ghostKey(PATH),
+      '{"show":true,"marks":[null,7,{"ac":10},{"p":"A","ac":10},{"p":-1,"ac":10},{"p":1.5,"ac":10},' +
+        '{"p":2,"ac":0},{"p":3,"ac":-5},{"p":4,"ac":"x"},{"p":4,"ac":1e999},' +
+        '{"p":5,"fails":0},{"p":6,"fails":1.5},{"p":6,"fails":-2},{"p":8,"ac":100,"fails":3},{"p":9}]}',
+    );
+    expect(loadGhost(s, PATH)?.marks).toEqual([{ p: 8, ac: 100, fails: 3 }, { p: 9 }]);
+  });
+
+  it('每场一条互不串台；clearGhost 只删这一场的键，会话记录照旧', () => {
+    const s = memoryStore();
+    saveGhost(s, 'official/x/a.srk.json', { show: true, marks: [{ p: 0, ac: 10 }] });
+    saveGhost(s, 'official/x/b.srk.json', { show: true, marks: [{ p: 1, fails: 2 }] });
+    saveSession(s, 'official/x/a.srk.json', { started: 1, hold: false, paused: false, ended: false, scrubMs: 0, at: 0, durationMs: 5 });
+    clearGhost(s, 'official/x/a.srk.json');
+    expect(loadGhost(s, 'official/x/a.srk.json')).toBeNull();
+    expect(loadGhost(s, 'official/x/b.srk.json')?.marks).toEqual([{ p: 1, fails: 2 }]);
+    expect(loadSession(s, 'official/x/a.srk.json')?.started).toBe(1);
+  });
+
+  it('存储抛错时静默降级：读回 null / 写不进去也不炸', () => {
+    const angry = {
+      getItem: () => { throw new Error('SecurityError'); },
+      setItem: () => { throw new Error('QuotaExceeded'); },
+      removeItem: () => { throw new Error('SecurityError'); },
+    };
+    expect(loadGhost(angry, PATH)).toBeNull();
+    expect(() => saveGhost(angry, PATH, { show: true, marks: [{ p: 0, ac: 10 }] })).not.toThrow();
+    expect(() => clearGhost(angry, PATH)).not.toThrow();
   });
 });
 
