@@ -369,7 +369,11 @@ export class ArenaClient {
       const parsed = parseCatalogYaml(res.text);
       if (parsed.tree.length === 0) throw new ArenaError('unavailable', '目录内容不合法');
       writeFileAtomic(this.catalogFile, res.text);
-      return { fetchedAt: mtimeSeconds(this.catalogFile), total: parsed.total, tree: parsed.tree };
+      return {
+        fetchedAt: mtimeSeconds(this.catalogFile),
+        total: parsed.total,
+        tree: this.annotateCached(parsed.tree),
+      };
     } catch (err) {
       if (cached !== null) return this.toCatalogDto(cached.fetchedAt, cached.text);
       throw err instanceof ArenaError ? err : new ArenaError('unavailable', reasonOf(err));
@@ -378,7 +382,20 @@ export class ArenaClient {
 
   private toCatalogDto(fetchedAt: number, text: string): ArenaCatalogDto {
     const { tree, total } = parseCatalogYaml(text);
-    return { fetchedAt, total, tree };
+    return { fetchedAt, total, tree: this.annotateCached(tree) };
+  }
+
+  /**
+   * 给树叶子标 `cached`（docs/20 §1）：镜像文件 `vault/arena/<官方路径>` 在不在磁盘上。
+   * 目录的**两条**回吐路径（新鲜拉取 / 读缓存文件）都要过这里 —— 只标一条会在读缓存目录时全漏。
+   * 394 枚叶子 × existsSync，本地磁盘判断，零压力。
+   */
+  private annotateCached(nodes: ArenaCatalogNode[]): ArenaCatalogNode[] {
+    return nodes.map((n) =>
+      n.path !== undefined
+        ? { ...n, cached: existsSync(join(this.dir, n.path)) }
+        : { ...n, children: this.annotateCached(n.children ?? []) },
+    );
   }
 
   /** 单场：路径镜像落盘，内容终局不变 → 已缓存即回，永不过期（§2.1） */

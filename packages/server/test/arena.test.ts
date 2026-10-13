@@ -256,6 +256,44 @@ describe('目录缓存', () => {
     expect(dto.fetchedAt).toBe(when);
   });
 
+  /* 预拉取的界面口径靠这两条撑着（docs/20 §1）：目录叶子得知道镜像文件在不在磁盘上 */
+  const SH = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
+  const SHENYANG = 'official/icpc/icpc2025/icpc2025shenyang.srk.json';
+  const FINAL = 'official/ccpc/ccpc2025/ccpc2025final.srk.json';
+
+  /** 往缓存根里放一枚镜像文件（目录要按官方路径分层建） */
+  const putMirror = (path: string): void => {
+    mkdirSync(join(dir, dirname(path)), { recursive: true });
+    writeFileSync(join(dir, path), JSON.stringify({ type: 'general' }), 'utf8');
+  };
+
+  it('cached：新鲜拉取那条路径也给叶子标注（放了一枚镜像文件，另一枚没放）', async () => {
+    putMirror(SH);
+    const { fetchImpl } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
+    const dto = await mkClient({ fetchImpl, dir }).catalog();
+    const kids = dto.tree[0]?.children?.[0]?.children ?? [];
+    expect(kids.map((n) => [n.path, n.cached])).toEqual([
+      [SH, true],
+      [SHENYANG, false],
+    ]);
+    expect(kids.length).toBe(2);
+    // 分组节点不跟着标 cached：这字段是叶子的
+    expect(dto.tree[0]?.cached).toBeUndefined();
+    expect(dto.tree[0]?.children?.[0]?.cached).toBeUndefined();
+  });
+
+  it('cached：读磁盘目录缓存那条路径同样标注（只标一条就会在这里全漏）', async () => {
+    writeFileSync(join(dir, '_catalog.yaml'), CATALOG, 'utf8');
+    putMirror(FINAL);
+    const { fetchImpl, hits } = countingFetch({});
+    const dto = await mkClient({ fetchImpl, dir }).catalog();
+    expect(hits[CATALOG_PATH]).toBeUndefined();
+    const ccpc = dto.tree[1]?.children?.[0]?.children ?? [];
+    expect(ccpc.map((n) => [n.path, n.cached])).toEqual([[FINAL, true]]);
+    expect(dto.tree[0]?.children?.[0]?.children?.[0]?.cached).toBe(false);
+    expect(dto.tree[2]?.children?.[0]?.children?.[0]?.cached).toBe(false);
+  });
+
   it('refresh=1 强制重拉', async () => {
     const { fetchImpl, hits } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
     const c = mkClient({ fetchImpl, dir });
