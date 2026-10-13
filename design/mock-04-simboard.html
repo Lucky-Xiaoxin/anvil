@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ANVIL · 模拟榜单 · v6.2（切片 4 设计稿 · 修订）</title>
+<title>ANVIL · 模拟榜单 · v7（切片 4 设计稿 · 修订）</title>
 <meta name="description" content="ANVIL（铁砧）切片 4 视觉稿：模拟榜单 —— 赛事目录 / 回放榜（计时 · 封榜）/ 回顾模式（时间轴 · 封榜视角开关）/ 组件与状态 + 侧栏收起态。">
 <style>
 /* ==========================================================================
-   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v6.2 · 2026-10-12 修订）
+   ANVIL · 模拟榜单 · mock-04（切片 4 设计稿 v7 · 2026-10-13 修订）
    v6 修订（用户验收反馈）：
      ① 榜体放大并填满内容区 —— 题列 30→36、行高 32→36、列头 46→50、
         去掉 1030 收口（余量全归 Org/Team，题列不再是最小的一档）；
@@ -18,6 +18,11 @@
      ⑤ 回顾模式「封榜视角」开关（两个都要）—— 默认关 = 解封视界：滑动即重建、封榜段直接给结果；
         开 = 定格回看（即 v6 的旧行为）：名次/罚时定格在封榜点、段内格回 ?n、封榜带换「定格视角」文案。
         s3 顶栏开关真可切换；mock 自己的 capAt/buildBoard 同吃 unsealed 参数；s4 加一行两态对照。
+   v7 修订（2026-10-13 · 榜单增强批次）：
+     ⑥ 目录行加「预拉取」按钮（该场快照先拉到本地缓存；已缓存行显「本地」小标，点击带 拉取中 → 本地 的演示态）；
+     ⑦ 榜体加「我的成绩」幽灵行 —— 顶栏常驻入口开录入面板（十三行「过题分钟 / AC 前失败」）；
+        幽灵占名次与奖牌名额（其下方名次随之下推），不计 S# 与榜脚「N 队 / 累计过题」读数；
+        面板内含「展示我」开关（隐藏但保留数据）与「清除本场成绩」（二次 VP 从零再来）。
    基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
      tokens / 组件 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
    契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
@@ -526,6 +531,20 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .crow__t{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .crow__t u{text-decoration:none;color:var(--text-mute);font-size:11.5px;margin-left:8px}
 .crow__acts{display:flex;align-items:center;gap:6px;justify-self:end}
+
+/* v7 · 目录「本地」缓存标 + 「我的成绩」面板 */
+.crow__cache{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.crow__cache .dot{width:5px;height:5px}
+.ghgrid{display:flex;flex-direction:column;gap:3px;max-height:330px;overflow:auto;padding:2px 0}
+.ghrow{display:flex;align-items:center;gap:8px}
+.ghrow>b{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--text-dim);width:14px;flex:0 0 auto}
+.ghin{width:58px;flex:0 0 auto;padding:3px 7px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);font-family:var(--font-num);font-size:11.5px;font-variant-numeric:tabular-nums}
+.ghin:focus{outline:none;border-color:rgba(245,165,36,.5)}
+.ghin::placeholder{color:#39434F}
+.ghlab{font-family:var(--font-num);font-size:9px;color:var(--text-mute);letter-spacing:.08em;width:58px;flex:0 0 auto}
+.ghfoot{display:flex;align-items:center;gap:10px}
+.ghfoot .spacer{flex:1 1 auto}
+.ghnote{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:1.6;margin-top:4px}
 .btn--xs{height:24px;padding:0 9px;font-size:11.5px;gap:6px;font-weight:600}
 .btn--xs svg{width:12px;height:12px}
 .btn--go{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
@@ -611,6 +630,11 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .brow.is-star .c-r b{color:var(--text-mute);font-weight:400}
 .brow.is-star .c-team__n{color:var(--text-dim)}
 .brow.is-star .c-sol b,.brow.is-star .c-pen b{color:var(--text-dim);font-weight:400}
+
+/* v7 · 幽灵行「我的成绩」：左缘 accent 竖条 + 极淡 accent 底（与奖牌底纹可叠；本段排在奖牌 ::before 之后 → 左条恒为 accent） */
+.brow.is-ghost{background-color:rgba(245,165,36,.055)}
+.brow.is-ghost .c-r::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:0 2px 2px 0;background:var(--accent)}
+.c-team__n.is-you{color:var(--accent);font-weight:600}
 
 /* 列头：题号 + 该题过队数（悬停全名） */
 .ph{position:relative;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;padding:0 2px;cursor:default}
@@ -914,6 +938,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
     <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
       <path d="M2.6 12S6.1 6.4 12 6.4 21.4 12 21.4 12 17.9 17.6 12 17.6 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.7"/>
     </symbol>
+    <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8.2" r="3.6"/><path d="M5.4 19.4c1.2-3.2 3.6-4.8 6.6-4.8s5.4 1.6 6.6 4.8"/></symbol>
     <symbol id="i-noflag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3.6 4.4 20.4 20.4"/><path d="M9.8 6.9A10 10 0 0 1 12 6.6c5.9 0 9.4 5.4 9.4 5.4a17.5 17.5 0 0 1-3.4 3.9M6.3 8.6A16.9 16.9 0 0 0 2.6 12s3.5 5.4 9.4 5.4a9.8 9.8 0 0 0 3.2-.5"/>
     </symbol>
@@ -946,7 +971,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 <!-- ================= 视觉稿导航条（非产品 UI） ================= -->
 <header class="mockbar">
-  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v6.2 · 切片 4 修订</span>
+  <span class="mockbar__tag"><i></i>ANVIL · 模拟榜单 v7 · 切片 4 修订</span>
   <nav class="mocktabs" role="tablist" aria-label="视觉稿屏切换">
     <button class="mocktab" role="tab" id="t1" aria-controls="s1" aria-selected="true"  data-screen="s1">01 / 赛事目录</button>
     <button class="mocktab" role="tab" id="t2" aria-controls="s2" aria-selected="false" data-screen="s2" tabindex="-1">02 / 回放榜</button>
@@ -1011,6 +1036,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <span class="pill" id="frz2" hidden></span>
       <span class="pill" id="hold2" hidden>已暂停</span>
       <span class="topbar__spacer"></span>
+      <button class="btn btn--ghost btn--sm" id="ghostBtn2" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置"><svg aria-hidden="true"><use href="#i-user"/></svg></button>
       <label class="switch"><input type="checkbox" id="onlyFormal2"> 仅正式队</label>
     </div>
     <div class="content content--fit" data-content>
@@ -1032,6 +1058,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <h2 class="rbname" id="rbName3"></h2>
       <span class="pill pill--over" id="mode3">回顾模式</span>
       <span class="topbar__spacer"></span>
+      <button class="btn btn--ghost btn--sm" id="ghostBtn3" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置"><svg aria-hidden="true"><use href="#i-user"/></svg></button>
       <label class="switch"><input type="checkbox" id="frozen3"> 封榜视角</label>
       <label class="switch"><input type="checkbox" id="onlyFormal3"> 仅正式队</label>
     </div>
@@ -1066,7 +1093,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
 </main>
 
-<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v6.2（切片 4 · 模拟榜单 · 修订）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
+<footer class="mockfoot"><i></i>ANVIL · 视觉稿 v7（切片 4 · 模拟榜单 · 修订）· 数据为演示假数据 · 来源 algoux/srk-collection（社区快照）· 回放的是已打完的比赛</footer>
 
 <div class="tip" id="tip" role="tooltip" hidden aria-hidden="true"></div>
 <div class="pop" id="pop" role="dialog" aria-modal="false" aria-label="明细" hidden></div>
@@ -1230,6 +1257,25 @@ for(var p2=0;p2<N;p2++){
   }
 }
 
+/* v7 · 幽灵行演示数据（与 TEAMS 同 subs 形状 {t,r,l}）：K 未过只记次数（t:0 —— 按规格不显末次时刻） */
+var GHOST={name:"你",org:"我的成绩",members:[],seat:"—",star:false,subs:[
+  [{r:"AC",t:113*60000,l:"GNU C++"}],
+  [{r:"WA",t:28*60000,l:"GNU C++"},{r:"WA",t:35*60000,l:"GNU C++"},{r:"AC",t:45*60000,l:"GNU C++"}],
+  [{r:"AC",t:231*60000,l:"GNU C++"}],
+  [{r:"AC",t:210*60000,l:"GNU C++"}],
+  [{r:"AC",t:65*60000,l:"GNU C++"}],
+  [{r:"AC",t:40*60000,l:"GNU C++"}],
+  [{r:"WA",t:170*60000,l:"GNU C++"},{r:"AC",t:187*60000,l:"GNU C++"}],
+  [{r:"AC",t:96*60000,l:"GNU C++"}],
+  [{r:"AC",t:88*60000,l:"GNU C++"}],
+  [{r:"AC",t:55*60000,l:"GNU C++"}],
+  [{r:"WA",t:0,l:"GNU C++"},{r:"WA",t:0,l:"GNU C++"}],
+  [{r:"AC",t:250*60000,l:"GNU C++"}],
+  [{r:"AC",t:30*60000,l:"GNU C++"}]
+]};
+var GHOSTVAL=[{ac:113},{ac:45,f:2},{ac:231},{ac:210},{ac:65},{ac:40},{ac:187,f:1},{ac:96},{ac:88},{ac:55},{f:2},{ac:250},{ac:30}];
+var GHOST_ON=true;
+
 /* ==========================================================================
    buildBoard(elapsed) —— 时间 ≤ 当前的提交过滤后重建整张榜
      cap = min(elapsed, 封榜)：名次 / 过题 / 罚时 只算 cap 之前（封榜即定格）
@@ -1273,6 +1319,14 @@ function buildBoard(elapsed,onlyFormal,unsealed){
     }
     rows.push({ti:ti, t:t, solved:solved, pen:pen, last:lastAC, cells:cells, star:t.star});
   }
+  if(GHOST_ON){                                          /* v7：幽灵行入榜 —— 占名次 / 奖牌；S# 与榜脚读数另行排除 */
+    var gs=0, gp=0, gl=0, gcells=[];
+    for(var pg=0;pg<N;pg++){
+      var gc=cellAt(GHOST,pg,elapsed,cap); gc.p=pg; gcells.push(gc);
+      if(gc.st==="ac"||gc.st==="fb"){ gs++; gp+=mm(gc.t)+gc.fails*20; if(mm(gc.t)>gl) gl=mm(gc.t) }
+    }
+    rows.push({ti:-1, t:GHOST, solved:gs, pen:gp, last:gl, cells:gcells, star:false, ghost:true});
+  }
   rows.sort(function(a,b){ return b.solved-a.solved || a.pen-b.pen || a.last-b.last || a.ti-b.ti });
   var place=0;
   rows.forEach(function(r,ix){ r.rank=ix+1; if(!r.star) place++; r.place=r.star?null:place });
@@ -1285,17 +1339,17 @@ function buildBoard(elapsed,onlyFormal,unsealed){
   var seen={}, sSeq=0, col=[], frzCells=0, frozenRows=0, solvedTotal=0;
   for(var p3=0;p3<N;p3++) col.push({ac:0, frz:0});
   rows.forEach(function(r){
-    /* S# = 学校排名（按各校最好的一支排序），只在头名那一行显示 */
-    if(!r.star){
+    /* S# = 学校排名（按各校最好的一支排序），只在头名那一行显示；幽灵不给号 */
+    if(!r.star && !r.ghost){
       if(!(r.t.org in seen)){ sSeq++; seen[r.t.org]=sSeq; r.srank=sSeq }
       else r.srank="";
     }else r.srank="";
-    solvedTotal+=r.solved;
+    if(!r.ghost) solvedTotal+=r.solved;                 /* v7：榜脚读数不含幽灵 */
     var has=false;
     for(var k=0;k<N;k++){
       var x=r.cells[k];
-      if(x.st==="ac"||x.st==="fb") col[k].ac++;
-      else if(x.st==="frz"){ col[k].frz++; has=true; frzCells++ }
+      if(x.st==="ac"||x.st==="fb"){ if(!r.ghost) col[k].ac++ }
+      else if(x.st==="frz"){ if(!r.ghost) col[k].frz++; has=true; frzCells++ }   /* 封榜带读数含幽灵（我也有未知格） */
     }
     if(has) frozenRows++;
   });
@@ -1311,7 +1365,7 @@ function cellHTML(c,ti,p){
   var cls="pcell", body="", post=c.post?" is-post":"";
   if(c.st==="ac")       { cls+=" is-ac"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span>'+(c.n>1?'<span class="pcell__n">×'+c.n+'</span>':''); }
   else if(c.st==="fb")  { cls+=" is-fb"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">FB</span>'; }
-  else if(c.st==="pen") { cls+=" is-pen"+post+" is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">−'+c.n+'</span>'; }
+  else if(c.st==="pen") { cls+=" is-pen"+post+" is-hit"; body=(c.t?'<span class="pcell__t">'+mm(c.t)+'</span>':'')+'<span class="pcell__n">−'+c.n+'</span>'; }   /* v7：幽灵未过格只显次数 */
   else if(c.st==="frz") { cls+=" is-frz is-hit"; body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">?'+c.n+'</span>'; }
   else if(c.st==="ce")  { cls+=" is-ce"+post+" is-hit";  body='<span class="pcell__t">'+mm(c.t)+'</span><span class="pcell__n">CE</span>'; }
   else cls+=" is-none";
@@ -1322,6 +1376,7 @@ function cellHTML(c,ti,p){
 function headState(rows,p){
   var anyCell=false, frz=false, ac=0, preAc=0;
   rows.forEach(function(r){
+    if(r.ghost) return;                                 /* v7：列头读数走官方口径，幽灵不计 */
     var c=r.cells[p];
     if(!c || c.st==="none") return;
     anyCell=true;
@@ -1341,11 +1396,11 @@ function boardHTML(rows,col){
   h+='</div>';
   var body="";
   rows.forEach(function(r){
-    body+='<div class="brow brow--body'+(r.medal?" m-"+r.medal:"")+(r.star?" is-star":"")+'" data-t="'+r.ti+'">'
+    body+='<div class="brow brow--body'+(r.medal?" m-"+r.medal:"")+(r.star?" is-star":"")+(r.ghost?" is-ghost":"")+'" data-t="'+r.ti+'">'
       +'<div class="c-r"><b>'+r.rank+'</b></div>'
       +'<div class="c-s">'+(r.srank===""?"":"<b>"+r.srank+"</b>")+'</div>'
       +'<div class="c-org">'+esc(r.t.org)+'</div>'
-      +'<div class="c-team"><span class="c-team__n">'+esc(r.t.name)+'</span>'+(r.star?'<span class="c-team__star">★</span>':'')+'</div>'
+      +'<div class="c-team"><span class="c-team__n'+(r.ghost?" is-you":"")+'">'+esc(r.t.name)+'</span>'+(r.star?'<span class="c-team__star">★</span>':'')+'</div>'
       +'<div class="c-sol"><b>'+r.solved+'</b></div>'
       +'<div class="c-pen"><b>'+r.pen+'</b></div>';
     for(var p=0;p<N;p++) body+=cellHTML(r.cells[p],r.ti,p);
@@ -1455,7 +1510,7 @@ document.addEventListener("mousedown",function(e){
   closePop();
 });
 function subPop(ti,p,elapsed,cap){                      /* 提交明细：逐次结果 + 时刻 */
-  var t=TEAMS[ti], pr=PROB[p], fb=FB[p];
+  var t=(ti===-1?GHOST:TEAMS[ti]), pr=PROB[p], fb=FB[p];   /* v7：幽灵行 */
   var subs=t.subs[p].filter(function(x){ return x.t<=elapsed });
   var L='<div class="pop__h"><span class="pop__t">'+pr.label+" · "+esc(pr.name)+'</span>'
     +'<button class="pop__x" aria-label="关闭">×</button></div>'
@@ -1476,8 +1531,7 @@ function subPop(ti,p,elapsed,cap){                      /* 提交明细：逐次
   return L;
 }
 function teamPop(ti){                                   /* 队伍：队名 / 学校 / 队员 / 打星 / 机位 */
-  var t=TEAMS[ti];
-  return '<div class="pop__h"><span class="pop__t">'+esc(t.name)+'</span>'
+  var t=(ti===-1?GHOST:TEAMS[ti]);                       /* v7：幽灵行 */
     +'<button class="pop__x" aria-label="关闭">×</button></div>'
     +'<div class="pop__sub">'+esc(t.org)+'</div><div class="pop__rule"></div>'
     +'<div class="pop__who">'+t.members.map(function(m){
@@ -1582,7 +1636,8 @@ function paintBoard(o){
     o.frost._tip=parseTip("封榜段 = 最后 1 小时|段内提交只显时刻与次数，判名显示 ?|名次与罚时定格在 "+hm(CONTEST.freeze)+" · 终局自动解封");
     if(!o.frost._bound){ bindTip(o.frost); o.frost._bound=1 }
   }
-  o.foot.innerHTML='<span>榜上 <b>'+d.rows.length+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b></span>'
+  var shown=d.rows.length-(d.rows.some&&d.rows.some(function(r){return r.ghost})?1:0);   /* v7：榜脚不含幽灵 */
+  o.foot.innerHTML='<span>榜上 <b>'+shown+'</b> 队 · 累计过题 <b>'+d.solvedTotal+'</b></span>'
     +'<span class="spacer"></span>'
     +'<span class="key key--head">'
     +'<span class="key__i"><i class="phk is-quiet"></i>无人提交</span>'
@@ -1612,7 +1667,7 @@ function boardHover(o,ev){
     else if(x.st==="ce")  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"CE · 不罚 · "+mm(x.t)+"′"}];
     else                  L=[{c:"tip__d",t:head},{c:"tip__v is-zero",t:"封榜 ?"+x.n+" · 末次 "+mm(x.t)+"′"}];
     if(x.post) L.push({c:"tip__x",t:"发生在封榜段 · 不计入定格名次"});
-    L.push({c:"tip__x",t:TEAMS[r.ti].name+" · 第 "+r.rank+" 名"});
+    L.push({c:"tip__x",t:(r.ghost?r.t.name:TEAMS[r.ti].name)+" · 第 "+r.rank+" 名"});
     L.push({c:"tip__x",t:"点击查看逐次提交"});
     var b1=c.getBoundingClientRect(); showTip(b1.left+b1.width/2,b1.top,L); return;
   }
@@ -1750,6 +1805,8 @@ var CAT=[
     {name:"2023", n:3}
   ]}
 ];
+/* v7 · 目录演示：给一场打上「已缓存」态（其余行是「预拉取」按钮；点击演示 拉取中 → 本地） */
+CAT[0].kids[1].list[6].cache="yes";
 var TIER_CN={final:"决赛", regional:"区域赛", invitational:"邀请赛", provincial:"省赛"};
 var NID=0;
 (function ids(ns){ ns.forEach(function(nd){ nd._id=++NID; if(nd.kids) ids(nd.kids) }) })(CAT);
@@ -1774,7 +1831,10 @@ function crowHTML(x,path){
       +(CK.paused?"已暂停 ":"回放中 ")+'<span class="num liveClk">'+hms(CK.elapsed)+'</span></span>'
       +'<button class="btn btn--xs" data-goto="s2">回到回放</button>'
     : '<button class="btn btn--xs btn--go" data-start="'+x.d+'"><svg aria-hidden="true"><use href="#i-play"/></svg>开始模拟</button>'
-      +'<button class="btn btn--xs btn--ghost" data-final="'+x.d+'"><svg aria-hidden="true"><use href="#i-eye"/></svg>查看终榜</button>';
+      +'<button class="btn btn--xs btn--ghost" data-final="'+x.d+'"><svg aria-hidden="true"><use href="#i-eye"/></svg>查看终榜</button>'
+      +(x.cache==="yes"
+        ? '<span class="crow__cache"><i class="dot dot--ok"></i>本地</span>'
+        : '<button class="btn btn--xs btn--ghost" data-prefetch="'+x.d+'" title="把这一场的榜单快照先拉到本地缓存"><svg aria-hidden="true"><use href="#i-sync"/></svg>预拉取</button>');
   return '<div class="crow'+(live?" is-live":"")+'">'
     +'<span class="crow__d">'+x.d+'</span>'
     +badge(x)
@@ -1944,19 +2004,36 @@ function renderTK(){
       return '<span class="key__i"><i style="width:3px;height:16px;border-radius:2px;background:var(--'+x[0]+')"></i>'+x[1]+'</span>';
     }).join("")+'<span class="key__i">底纹按金属各调一档明度，不让铜色压住红绿读数</span></div></div></section>';
 
+  var gi=-1; rows.forEach(function(r,i){ if(r.ghost) gi=i });
+  var gslice = gi<0 ? rows.slice(0,4) : rows.slice(Math.max(0,gi-2), Math.min(rows.length,gi+3));
+  sect+='<section><h3>My row <span>幽灵行「我的成绩」（v7）：占名次与奖牌名额、不计 S# 与榜脚读数</h3>'
+    +'<div class="boardwrap boardwrap--demo"><div>'+boardHTML(gslice,col)+'</div></div>'
+    +'<p class="hint" style="margin-top:12px">幽灵 = 你 VP 的成绩：左缘 accent 竖条 + 极淡 accent 底（可与奖牌底纹叠加）、队名列写「你」。'
+      +'<b>占名次与奖牌名额</b>（下方队伍名次随之下推一位）；<b>不计</b> S#、不计榜脚「N 队 / 累计过题」、不计列头过队数；封榜带读数含它。</p>'
+    +'<div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:14px;align-items:flex-start">'
+    +'<div><div class="pop pop--static" style="width:330px">'+ghostPanelHTML()+'</div>'
+      +'<div class="sheetnote" style="max-width:330px"><b>录入面板</b> · 顶栏「我的成绩」打开；十三行「过题分钟 / AC 前失败」，留空 = 未过</div></div>'
+    +'<div style="flex:1;min-width:260px">'
+      +'<div class="spec-row" style="grid-template-columns:96px minmax(0,1fr);padding:8px 0"><span class="spec-row__k">展示我</span><span class="hint">面板内开关：隐藏幽灵行但保留数据（默认开）</span></div>'
+      +'<div class="spec-row" style="grid-template-columns:96px minmax(0,1fr);padding:8px 0"><span class="spec-row__k">清除本场成绩</span><span class="hint">二次 VP 的「从零再来」起点；只清本场幽灵数据，不碰缓存与会话</span></div>'
+      +'<div class="spec-row" style="grid-template-columns:96px minmax(0,1fr);padding:8px 0"><span class="spec-row__k">未过格</span><span class="hint">只显 −n（不用记每次 WA 的时刻）；已过格 = 分钟 ×n</span></div>'
+      +'<div class="spec-row" style="grid-template-columns:96px minmax(0,1fr);padding:8px 0"><span class="spec-row__k">封榜口径</span><span class="hint">与真行同源：定格视角下段内格显 ?，解封视界 / 终榜显结果并带「封榜后」两态</span></div>'
+    +'</div></div></section>';
+
   var _pz=CK.paused; CK.paused=true;
   var rowPaused=crowHTML(CAT[0].kids[1].list[8]); CK.paused=_pz;
-  sect+='<section><h3>Catalog row <span>目录行 · 默认 / 悬停 / 进行中 / 已暂停</h3>'
+  sect+='<section><h3>Catalog row <span>目录行 · 默认（预拉取）/ 悬停 / 已缓存 / 进行中 / 已暂停</h3>'
     +'<div class="cat" style="max-width:760px">'
     +crowHTML(CAT[0].kids[1].list[4])
     +crowHTML(CAT[0].kids[1].list[5]).replace('class="crow','class="crow is-hover')
+    +crowHTML(CAT[0].kids[1].list[6])
     +crowHTML(CAT[0].kids[1].list[8])
     +rowPaused
     +'</div>'
-    +'<p class="hint" style="margin-top:12px">默认行只给日期 + tier + 名称；两枚按钮常驻（小尺寸 <code>btn--xs</code>），'
-      +'主操作「开始模拟」走琥珀描边、次操作「查看终榜」走 ghost —— 常驻而不是 hover 才出现，因为它是这一屏唯一的动作。'
-      +'第二行是悬停态（底色 + 左缘琥珀 2px）；第三行进行中：绿点 + 实时读数 + 「回到回放」；'
-      +'第四行已暂停：绿点转灰、读数转暗，钟停着但榜还在，动作不变。</p></section>';
+    +'<p class="hint" style="margin-top:12px">默认行只给日期 + tier + 名称；三枚动作常驻（小尺寸 <code>btn--xs</code>），'
+      +'主操作「开始模拟」走琥珀描边、次操作「查看终榜」与「预拉取」走 ghost（已缓存的场把「预拉取」换成「本地」小标）—— 常驻而不是 hover 才出现，因为它是这一屏唯一的动作。'
+      +'第二行是悬停态（底色 + 左缘琥珀 2px）；第三行已缓存；第四行进行中：绿点 + 实时读数 + 「回到回放」；'
+      +'第五行已暂停：绿点转灰、读数转暗，钟停着但榜还在，动作不变。</p></section>';
 
   sect+='<section><h3>Popovers <span>提交明细 / 队伍 · 结果枚举全覆盖 AC FB WA TLE RTE CE ?</h3>'
     +'<div class="tk-grid2">'
@@ -2244,6 +2321,41 @@ $("#frozen3").addEventListener("change",function(){
   var o=HOSTS.filter(function(h){ return h.mode==="scrub" })[0];
   o.frozen=this.checked; delete CACHE[o.id];
   paintBoard(o);
+});
+
+/* ---------- v7 · 我的成绩（幽灵行）：顶栏入口 + 面板 + 目录预拉取 ---------- */
+function ghostPanelHTML(){
+  var rows13="";
+  for(var p=0;p<N;p++){
+    rows13+='<div class="ghrow"><b>'+PROB[p].label+'</b>'
+      +'<input class="ghin" inputmode="numeric" placeholder="过题′" value="'+(GHOSTVAL[p].ac||"")+'">'
+      +'<input class="ghin" inputmode="numeric" placeholder="失败" value="'+(GHOSTVAL[p].f||"")+'"></div>';
+  }
+  return '<div class="pop__h"><span class="pop__t">我的成绩</span><button class="pop__x" aria-label="关闭">×</button></div>'
+    +'<div class="pop__sub">你 VP 时的成绩 · 罚时 = 过题分钟 + 20 × AC 前失败（与榜单同口径）</div>'
+    +'<div class="pop__rule"></div>'
+    +'<div class="ghgrid"><div class="ghrow"><b></b><span class="ghlab">过题′</span><span class="ghlab">失败</span></div>'+rows13+'</div>'
+    +'<div class="pop__rule"></div>'
+    +'<div class="ghfoot"><label class="switch"><input type="checkbox" id="ghShow"'+(GHOST_ON?" checked":"")+'> 展示我</label>'
+    +'<span class="spacer"></span><button class="btn btn--xs btn--ghost" id="ghClear">清除本场成绩</button></div>'
+    +'<div class="ghnote">留空 = 未过；段内成绩按时间轴与封榜视角自动同口径。</div>';
+}
+function refreshGhost(){ HOSTS.forEach(function(o){ delete CACHE[o.id] }); repaintBoards() }
+function ghostPanelOpen(btn){
+  openPop(btn, ghostPanelHTML());
+  var sw=$("#ghShow"); if(sw) sw.addEventListener("change",function(){ GHOST_ON=this.checked; refreshGhost() });
+  var cl=$("#ghClear"); if(cl) cl.addEventListener("click",function(){ GHOST_ON=false; refreshGhost(); closePop() });
+}
+$("#ghostBtn2").addEventListener("click",function(){ ghostPanelOpen(this) });
+$("#ghostBtn3").addEventListener("click",function(){ ghostPanelOpen(this) });
+document.addEventListener("click",function(e){
+  var b=e.target.closest&&e.target.closest("[data-prefetch]"); if(!b||b.classList.contains("is-busy")) return;
+  b.classList.add("is-busy");
+  b.innerHTML='<svg aria-hidden="true"><use href="#i-sync"/></svg>拉取中…';
+  setTimeout(function(){
+    var tag=document.createElement("span"); tag.className="crow__cache"; tag.innerHTML='<i class="dot dot--ok"></i>本地';
+    b.replaceWith(tag);
+  },1100);
 });
 $$("[data-tip]").forEach(bindTip);
 
