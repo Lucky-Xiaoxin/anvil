@@ -4,6 +4,9 @@
  * 走钟每秒一次，但**榜只在分钟滚过的那一刻重建**（§4 性能口径）：356 队 × 13 题
  * 每秒重排全表是不可接受的，而读数本来就是分钟粒度。行组件 memo 化，
  * 于是 hover / 弹层 / 计时跳动都不会带着整张表重渲。
+ *
+ * v7 起这份榜体还多一行「我的成绩」幽灵（docs/20 §2）：顶栏常驻入口 + 录入面板
+ * （`GhostPanel.tsx`）+ 引擎侧占名额注入；幽灵签名拼进 `minuteKey`，改了数字才重建得到。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, getArenaContest } from '../../api.ts';
@@ -30,13 +33,15 @@ import {
   type BoardRow,
   type Cell,
   type ContestModel,
+  type GhostMark,
   type Session,
   type SrkSolution,
   type TeamModel,
 } from './engine.ts';
 import type { LeafRow } from './catalog.ts';
+import { GhostPanel } from './GhostPanel.tsx';
 import { Popover, PopShell, resClass, type Anchor } from './pops.tsx';
-import { clearSession, loadSession, saveSession, type Store } from './session.ts';
+import { clearGhost, clearSession, loadGhost, loadSession, saveGhost, saveSession, type GhostData, type Store } from './session.ts';
 
 interface Props {
   row: LeafRow;
@@ -48,20 +53,19 @@ interface Props {
 
 type Load = { kind: 'loading' } | { kind: 'error'; text: string; missing: boolean } | { kind: 'ready'; model: ContestModel };
 
-interface Pop {
-  anchor: Anchor;
-  kind: 'sub';
-  ti: number;
-  p: number;
-}
-
-interface PopTeam {
-  anchor: Anchor;
-  kind: 'team';
-  ti: number;
-}
+/** 三个弹层（docs/16 §5.2 + docs/20 §2.3）：提交明细 / 队伍 / 「我的成绩」面板 */
+type Pop =
+  | { anchor: Anchor; kind: 'sub'; ti: number; p: number }
+  | { anchor: Anchor; kind: 'team'; ti: number }
+  | { anchor: Anchor; kind: 'ghost' };
 
 const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
+
+/** 幽灵签名：拼进 minuteKey，改了数字就重建榜（不然只有分钟滚过才动） */
+const ghostSig = (g: GhostData | null): string =>
+  g === null
+    ? 'none'
+    : `${g.show ? 1 : 0}|${g.marks.map((m) => `${m.p}:${m.ac ?? ''}:${m.fails ?? ''}`).join(',')}`;
 
 export function ArenaBoard({ row, live, store, onBack }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
@@ -74,7 +78,9 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
   const [frozenView, setFrozenView] = useState(false);
   const [resumed, setResumed] = useState(false);
-  const [pop, setPop] = useState<Pop | PopTeam | null>(null);
+  /** 「我的成绩」的录入（docs/20 §2.1）：每场一条，进榜先读回来 */
+  const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path));
+  const [pop, setPop] = useState<Pop | null>(null);
   const { show, hide } = useTip();
 
   /* ---------- 取数：进回放才拉那 1.5MB；失败给重试（jsDelivr 冷缓存会暂时 403） ---------- */
@@ -170,10 +176,17 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       ? frozenView && inFreezeWindow(viewMs, duration, model.freezeStart)
       : inFreezeWindow(elapsed, duration, model.freezeStart));
 
-  /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度；封榜视角开关也要立即重建） */
-  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= duration ? 1 : 0)}`;
+  /*
+   * 幽灵行是否入榜：「展示我」开着 **且** 至少一格录了东西（过题分钟或 ≥1 次失败）。
+   * 全空就不传 marks —— 榜回到没有它的样子（docs/20 §2.4 验收 2）。
+   */
+  const ghostMarks: GhostMark[] | null =
+    ghost !== null && ghost.show && ghost.marks.some((m) => m.ac !== undefined || (m.fails ?? 0) > 0) ? ghost.marks : null;
+
+  /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度；封榜视角开关与幽灵录入也要立即重建） */
+  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= duration ? 1 : 0)}|${ghostSig(ghost)}`;
   const board: Board | null = useMemo(
-    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView)),
+    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView, ghostMarks)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model, minuteKey],
   );
@@ -233,6 +246,25 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     setPop({ kind: 'team', ti, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   }, []);
 
+  /* ---------- 「我的成绩」：每次输入即存即重建（docs/20 §2.3 响应）；清除 = 删键 + 面板留空 ---------- */
+  const onGhostChange = useCallback(
+    (next: GhostData): void => {
+      setGhost(next);
+      saveGhost(store, row.path, next);
+    },
+    [row.path, store],
+  );
+
+  const onGhostClear = useCallback((): void => {
+    clearGhost(store, row.path);
+    setGhost({ show: true, marks: [] });
+  }, [row.path, store]);
+
+  const openGhostPop = (ev: React.MouseEvent): void => {
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
+  };
+
   if (load.kind === 'error') {
     return (
       <>
@@ -288,6 +320,11 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
   const frozen = board.cap < viewMs || inFrz;
   const freezeLabel = clockHM(model.freezeStart);
+  /*
+   * 榜脚「榜上 N 队」与列头「过 N / N 队」的分母都不含幽灵（docs/20 §2.2 三排除）：
+   * 它占名次，但不是场上的一支队。
+   */
+  const teamCount = board.rows.length - (board.ghostTeam ? 1 : 0);
   const nameTip = {
     x: 0,
     y: 0,
@@ -344,6 +381,10 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           </>
         )}
         <span className="topbar__spacer" />
+        {/* 「我的成绩」入口常驻顶栏（live 与回顾同一份顶栏）：不随数据出现/消失，每场长相一致 */}
+        <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置" onClick={openGhostPop}>
+          <Icon id="i-user" />
+        </button>
         {model.approx ? (
           <span
             className="pill"
@@ -505,7 +546,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
                   Pen
                 </div>
                 {model.problems.map((p, i) => (
-                  <ProblemHead key={p.alias ?? i} problem={p} col={board.col[i] ?? { ac: 0, sub: 0, frz: 0, postAc: 0 }} rows={board.rows.length} cap={board.cap} model={model} board={board} index={i} />
+                  <ProblemHead key={p.alias ?? i} problem={p} col={board.col[i] ?? { ac: 0, sub: 0, frz: 0, postAc: 0 }} rows={teamCount} cap={board.cap} model={model} board={board} index={i} />
                 ))}
               </div>
 
@@ -513,7 +554,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
                 <BoardRowView
                   key={r.ti}
                   row={r}
-                  team={model.teams[r.ti] as TeamModel}
+                  team={r.ghost ? board.ghostTeam! : model.teams[r.ti]!}
                   problems={model.problems}
                   model={model}
                   onCell={openCellPop}
@@ -524,7 +565,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
             <div className="board__foot">
               <span>
-                榜上 <b>{board.rows.length}</b> 队 · 累计过题 <b>{board.solvedTotal}</b>
+                榜上 <b>{teamCount}</b> 队 · 累计过题 <b>{board.solvedTotal}</b>
               </span>
               <span className="spacer" />
               {/* 列头四档图例：区分度靠颜色，读法在这里给一次，别处不再写解释 */}
@@ -573,11 +614,19 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       </div>
 
       {pop !== null ? (
-        <Popover anchor={pop.anchor} viewport={{ w: window.innerWidth, h: window.innerHeight }} onClose={() => setPop(null)}>
+        <Popover
+          anchor={pop.anchor}
+          viewport={{ w: window.innerWidth, h: window.innerHeight }}
+          onClose={() => setPop(null)}
+          width={pop.kind === 'ghost' ? 330 : 270}
+          height={pop.kind === 'ghost' ? 470 : 260}
+        >
           {pop.kind === 'sub' ? (
-            <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} />
-          ) : (
+            <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} ghost={ghost} />
+          ) : pop.kind === 'team' ? (
             <TeamPop model={model} ti={pop.ti} board={board} />
+          ) : (
+            <GhostPanel problems={model.problems} data={ghost} onChange={onGhostChange} onClear={onGhostClear} />
           )}
         </Popover>
       ) : null}
@@ -672,13 +721,16 @@ const BoardRowView = memo(function BoardRowView(props: RowProps) {
       value: `第 ${row.rank} 名 · 过 ${row.solved} 题 · 罚时 ${row.pen}`,
       zero: false,
       valueClass: row.medal ? `is-${row.medal}` : 'is-dim',
-      sub: [`机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`, '点击查看队员'],
+      /* 幽灵行没有机位可显示（`seat` 是「—」），小字改说录入来源 —— 别在 tip 里留个空 # */
+      sub: row.ghost
+        ? [`VP 手动录入 · 无逐发时刻${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题明细']
+        : [`机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`, '点击查看队员'],
     });
   };
 
   return (
     <div
-      className={`brow brow--body${row.medal ? ` m-${row.medal}` : ''}${row.star ? ' is-star' : ''}`}
+      className={`brow brow--body${row.medal ? ` m-${row.medal}` : ''}${row.star ? ' is-star' : ''}${row.ghost ? ' is-ghost' : ''}`}
       onMouseEnter={teamTip}
       onMouseLeave={hide}
       onClick={(e) => {
@@ -692,7 +744,7 @@ const BoardRowView = memo(function BoardRowView(props: RowProps) {
       <div className="c-s">{row.srank === '' ? '' : <b>{row.srank}</b>}</div>
       <div className="c-org">{team.org}</div>
       <div className="c-team">
-        <span className="c-team__n">{team.name}</span>
+        <span className={`c-team__n${row.ghost ? ' is-you' : ''}`}>{team.name}</span>
         {row.star ? <span className="c-team__star">★</span> : null}
       </div>
       <div className="c-sol">
@@ -733,7 +785,9 @@ const CellView = memo(function CellView({
   const readout = (): { value: string; cls: string } => {
     if (cell.st === 'ac') return { value: `AC ${minutesOf(cell.t)}′ ×${cell.n}${cell.post ? ' · 封榜后' : ''}`, cls: 'is-ok' };
     if (cell.st === 'fb') return { value: `首杀 ${minutesOf(cell.t)}′${cell.post ? ' · 封榜后' : ''}`, cls: 'is-ok' };
-    if (cell.st === 'pen') return { value: `未过 −${cell.n} · 末次 ${minutesOf(cell.t)}′${cell.post ? ' · 封榜后' : ''}`, cls: 'is-bad' };
+    // `t === 0` 的罚时格 = 幽灵行手动录入，没有末次时刻可说（照 mock v7：只出 −n）
+    if (cell.st === 'pen')
+      return { value: `未过 −${cell.n}${cell.t === 0 ? '' : ` · 末次 ${minutesOf(cell.t)}′`}${cell.post ? ' · 封榜后' : ''}`, cls: 'is-bad' };
     if (cell.st === 'ce') return { value: `CE · 不罚 · ${minutesOf(cell.t)}′`, cls: 'is-zero' };
     return { value: `封榜 ?${cell.n} · 末次 ${minutesOf(cell.t)}′`, cls: 'is-zero' };
   };
@@ -758,7 +812,7 @@ const CellView = memo(function CellView({
       }}
     >
       <span className="pcell__b">
-        <span className="pcell__t">{minutesOf(cell.t)}</span>
+        {cell.st === 'pen' && cell.t === 0 ? null : <span className="pcell__t">{minutesOf(cell.t)}</span>}
         <span className="pcell__n">{cell.st === 'ac' ? (cell.n > 1 ? `×${cell.n}` : '') : cell.st === 'fb' ? 'FB' : cell.st === 'pen' ? `−${cell.n}` : cell.st === 'ce' ? 'CE' : `?${cell.n}`}</span>
         {cell.post ? <i className="pcell__dot" /> : null}
       </span>
@@ -768,9 +822,41 @@ const CellView = memo(function CellView({
 
 /* ---------- 弹层内容 ---------- */
 
-function SubPop({ model, ti, p, viewMs, cap }: { model: ContestModel; ti: number; p: number; viewMs: number; cap: number }) {
-  const team = model.teams[ti];
+function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti: number; p: number; viewMs: number; cap: number; ghost: GhostData | null }) {
   const problem = model.problems[p];
+  /*
+   * 幽灵行（`ti === -1`）：数据只在 `ghost` 里，**绝不查 `model.teams[-1]`**。
+   * 手动录入没有逐发时刻，明细就一行结果 + 一行说明（docs/20 §2.3）。
+   */
+  if (ti === -1) {
+    if (problem === undefined) return null;
+    const m = ghost?.marks.find((x) => x.p === p);
+    // 录了一个还没走到的分钟：格子是空的，明细也不抢跑（别和榜上的读数自相矛盾）
+    const acMs = m?.ac !== undefined ? m.ac * 60_000 : undefined;
+    const shown = acMs !== undefined && acMs <= viewMs;
+    const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: '你 @我的成绩' };
+    return (
+      <PopShell head={head}>
+        {shown ? (
+          <div className="pop__row">
+            <span className="res res--ac">AC</span>
+            <span className="pop__tm num">{clockHMS(acMs!)}</span>
+            <span className="pop__lg">{(m!.fails ?? 0) + 1} 发</span>
+          </div>
+        ) : (m?.fails ?? 0) > 0 ? (
+          <div className="pop__row">
+            <span className="res res--bad">未过</span>
+            <span className="pop__tm num">—</span>
+            <span className="pop__lg">−{m!.fails} 发</span>
+          </div>
+        ) : (
+          <div className="hint">未录入此题。</div>
+        )}
+        <div className="hint" style={{ marginTop: 8 }}>手动录入 · 无逐发时刻。</div>
+      </PopShell>
+    );
+  }
+  const team = model.teams[ti];
   if (team === undefined || problem === undefined) return null;
   const list = subsUntil(team.subs[p] ?? [], viewMs, cap, team.verdicts[p]);
   const fb = team.subs[p]?.find((x) => x.result === 'FB');
@@ -820,9 +906,30 @@ function SubPop({ model, ti, p, viewMs, cap }: { model: ContestModel; ti: number
 const toCap = (x: SrkSolution): number => toMs(x.time);
 
 function TeamPop({ model, ti, board }: { model: ContestModel; ti: number; board: Board }) {
+  const row = board.rows.find((r) => r.ti === ti);
+  /* 幽灵行：队伍是引擎合成的（`board.ghostTeam`），队员与机位都没有 —— 一行说明代替 */
+  if (ti === -1) {
+    const g = board.ghostTeam;
+    if (g === null || g === undefined) return null;
+    return (
+      <PopShell head={{ title: g.name, sub: g.org }}>
+        <div className="pop__who">
+          <div className="hint">VP 成绩手动录入，点格子看每题明细。</div>
+        </div>
+        <div className="pop__rule" />
+        <div className="pop__kv">
+          <span className="pop__k">Seat</span>
+          <span className="pop__v num">{g.seat}</span>
+        </div>
+        <div className="pop__kv">
+          <span className="pop__k">状态</span>
+          <span className="pop__v">{row?.medal ? row.medalTitle : '正式队'}</span>
+        </div>
+      </PopShell>
+    );
+  }
   const team = model.teams[ti];
   if (team === undefined) return null;
-  const row = board.rows.find((r) => r.ti === ti);
   const head = { title: team.name, sub: team.org };
   return (
     <PopShell head={head}>

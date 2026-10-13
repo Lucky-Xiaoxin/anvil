@@ -1023,6 +1023,11 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .brow.m-gold .c-r::before{background:var(--gold)}
 .brow.m-silver .c-r::before{background:var(--silver)}
 .brow.m-bronze .c-r::before{background:var(--bronze)}
+/* v7 · 「我的成绩」幽灵行（docs/20 §2.3）：accent 竖条 + 极淡 accent 底，可与奖牌底纹叠加。
+   这两条必须排在上面三条奖牌 `::before` 之后 —— 权重相同，靠顺序压过奖牌色。 */
+.brow.is-ghost{background-color:rgba(245,165,36,.055)}
+.brow.is-ghost .c-r::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:0 2px 2px 0;background:var(--accent)}
+.c-team__n.is-you{color:var(--accent);font-weight:600}
 .c-r b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;color:var(--text)}
 .c-s{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
 .c-s b{color:var(--accent-2);font-weight:600}
@@ -1227,6 +1232,17 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:var(--panel-2);border:1px solid var(--line);font-family:var(--font-num);font-size:11px;color:var(--text-dim);
 }
 .backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
+/* v7 · 「我的成绩」面板（docs/20 §2.3 · 照 design/mock-04-simboard.html :538-547 原样抄） */
+.ghgrid{display:flex;flex-direction:column;gap:3px;max-height:330px;overflow:auto;padding:2px 0}
+.ghrow{display:flex;align-items:center;gap:8px}
+.ghrow>b{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--text-dim);width:14px;flex:0 0 auto}
+.ghin{width:58px;flex:0 0 auto;padding:3px 7px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);font-family:var(--font-num);font-size:11.5px;font-variant-numeric:tabular-nums}
+.ghin:focus{outline:none;border-color:rgba(245,165,36,.5)}
+.ghin::placeholder{color:#39434F}
+.ghlab{font-family:var(--font-num);font-size:9px;color:var(--text-mute);letter-spacing:.08em;width:58px;flex:0 0 auto}
+.ghfoot{display:flex;align-items:center;gap:10px}
+.ghfoot .spacer{flex:1 1 auto}
+.ghnote{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:1.6;margin-top:4px}
 
 /* ---------- 22. 列头五档（r3：整格淡底承载状态） ---------- */
 /* 原先的 2px 下缘带画在 bottom:2，正好穿过 9px 的过题数那一行；
