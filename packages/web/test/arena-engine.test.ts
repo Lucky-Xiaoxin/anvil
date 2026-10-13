@@ -186,6 +186,82 @@ describe('模型解析', () => {
     );
     expect(m.teams[0]?.subs[0]?.map((x) => toMs(x.time))).toEqual([30 * M, 60 * M, 114 * M]);
   });
+
+  it('双语对象队名 / 校名：中文优先，空串不吃掉回退', () => {
+    const m = buildModel(
+      fixture({
+        rows: [
+          {
+            user: {
+              name: { 'zh-CN': '自造甲队', en: 'Team Alpha', fallback: 'Team Alpha' },
+              organization: { 'zh-CN': '自造大学', fallback: 'Ziu University' },
+              teamMembers: [{ name: { 'zh-CN': '甲一', fallback: 'Jia One' } }, { name: '甲二' }, { name: { en: 'Third Only' } }, { name: {} }],
+              official: true,
+            },
+            statuses: [],
+          },
+          { user: { name: { fallback: '仅回退名' }, organization: { en: 'English Only' }, official: true }, statuses: [] },
+          { user: { name: { 'zh-CN': '', fallback: '非空回退' }, official: true }, statuses: [] },
+          // 纯字符串形状（多数场次）与缺字段，走同一条归一
+          { user: { name: '字符串队名', organization: '字符串校名', official: true }, statuses: [] },
+          { user: { official: true }, statuses: [] },
+        ],
+      }),
+    );
+    const t = m.teams;
+    expect(t[0]?.name).toBe('自造甲队');
+    expect(t[0]?.org).toBe('自造大学');
+    // 成员数组里对象名与字符串名混着来：各取对的，读不懂的那条按空滤掉
+    expect(t[0]?.members).toEqual(['甲一', '甲二', 'Third Only']);
+    expect(t[1]?.name).toBe('仅回退名');
+    expect(t[1]?.org).toBe('English Only');
+    expect(t[2]?.name).toBe('非空回退');
+    expect(t[3]?.name).toBe('字符串队名');
+    expect(t[3]?.org).toBe('字符串校名');
+    expect(t[4]?.name).toBe('');
+    expect(t[4]?.org).toBe('');
+  });
+
+  it('contest.title 与队名同一套归一（含只有 en 的形状）', () => {
+    expect(buildModel(fixture({ contest: { title: { en: 'Only Latin Title' }, duration: [5, 'h'] } })).title).toBe('Only Latin Title');
+    expect(buildModel(fixture({ contest: { title: '字符串标题', duration: [5, 'h'] } })).title).toBe('字符串标题');
+  });
+
+  it('S# 回归：校名是双语对象时同校头队照样拿号（修复前空串全撞组 → 只剩一支有号）', () => {
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '对象校名' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }, { alias: 'B' }],
+      rows: [
+        // 同校两队（A 过 2 题 = 头队，B 过 1 题）+ 另一校一队；校名全部是双语对象
+        {
+          user: { name: '同校头队', organization: { 'zh-CN': '自造大学', fallback: 'Ziu University' }, official: true },
+          statuses: [
+            { result: 'AC', time: [600, 's'], solutions: [sol('AC', 10 * M)] },
+            { result: 'AC', time: [1200, 's'], solutions: [sol('AC', 20 * M)] },
+          ],
+        },
+        {
+          user: { name: '同校次队', organization: { 'zh-CN': '自造大学', fallback: 'Ziu University' }, official: true },
+          statuses: [
+            { result: 'AC', time: [600, 's'], solutions: [sol('AC', 10 * M)] },
+            { result: null, time: [0, 's'], solutions: [] },
+          ],
+        },
+        {
+          user: { name: '另一校队', organization: { 'zh-CN': '另一大学', fallback: 'Another University' }, official: true },
+          statuses: [
+            { result: 'AC', time: [1200, 's'], solutions: [sol('AC', 20 * M)] },
+            { result: null, time: [0, 's'], solutions: [] },
+          ],
+        },
+      ],
+    });
+    const b = buildBoard(m, 5 * H, false);
+    const byName = new Map(b.rows.map((r) => [m.teams[r.ti]!.name, r.srank]));
+    expect(byName.get('同校头队')).toBe('1');
+    expect(byName.get('同校次队')).toBe('');
+    expect(byName.get('另一校队')).toBe('2');
+  });
 });
 
 /* ---------- 题目格五态 + 终局两态 ---------- */

@@ -2,7 +2,8 @@
  * 回放引擎（docs/16 §4）：纯函数、零依赖、零 DOM。
  *
  * 榜单不是「存下来的」，是按当前时刻从逐次提交**重建**出来的 —— 稿内参照实现（mock-04 的 s2 引擎）
- * 的口径整体移植，数据换成 srk.json 的真实形状（2026-10-09 实测）。
+ * 的口径整体移植，数据换成 srk.json 的真实形状（2026-10-09 实测）；部分场次的队名 / 校名 / 成员名
+ * 是 `{ 'zh-CN', en?, fallback }` 双语对象（2026-10-13 实测），进模型前统一归一成字符串。
  *
  * 单位陷阱（§2 的实测更正）：`statuses[].time` 是 `[值, 单位]` 元组（实测秒），
  * `solutions[].time` 同样是元组但单位是毫秒；引擎内部一律折算成毫秒。
@@ -29,11 +30,14 @@ export interface SrkProblem {
   statistics?: { accepted?: number; submitted?: number };
 }
 
+/** srk 双语文本：多数场次是纯字符串；少数（2018 ecfinal / 2026 南昌·西安等）是 { 'zh-CN', en?, fallback } 对象 */
+export type SrkText = string | { 'zh-CN'?: string; en?: string; fallback?: string };
+
 export interface SrkUser {
-  name?: string;
+  name?: SrkText;
   id?: string;
-  organization?: string;
-  teamMembers?: { name?: string }[];
+  organization?: SrkText;
+  teamMembers?: { name?: SrkText }[];
   official?: boolean;
 }
 
@@ -43,7 +47,7 @@ export interface SrkRow {
 }
 
 export interface SrkContest {
-  title?: { 'zh-CN'?: string; fallback?: string };
+  title?: SrkText;
   startAt?: string;
   duration?: unknown;
   frozenDuration?: unknown;
@@ -333,6 +337,16 @@ export function medalBands(series: SrkSeries[] | undefined, teams: number, score
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
+/**
+ * 双语文本 → 单个字符串：中文优先，空串不算数（否则 `{'zh-CN':''}` 会把回退名吃掉），
+ * 再退 `fallback`、最后退 `en`。读不懂的形状一律空串，与 `str` 同一口径。
+ */
+const pickText = (v: SrkText | undefined): string => {
+  if (typeof v === 'string') return v;
+  if (v === null || typeof v !== 'object') return '';
+  return str(v['zh-CN']) || str(v.fallback) || str(v.en);
+};
+
 /** srk.json → 一次性解析的模型（每秒重建只读它，不再遍历原始 JSON） */
 export function buildModel(doc: SrkDoc): ContestModel {
   const contest = doc.contest ?? {};
@@ -354,9 +368,9 @@ export function buildModel(doc: SrkDoc): ContestModel {
     const verdicts = problems.map((_, p) => (statuses[p] === undefined ? undefined : statuses[p]?.result ?? null));
     return {
       ti,
-      name: str(user.name),
-      org: str(user.organization),
-      members: (Array.isArray(user.teamMembers) ? user.teamMembers : []).map((m) => str(m?.name)).filter((s) => s !== ''),
+      name: pickText(user.name),
+      org: pickText(user.organization),
+      members: (Array.isArray(user.teamMembers) ? user.teamMembers : []).map((m) => pickText(m?.name)).filter((s) => s !== ''),
       seat: str(user.id),
       star: user.official !== true,
       subs,
@@ -373,7 +387,7 @@ export function buildModel(doc: SrkDoc): ContestModel {
   const approx = teams.length > 0 && teams.every((t) => t.subs.every((list) => list.length === 0));
 
   return {
-    title: str(contest.title?.['zh-CN']) || str(contest.title?.fallback),
+    title: pickText(contest.title),
     startAt: str(contest.startAt),
     duration,
     freezeStart: Math.max(0, duration - (freezeDeclared ? frozen : DEFAULT_FREEZE_MS)),
