@@ -2,11 +2,14 @@
 setlocal
 cd /d "%~dp0"
 set "ANVIL_OPEN=1"
-set "PORT=7788"
+rem ---------- port: ANVIL_PORT is the single source (server / vite proxy / dev.mjs read the same) ----------
+if not defined ANVIL_PORT set "ANVIL_PORT=7788"
+set "PORT=%ANVIL_PORT%"
 
 rem ---------- port already taken? name the owner, then let the user pick ----------
+rem exact match ":7788 " so 77880-77889 don't false-hit
 set "BUSY="
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do set "BUSY=%%P"
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /c:":%PORT% " ^| findstr "LISTENING"') do set "BUSY=%%P"
 
 if not defined BUSY goto preflight
 
@@ -24,10 +27,9 @@ if not exist node_modules (
   echo [ANVIL] installing dependencies...
   call npm install || goto fail
 )
-if not exist "packages\web\dist\index.html" (
-  echo [ANVIL] building web...
-  call npm run build || goto fail
-)
+rem ---------- always rebuild: editing the frontend then double-clicking must not serve a stale bundle ----------
+echo [ANVIL] building web...
+call npm run build || goto fail
 
 echo [ANVIL] http://localhost:%PORT%
 rem The server gets its own window and node runs in its foreground: no batch file is

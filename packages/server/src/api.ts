@@ -13,6 +13,7 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { ArenaError, type ArenaClient } from './arena.ts';
+import { configWarningOf } from './config.ts';
 import {
   countDistinctOkProblems,
   countSubmissions,
@@ -72,6 +73,7 @@ export function buildStatus(
   handles: Record<SyncSourceId, string>,
   xcpc: XcpcStore,
   now = Date.now(),
+  configWarning: string | null = null,
 ): StatusDto {
   const cf = sourceStatus(db, 'cf', handles.cf, now);
   const at = sourceStatus(db, 'at', handles.at, now);
@@ -83,6 +85,7 @@ export function buildStatus(
     counts: cf.counts,
     sources: { cf, at },
     xcpc: xcpcStatus(xcpc, now),
+    ...(configWarning === null ? {} : { configWarning }),
   };
 }
 
@@ -108,7 +111,7 @@ function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
 }
 
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
-  app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles(), ctx.xcpc));
+  app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles(), ctx.xcpc, Date.now(), configWarningOf()));
 
   app.post('/api/config', async (request, reply) => {
     const parsed = configBodySchema.safeParse(request.body ?? {});
@@ -141,6 +144,8 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
       ctx.db,
       { cf: saved.cfHandle ?? handles.cf, at: saved.atHandle ?? handles.at },
       ctx.xcpc,
+      Date.now(),
+      configWarningOf(),
     );
   });
 

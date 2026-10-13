@@ -344,7 +344,8 @@ export class XcpcClient {
   /** 分片里查无此 key → not-found（路由给 404） */
   async playerDetail(key: string): Promise<unknown> {
     const shard = await this.shard(shardOf(key));
-    const detail = shard[key];
+    // 裸 `shard[key]` 会让 `__proto__` 命中原型链绕进「查无此档」；只认自有键
+    const detail = Object.prototype.hasOwnProperty.call(shard, key) ? shard[key] : undefined;
     if (detail === undefined) throw new XcpcError('not-found', '快照里没有这个档案');
     return detail;
   }

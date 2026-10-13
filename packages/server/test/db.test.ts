@@ -15,6 +15,7 @@ import {
   latestRating,
   loadAcEvents,
   loadRatingRows,
+  replaceRatingHistory,
   resetSourceData,
   SCHEMA_VERSION,
   setMeta,
@@ -154,6 +155,25 @@ describe('Schema v3 DDL', () => {
     // 反向不算订正：拿到结论后再收到 TESTING / NULL 不该抹掉它
     expect(insertSubmissions(db, 'cf', [row({ id: 1, verdict: 'TESTING' }), row({ id: 1, verdict: null })])).toBe(0);
     expect(loadAcEvents(db, 'cf')).toHaveLength(1);
+    db.close();
+  });
+
+  it('订正谓词覆盖全部非最终判定：空串 / IN_QUEUE / FROZEN / WAITING → 真结论都放行', () => {
+    const db = mem();
+    // AT 判题中落库的空串（老库形态）+ CF 的三种排队判名
+    insertSubmissions(db, 'at', [row({ id: 1, problemKey: 'at:abc300_a', verdict: '' })]);
+    insertSubmissions(db, 'cf', [
+      row({ id: 2, verdict: 'IN_QUEUE' }),
+      row({ id: 3, problemKey: 'cf:2268:E', verdict: 'FROZEN' }),
+      row({ id: 4, problemKey: 'cf:2268:F', verdict: 'WAITING' }),
+    ]);
+    expect(countDistinctOkProblems(db, 'at')).toBe(0);
+    expect(countDistinctOkProblems(db, 'cf')).toBe(0);
+    // 订正成真结论：那条 AC 必须进得来（否则永久缺席）
+    expect(insertSubmissions(db, 'at', [row({ id: 1, problemKey: 'at:abc300_a', verdict: 'OK' })])).toBe(1);
+    expect(insertSubmissions(db, 'cf', [row({ id: 2, verdict: 'OK' }), row({ id: 3, verdict: 'OK' }), row({ id: 4, verdict: 'OK' })])).toBe(3);
+    expect(countDistinctOkProblems(db, 'at')).toBe(1);
+    expect(countDistinctOkProblems(db, 'cf')).toBe(3);
     db.close();
   });
 });
@@ -326,6 +346,28 @@ describe('按源隔离', () => {
     clearRatingHistory(db, 'at');
     expect(countRatingEntries(db, 'at')).toBe(0);
     expect(countRatingEntries(db, 'cf')).toBe(1);
+    db.close();
+  });
+
+  it('replaceRatingHistory：整域重建 = 清本源 + 写新行，同一事务内完成', () => {
+    const db = mem();
+    upsertRatingHistory(db, 'at', [
+      { contestKey: 'a', contestName: '将撤的一场', rank: 1, oldRating: 0, newRating: 2, isRated: true, performance: null, updatedTs: TS },
+    ]);
+    upsertRatingHistory(db, 'cf', [
+      { contestKey: '1', contestName: 'A', rank: 1, oldRating: 0, newRating: 1, isRated: true, performance: null, updatedTs: TS },
+    ]);
+    // 上游删掉一场：重建后本地只留新的一批，另一源不动
+    expect(
+      replaceRatingHistory(db, 'at', [
+        { contestKey: 'b', contestName: 'B', rank: 3, oldRating: 2, newRating: 5, isRated: true, performance: null, updatedTs: TS },
+      ]),
+    ).toBe(1);
+    expect(loadRatingRows(db, 'at').map((r) => r.contestKey)).toEqual(['b']);
+    expect(countRatingEntries(db, 'cf')).toBe(1);
+    // 空行批次 = 上游全清（合法答案），事务内同样成立
+    replaceRatingHistory(db, 'at', []);
+    expect(countRatingEntries(db, 'at')).toBe(0);
     db.close();
   });
 

@@ -362,6 +362,24 @@ describe('目录缓存', () => {
     expect(hits[CATALOG_PATH]).toBe(1);
   });
 
+  it('垃圾 200（HTML 页）先解析后落盘：旧缓存内容一字未变，照常回退旧缓存', async () => {
+    const { fetchImpl } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
+    const c = mkClient({ fetchImpl, dir });
+    await c.catalog();
+    const before = readFileSync(join(dir, '_catalog.yaml'), 'utf8');
+    // parseCatalogYaml 吃垃圾不抛错（空树）→ 必须在落盘前拦下，否则好缓存被覆盖成「目录 0 场」
+    const junk = mkClient({ fetchImpl: (async () => okResponse('<html>503</html>')) as unknown as typeof fetch, dir });
+    const back = await junk.catalog(true);
+    expect(back.total).toBe(5);
+    expect(readFileSync(join(dir, '_catalog.yaml'), 'utf8')).toBe(before);
+  });
+
+  it('垃圾 200 且无缓存 → unavailable，不落盘', async () => {
+    const c = mkClient({ fetchImpl: (async () => okResponse('<html>503</html>')) as unknown as typeof fetch, dir });
+    await expect(c.catalog()).rejects.toMatchObject({ kind: 'unavailable' });
+    expect(existsSync(join(dir, '_catalog.yaml'))).toBe(false);
+  });
+
   it('404 算「上游没有」，不把坏内容写进缓存', async () => {
     const c = mkClient({ fetchImpl: async () => okResponse('', 404) as unknown as Response, dir });
     await expect(c.catalog()).rejects.toMatchObject({ kind: 'not-found' });

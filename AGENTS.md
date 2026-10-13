@@ -2,7 +2,7 @@
 
 个人 ICPC 训练工作台 · 本地 Web 应用 · Windows 优先 · 中文仓库。
 
-**当前阶段：切片 4「模拟榜单」已交付合并（契约 `docs/16`）；UX 打磨批次亦已交付合并（榜体放大 / 页脚语境化 / 收放卡顿修复 / 飞屏提速 / 启停脚本，见 `实现说明-UX批次.md`）；下一片 = 工坊**。推进方式为切片制：一次只做一片，每片可独立验收；规格以 `docs/` 为准。
+**当前阶段：切片 4、UX 打磨批次、审计修复批次均已交付合并（修复批次的依据与交付见根目录 `审查结果-2026-10-12.md` / `实现说明-修复批次.md`；回顾「封榜视角」两态为最新契约口径）；下一片 = 工坊**。推进方式为切片制：一次只做一片，每片可独立验收；规格以 `docs/` 为准。
 
 ## 先读什么
 
@@ -20,6 +20,7 @@
 
 - `npm run dev` / `npm run build` / `npm start` / `npm test`；`start.bat` / `stop.bat` 为双击启停入口（start 遇端口占用弹三选一）；服务端口 7788。
 - 运行时数据在 `vault/`（gitignore；提供 `vault.example/` 用于初始化）。
+- 远端 `origin` = GitHub **私库**（仅作备份）：push 前须经用户同意（同「操作分支」一条）。
 - 视觉基线：`design/mock-01-dashboard.html`（切片 1，已冻结）+ `design/mock-02-three-ends.html`（切片 2，已冻结）+ `design/mock-03x-xcpc-explore.html`（切片 3，已定稿）+ `design/mock-04-simboard.html`（切片 4，已冻结；v6 修订 2026-10-10：榜体放大 / 页脚语境化 / 列头五档回迁）；截图见 `design/_shots/`。
 
 ## 仓库结构

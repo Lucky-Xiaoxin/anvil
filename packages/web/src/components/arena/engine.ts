@@ -421,11 +421,14 @@ interface Acc {
 /**
  * 按 `elapsed` 重建整张榜（§4）。
  *
+ * `unsealed = true` 时 cap 直接取 `elapsed`（回顾模式的「解封视界」：封榜段的格子显示真实结果，
+ * 名次 / 罚时 / 列头读数全部按该时刻全量解封算）；默认 false = 现状（封榜即定格）。
+ *
  * 每秒的成本只在「队伍 × 题数」的一遍扫描；行组件按 `cells` 引用 memo，未变动的行不重渲。
  */
-export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boolean): Board {
+export function buildBoard(model: ContestModel, elapsed: number, onlyFormal: boolean, unsealed = false): Board {
   const { duration, freezeStart, teams, problems, bands } = model;
-  const cap = capAt(elapsed, duration, freezeStart);
+  const cap = unsealed ? elapsed : capAt(elapsed, duration, freezeStart);
   const n = problems.length;
 
   const accs: Acc[] = [];

@@ -8,8 +8,16 @@ import { useCallback, useState } from 'react';
 import { ArenaCatalog } from './ArenaCatalog.tsx';
 import { ArenaBoard } from './ArenaBoard.tsx';
 import type { LeafRow } from './catalog.ts';
+import type { Store } from './session.ts';
 
-const store = typeof window === 'undefined' ? null : window.localStorage;
+/** 访问器本身在隐私模式下会直接抛：进函数再取 + try，别让模块加载那一步就炸掉整棵树 */
+function safeStore(): Store | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 interface Props {
   /** 目录场次往上报一层：侧栏页脚在 arena 语境要报这个数，而壳自己拉不到目录 */
@@ -17,6 +25,7 @@ interface Props {
 }
 
 export function Arena({ onCount }: Props) {
+  const [store] = useState(safeStore);
   const [open, setOpen] = useState<{ row: LeafRow; live: boolean } | null>(null);
   /** 离开回放屏就 +1：目录的「回放中」标记要立刻反映会话变化 */
   const [epoch, setEpoch] = useState(0);

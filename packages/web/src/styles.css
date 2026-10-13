@@ -186,7 +186,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   opacity:0;pointer-events:none;transition:opacity var(--rail-dur) var(--ease);
 }
 .is-rail .navfoot__rail{opacity:1;pointer-events:auto}
-.navfoot__rail .dot{cursor:default;width:7px;height:7px}
+.navfoot__rail .dot{cursor:default}
 .navfoot__rail b{font-family:var(--font-num);font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:.02em}
 
 /* 收起态悬停浮标：走全站 tooltip 的外观，箭头改指左（贴在图标右侧） */
@@ -519,6 +519,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .dot--stale{background:var(--warn);box-shadow:0 0 0 3px rgba(210,153,34,.13)}
 .dot--down{background:var(--bad);box-shadow:0 0 0 3px rgba(248,81,73,.14)}
 .dot--idle{background:#39434F}
+.dot--big{width:9px;height:9px}
 
 /* 顶栏同步按钮：三端并排后得说清点下去动的是哪家 */
 .btn-src{font-family:var(--font-num);font-size:11px;color:var(--text-mute);letter-spacing:.02em}
@@ -555,6 +556,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .tip__v.is-warn{color:var(--warn)}
 .tip__v.is-bad{color:var(--bad)}
 .tip__v.is-mute{color:var(--text-mute)}
+.tip__v.is-ok{color:var(--ok)}
 
 /*
  * 飞行途中锁掉横向溢出：左卡被内容区左边缘裁掉 = 钻进侧边栏底下，右卡切在屏幕边，
@@ -862,6 +864,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   border:2px solid var(--line);border-top-color:var(--accent);
   animation:spin 900ms linear infinite;
 }
+.skel--row{padding:0;height:38px;border:none;border-bottom:1px solid var(--line-soft);border-radius:0}
 .srchconfirm{margin-top:14px;padding:14px 16px;border:1px solid rgba(var(--pf-rgb),.35);border-radius:var(--r);background:rgba(var(--pf-rgb),.05)}
 .confirm{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .confirm__id{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -1182,6 +1185,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:#0F141B;border:1px solid #2C3746;border-radius:var(--r);
   box-shadow:0 18px 44px rgba(0,0,0,.62);
   padding:12px 14px;font-size:12.5px;
+  /* 发数多的格子：明细不再被视口裁掉（内部滚动；翻转定位逻辑后续再做） */
+  max-height:60vh;overflow:auto;
   animation:rise 200ms var(--ease) both;
 }
 .pop__h{display:flex;align-items:baseline;gap:8px;min-width:0;padding-right:18px}

@@ -71,6 +71,8 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [review, setReview] = useState(!live);
   const [onlyFormal, setOnlyFormal] = useState(false);
+  /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
+  const [frozenView, setFrozenView] = useState(false);
   const [resumed, setResumed] = useState(false);
   const [pop, setPop] = useState<Pop | PopTeam | null>(null);
   const { show, hide } = useTip();
@@ -136,7 +138,17 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       setElapsed(next.elapsed);
       if (next.session !== session) {
         setSession(next.session);
-        saveSession(store, row.path, next.session);
+        if (next.session.ended) {
+          /*
+           * 钟走到终点：照「结束」按钮的落点走 —— 落回顾屏并清会话记录。
+           * `tick` 到点时已经把 at / scrubMs 摆到 duration，这里不用再动。
+           * 少了这一步，榜冻在回放屏、滑条不出现，目录那行还会挂着「回放中 · 5:00:00」。
+           */
+          setReview(true);
+          clearSession(store, row.path);
+        } else {
+          saveSession(store, row.path, next.session);
+        }
       }
     };
     run();
@@ -148,12 +160,20 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   const model = load.kind === 'ready' ? load.model : null;
   const duration = model?.duration ?? 0;
   const viewMs = review ? (session?.scrubMs ?? duration) : elapsed;
-  const inFrz = model !== null && !review && inFreezeWindow(elapsed, duration, model.freezeStart);
+  /*
+   * 封榜带：live 照旧（封榜段内定格）；回顾只在「封榜视角」开着且滑条落在封榜段内时显示 ——
+   * 解封视界下格子已经显示真实结果，再挂「结果未知 N 格」就是自相矛盾。
+   */
+  const inFrz =
+    model !== null &&
+    (review
+      ? frozenView && inFreezeWindow(viewMs, duration, model.freezeStart)
+      : inFreezeWindow(elapsed, duration, model.freezeStart));
 
-  /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度） */
-  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${Math.min(1, viewMs >= duration ? 1 : 0)}`;
+  /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度；封榜视角开关也要立即重建） */
+  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= duration ? 1 : 0)}`;
   const board: Board | null = useMemo(
-    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal)),
+    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model, minuteKey],
   );
@@ -344,6 +364,12 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
             近似回放
           </span>
         ) : null}
+        {review ? (
+          <label className="switch">
+            <input type="checkbox" checked={frozenView} onChange={(e) => setFrozenView(e.target.checked)} />
+            封榜视角
+          </label>
+        ) : null}
         <label className="switch">
           <input type="checkbox" checked={onlyFormal} onChange={(e) => setOnlyFormal(e.target.checked)} />
           仅正式队
@@ -367,7 +393,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           {review ? (
             <div className="scrub">
               <span className="scrub__lab">回放</span>
-              <span className="scrub__t" style={{ color: viewMs > model.freezeStart ? undefined : 'var(--accent-2)' }}>
+              <span className="scrub__t" style={{ color: viewMs > model.freezeStart ? '#B4C0CF' : 'var(--accent-2)' }}>
                 {clockHMS(viewMs)}
               </span>
               <span className="tl">
@@ -422,7 +448,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
               >
                 <Icon id="i-noflag" />
                 <span>
-                  封榜中 · 名次定格在 <b>{freezeLabel}</b>
+                  {review ? '定格视角' : '封榜中'} · 名次定格在 <b>{freezeLabel}</b>
                 </span>
                 <span className="frost__r">
                   结果未知 {board.frzCells} 格 · 涉及 {board.frozenRows} 队

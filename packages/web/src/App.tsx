@@ -42,6 +42,21 @@ const nodeOf = (id: SourceId): HTMLElement | null => document.getElementById(`co
 const patchStates = (all: SyncStatesDto, id: SyncSourceId, next: SyncStateDto): SyncStatesDto =>
   id === 'cf' ? { ...all, cf: next } : { ...all, at: next };
 
+/** 占位屏（读数还没到）：给一脚「重试」——服务重启 / 库被锁这类不用刷新整页 */
+function Pending({ id, notice, onRetry }: { id: string; notice: Notice | null; onRetry: () => void }) {
+  return (
+    <div className="content" id={id} role="tabpanel">
+      {notice ? <NoticeBar {...notice} /> : null}
+      <p className="hint">
+        正在读 vault/anvil.db…
+        <button className="btn btn--xs btn--ghost" style={{ marginLeft: 10 }} onClick={onRetry}>
+          重试
+        </button>
+      </p>
+    </div>
+  );
+}
+
 export function App() {
   const [status, setStatus] = useState<StatusDto | null>(null);
   const [dashes, setDashes] = useState<Partial<Record<SyncSourceId, DashboardDto>>>({});
@@ -82,18 +97,29 @@ export function App() {
     [],
   );
 
+  /**
+   * 全量读数：四个请求各自独立成败（allSettled）—— CF 挂了不该把 AT 读数 / XCPC 档案一起拖掉；
+   * 成功的逐项进屏（不覆盖已在的数据，也不因一个失败就整屏不动），失败的汇总成一条提示。
+   */
   const refresh = useCallback(async () => {
-    try {
-      const s = await getStatus();
-      const [cf, at, x] = await Promise.all([getDashboard('cf'), getDashboard('at'), getXcpc()]);
-      setStatus(s);
-      setDashes({ cf, at });
-      setXcpc(x);
+    const [st, cf, at, x] = await Promise.allSettled([getStatus(), getDashboard('cf'), getDashboard('at'), getXcpc()]);
+    const failed: string[] = [];
+    if (st.status === 'fulfilled') {
+      setStatus(st.value);
       setToday(new Date());
-      setNotice(null);
-    } catch (err) {
-      setNotice({ kind: 'err', text: `${messageOf(err)} · 只读本地缓存，不会再出网` });
+    } else failed.push('状态');
+    if (cf.status === 'fulfilled' || at.status === 'fulfilled') {
+      setDashes((d) => ({
+        ...d,
+        ...(cf.status === 'fulfilled' ? { cf: cf.value } : {}),
+        ...(at.status === 'fulfilled' ? { at: at.value } : {}),
+      }));
     }
+    if (cf.status === 'rejected') failed.push('CF');
+    if (at.status === 'rejected') failed.push('AT');
+    if (x.status === 'fulfilled') setXcpc(x.value);
+    else failed.push('XCPC');
+    setNotice(failed.length === 0 ? null : { kind: 'err', text: `部分数据读取失败（${failed.join(' / ')}）· 已在读到的照样显示` });
   }, []);
 
   useEffect(() => {
@@ -144,6 +170,8 @@ export function App() {
       setNotice(null);
       setDelta(null);
       let final: SyncStateDto | null = null;
+      /* 失败提示放在 refresh 之后落（与 runXcpcRefresh 同款）—— refresh 成功会清旧提示，先立就被它擦掉 */
+      let next: Notice | null = null;
       try {
         let snap = await startSync(source);
         setStates(snap);
@@ -163,15 +191,16 @@ export function App() {
         }
         final = snap[source];
         if (final.phase === 'error') {
-          setNotice({ kind: 'err', text: `${final.error ?? '同步失败'} · 本地缓存的数据照旧显示` });
+          next = { kind: 'err', text: `${final.error ?? '同步失败'} · 本地缓存的数据照旧显示` };
         } else {
           setDelta({ source, stored: final.stored });
         }
       } catch (err) {
-        setNotice({ kind: 'err', text: `${messageOf(err)} · 本地缓存的数据照旧显示` });
+        next = { kind: 'err', text: `${messageOf(err)} · 本地缓存的数据照旧显示` };
       } finally {
         await refresh();
         setBusy((b) => ({ ...b, [source]: false }));
+        setNotice(next);
       }
       return final;
     },
@@ -319,11 +348,7 @@ export function App() {
      */
     if (active === null) {
       if (status === null) {
-        return (
-          <div className="content" id="content-xcpc" role="tabpanel">
-            {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
-          </div>
-        );
+        return <Pending id="content-xcpc" notice={notice} onRetry={() => void refresh()} />;
       }
       // 没档案、或刚认领完还停在完成条上 → 认领屏；否则就是长卷
       if (claiming || xcpc === null) {
@@ -376,11 +401,7 @@ export function App() {
         />
       );
     }
-    return (
-      <div className="content" id={`content-${active}`} role="tabpanel">
-        {notice ? <NoticeBar {...notice} /> : <p className="hint">正在读 vault/anvil.db…</p>}
-      </div>
-    );
+    return <Pending id={`content-${active}`} notice={notice} onRetry={() => void refresh()} />;
   };
 
   return (

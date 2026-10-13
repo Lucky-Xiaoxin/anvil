@@ -34,6 +34,8 @@ export interface StatusDto {
   sources: Record<SyncSourceId, SourceStatusDto>;
   /** XCPC 走认领而非 handle，不进 `sources`（它没有提交粒度、也不跑 /api/sync runner） */
   xcpc: XcpcStatusDto;
+  /** vault/config.json 读不懂时的一句人话（含留底文件名）；可读时不带这个字段 */
+  configWarning?: string;
 }
 
 export type SyncPhase = 'idle' | 'fetching' | 'storing' | 'done' | 'error';
