@@ -1,12 +1,13 @@
 /**
  * 赛事目录（docs/16 §5.1）：五类 → 年份 / 省 → 场次，带搜索、计数、三态与进行中标记。
+ * 行内第三枚动作「预拉取」= docs/20 §1：该场快照先拉到本地缓存，已缓存的行换成「本地」小标。
  *
  * 诚实标注两处照 §2.3 原样：顶栏「目录 N 场 · 榜单来自官方快照」、卡底「来源 algoux/srk-collection
  * （社区快照）· 回放的是已打完的比赛」。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArenaCatalogDto } from '@anvil/shared';
-import { getArenaCatalog } from '../../api.ts';
+import { getArenaCatalog, getArenaContest } from '../../api.ts';
 import { clockHMS, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNode, type LeafRow } from './catalog.ts';
@@ -31,6 +32,17 @@ interface Props {
   onCount: (n: number) => void;
 }
 
+/**
+ * 预拉取三态（docs/20 §1）：容器持有一份，随目录行往下传。
+ * `cachedNow` = 本次会话里刚拉完的（服务端 `cached` 要等下次取目录才更新，先就地记账）。
+ */
+interface PrefetchState {
+  cachedNow: Set<string>;
+  busyPath: string | null;
+  prefetchErr: { path: string; text: string } | null;
+  onPrefetch: (path: string) => void;
+}
+
 const subLabel = (node: GroupNode): string =>
   node.kids.length > 0 ? (node.name === '省赛' ? '按省分组' : node.name === '校赛' ? '按学校' : '按年份') : '按场次';
 
@@ -43,6 +55,9 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const [open, setOpen] = useState<Set<string>>(() => loadOpenGroups(store));
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
+  const [cachedNow, setCachedNow] = useState<Set<string>>(() => new Set<string>());
+  const [busyPath, setBusyPath] = useState<string | null>(null);
+  const [prefetchErr, setPrefetchErr] = useState<{ path: string; text: string } | null>(null);
   const scrollBox = useRef<HTMLDivElement | null>(null);
   const timer = useRef(0);
 
@@ -89,6 +104,33 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const leaves = useMemo(() => (dto === null ? [] : flattenLeaves(dto.tree)), [dto]);
   const hits = useMemo(() => (q.trim() === '' ? [] : searchLeaves(leaves, q)), [leaves, q]);
   const total = dto?.total ?? 0;
+
+  /*
+   * 预拉取（docs/20 §1）：不新开接口，直接走进回放同一条 `GET /api/arena/contest?path=`
+   * —— 命中缓存即秒回，未命中走双源轮换 + 总预算，失败口径也照旧（messageOf）。
+   * 拉到就落 `vault/arena/`，本层只补一条「这次会话里刚拉完」的记账，不进入回放。
+   */
+  const prefetch = useCallback(async (path: string): Promise<void> => {
+    setBusyPath(path);
+    setPrefetchErr(null);
+    try {
+      await getArenaContest(path);
+      setCachedNow((prev) => (prev.has(path) ? prev : new Set(prev).add(path)));
+    } catch (err) {
+      setPrefetchErr({ path, text: messageOf(err) });
+    } finally {
+      setBusyPath(null);
+    }
+  }, []);
+
+  const onPrefetch = useCallback((path: string): void => {
+    void prefetch(path);
+  }, [prefetch]);
+
+  const pf = useMemo<PrefetchState>(
+    () => ({ cachedNow, busyPath, prefetchErr, onPrefetch }),
+    [cachedNow, busyPath, prefetchErr, onPrefetch],
+  );
 
   const toggle = (key: string): void =>
     setOpen((o) => {
@@ -175,7 +217,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
           <div className="cat">
             {state === 'loading' ? <Loading /> : null}
             {state === 'error' ? <Failed text={error} onRetry={() => void fetchCatalog(false)} /> : null}
-            {state === 'ready' && q.trim() !== '' ? <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} /> : null}
+            {state === 'ready' && q.trim() !== '' ? <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} pf={pf} /> : null}
             {state === 'ready' && q.trim() === '' ? (
               <>
                 {(dto?.tree ?? []).map((n) => (
@@ -187,6 +229,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
                     toggle={toggle}
                     sessions={sessions}
                     onEnter={onEnter}
+                    pf={pf}
                     top
                   />
                 ))}
@@ -248,7 +291,17 @@ function Failed({ text, onRetry }: { text: string; onRetry: () => void }) {
   );
 }
 
-function Found({ hits, q, sessions, onEnter }: { hits: LeafRow[]; q: string; sessions: Map<string, { elapsed: number; paused: boolean }>; onEnter: Props['onEnter'] }) {
+/**
+ * 行级预拉取读数：服务端标的 `cached` 与本次会话刚拉完的取并集；
+ * `err` 只给报错那一行（别的行拿到空串，不跟着抖）。
+ */
+const prefetchOf = (r: LeafRow, pf: PrefetchState): { cached: boolean; busy: boolean; err: string } => ({
+  cached: r.cached === true || pf.cachedNow.has(r.path),
+  busy: pf.busyPath === r.path,
+  err: pf.prefetchErr?.path === r.path ? pf.prefetchErr.text : '',
+});
+
+function Found({ hits, q, sessions, onEnter, pf }: { hits: LeafRow[]; q: string; sessions: Map<string, { elapsed: number; paused: boolean }>; onEnter: Props['onEnter']; pf: PrefetchState }) {
   return (
     <>
       <div className="cyear cyear--flat">
@@ -266,7 +319,18 @@ function Found({ hits, q, sessions, onEnter }: { hits: LeafRow[]; q: string; ses
           </div>
         </div>
       ) : (
-        hits.map((r, i) => <Row key={r.path} row={r} alt={i % 2 === 1} path={r.group.join(' / ')} live={sessions.get(r.path) ?? null} onEnter={onEnter} />)
+        hits.map((r, i) => (
+          <Row
+            key={r.path}
+            row={r}
+            alt={i % 2 === 1}
+            path={r.group.join(' / ')}
+            live={sessions.get(r.path) ?? null}
+            onEnter={onEnter}
+            {...prefetchOf(r, pf)}
+            onPrefetch={pf.onPrefetch}
+          />
+        ))
       )}
     </>
   );
@@ -279,12 +343,13 @@ interface GroupProps {
   toggle: (key: string) => void;
   sessions: Map<string, { elapsed: number; paused: boolean }>;
   onEnter: Props['onEnter'];
+  pf: PrefetchState;
   top?: boolean;
   chain?: string;
 }
 
 /** 分组行：顶层是 `.cgrp`，下层是 `.cyear`；展开态按「类目名 → 组名」这条链记，不写进存储 */
-const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, top = false, chain = '' }: GroupProps) {
+const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, pf, top = false, chain = '' }: GroupProps) {
   const key = chain === '' ? node.name : `${chain} / ${node.name}`;
   // 一律折起（含顶层五类）：394 行全摊开等于没有目录；展开过的那一层由 arena:tree 记着
   const open = openState.has(key);
@@ -321,10 +386,10 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
       {head}
       <div className="cbody" style={{ ['--d' as string]: depth + 1 }}>
         {node.kids.map((k) => (
-          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} chain={key} />
+          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} pf={pf} chain={key} />
         ))}
         {node.leaves.map((r, i) => (
-          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} />
+          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
         ))}
       </div>
     </>
@@ -335,7 +400,20 @@ const TierBadge = memo(function TierBadge({ tier, label }: { tier: string; label
   return <span className={`tier tier--${tier}`}>{label}</span>;
 });
 
-const Row = memo(function Row({ row, live, alt = false, path, onEnter }: { row: LeafRow; live: { elapsed: number; paused: boolean } | null; alt?: boolean; path?: string; onEnter: Props['onEnter'] }) {
+interface RowProps {
+  row: LeafRow;
+  live: { elapsed: number; paused: boolean } | null;
+  alt?: boolean;
+  path?: string;
+  onEnter: Props['onEnter'];
+  /** 预拉取三态（docs/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
+  cached: boolean;
+  busy: boolean;
+  err: string;
+  onPrefetch: (path: string) => void;
+}
+
+const Row = memo(function Row({ row, live, alt = false, path, onEnter, cached, busy, err, onPrefetch }: RowProps) {
   return (
     <div className={`crow${alt ? ' is-alt' : ''}${live ? ' is-live' : ''}`}>
       <span className="crow__d">{row.date}</span>
@@ -366,9 +444,31 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter }: { row: 
               <Icon id="i-eye" />
               查看终榜
             </button>
+            {/* 已缓存 = 「本地」小标替代按钮；未缓存 = 预拉取（拉取中禁用重复点，图标留住） */}
+            {cached ? (
+              <span className="crow__cache">
+                <i className="dot dot--ok" />
+                本地
+              </span>
+            ) : (
+              <button
+                className="btn btn--xs btn--ghost"
+                disabled={busy}
+                title="把这一场的榜单快照先拉到本地缓存"
+                onClick={() => onPrefetch(row.path)}
+              >
+                <Icon id="i-sync" />
+                {busy ? '拉取中…' : '预拉取'}
+              </button>
+            )}
           </>
         )}
       </span>
+      {err === '' ? null : (
+        <span className="crow__err" title={err}>
+          预拉取失败：{err}
+        </span>
+      )}
     </div>
   );
 });

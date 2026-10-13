@@ -91,6 +91,24 @@ describe('目录行与搜索', () => {
     expect(row.badge).toEqual({ tier: 'other', label: '网络赛' });
   });
 
+  it('cached 透传：服务端标的本地缓存跟着进行，没标的当没缓存（docs/20 §1 预拉取）', () => {
+    const hit = leafRowOf({ ...leaf('2025-11-23 上海站', 'official/icpc/icpc2025/a.srk.json'), cached: true }, ['ICPC']);
+    expect(hit.cached).toBe(true);
+    expect(leafRowOf(leaf('2025-10-19 西安站', 'official/icpc/icpc2025/b.srk.json'), ['ICPC']).cached).toBe(false);
+    // 摊平（搜索命中）与分组（树视图）两条路都要带上，界面只从 LeafRow 读这一份
+    const tree: ArenaCatalogNode[] = [
+      { name: 'ICPC', count: 2, children: [
+        { ...leaf('2025-11-23 上海站', 'official/icpc/icpc2025/a.srk.json'), cached: true },
+        leaf('2025-10-19 西安站', 'official/icpc/icpc2025/b.srk.json'),
+      ] },
+    ];
+    expect(flattenLeaves(tree).map((r) => [r.path, r.cached])).toEqual([
+      ['official/icpc/icpc2025/a.srk.json', true],
+      ['official/icpc/icpc2025/b.srk.json', false],
+    ]);
+    expect(toGroupNode(tree[0]!, []).leaves.map((r) => r.cached)).toEqual([true, false]);
+  });
+
   it('摊平后按名称 / 日期 / 分组链命中，大小写不敏感', () => {
     const rows = flattenLeaves(TREE);
     expect(rows).toHaveLength(4);
