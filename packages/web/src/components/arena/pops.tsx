@@ -1,5 +1,6 @@
 /**
- * 两个弹层（docs/16 §5.2）：提交明细 / 队伍。外观与定位照 mock-04 的 `.pop`。
+ * 弹层壳子（docs/16 §5.2 + docs/20 §2.3）：提交明细 / 队伍 / 「我的成绩」面板共用一套定位，
+ * 外观照 mock-04 的 `.pop`。
  *
  * 封榜段内的记录一律显示 `Frozen` —— 契约 §4 要的是这个词（不泄露判名），
  * 稿内的 `?` 是格子的读法，弹层里按 §4 走。
@@ -14,20 +15,47 @@ export interface Anchor {
   height: number;
 }
 
-export function Popover({ anchor, viewport, onClose, children }: { anchor: Anchor; viewport: { w: number; h: number }; onClose: () => void; children: ReactNode }) {
-  const W = 270;
+/**
+ * 弹层外壳。`width` / `height` 是稿内定值（默认 270 × 260 = 提交明细与队伍弹层），
+ * 幽灵面板更高（330 × 500 = 13 行输入 + 底部开关 + 小注的实测高）—— 翻转判定按传入值算，
+ * 默认值保证现有两弹层零变化。
+ *
+ * `label` 同规格：默认「明细」= 提交明细 / 队伍两弹层原样，幽灵弹层传「我的成绩」
+ * （它不是"明细"，是一块录入面板，无障碍名跟着语义走）。
+ */
+export function Popover({
+  anchor,
+  viewport,
+  onClose,
+  width = 270,
+  height = 260,
+  label = '明细',
+  cls,
+  children,
+}: {
+  anchor: Anchor;
+  viewport: { w: number; h: number };
+  onClose: () => void;
+  width?: number;
+  height?: number;
+  /** 弹层的无障碍名（默认「明细」） */
+  label?: string;
+  /** 追加到 `.pop` 的修饰类（默认无 = 现有两弹层零变化） */
+  cls?: string;
+  children: ReactNode;
+}) {
   /*
    * 高度在测量前未知，按稿内的落点算：默认贴在锚点下方 8px，装不下就翻到上方。
-   * 宽度是稿内定值 270，不需要测量就能定横向。
+   * 宽度是稿内定值，不需要测量就能定横向。
    */
-  const left = Math.max(10, Math.min(viewport.w - W - 10, anchor.left + anchor.width / 2 - W / 2));
+  const left = Math.max(10, Math.min(viewport.w - width - 10, anchor.left + anchor.width / 2 - width / 2));
   const below = anchor.top + anchor.height + 8;
-  const flip = below + 260 > viewport.h;
-  const top = flip ? Math.max(10, anchor.top - 8 - 260) : below;
+  const flip = below + height > viewport.h;
+  const top = flip ? Math.max(10, anchor.top - 8 - height) : below;
   return (
     <>
       <div className="backdrop" onMouseDown={onClose} />
-      <div className="pop" role="dialog" aria-modal="false" aria-label="明细" style={{ left, top, width: W }}>
+      <div className={cls === undefined ? 'pop' : `pop ${cls}`} role="dialog" aria-modal="false" aria-label={label} style={{ left, top, width }}>
         {children}
         <button className="pop__x" aria-label="关闭" onClick={onClose}>
           ×

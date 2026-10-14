@@ -265,6 +265,8 @@ export interface ArenaCatalogNode {
   format?: string;
   children?: ArenaCatalogNode[];
   count?: number;
+  /** 叶子：该场快照已在本地缓存（docs/20 §1，目录行据此显「本地」还是「预拉取」） */
+  cached?: boolean;
 }
 
 export interface ArenaCatalogDto {

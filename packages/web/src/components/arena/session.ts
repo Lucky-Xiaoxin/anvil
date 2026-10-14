@@ -1,13 +1,15 @@
 /**
  * 回会话持久化（docs/16 §3）：每场一条 `arena:session:<官方路径>`，侧栏收起态 `arena:rail`，
- * 目录收放 `arena:tree` 与停留位置 `arena:tree-scroll`。
+ * 目录收放 `arena:tree` 与停留位置 `arena:tree-scroll`；「我的成绩」幽灵行每场一条
+ * `arena:ghost:<官方路径>`（docs/20 §2.1）。
  *
  * 只碰这几个键；读写一律包 try —— localStorage 在某些隐私模式下会直接抛，
  * 会话读不出来就当没有（开新钟），不该让整屏打不开。
  */
-import type { Session } from './engine.ts';
+import { GHOST_RESULTS, type GhostResult, type GhostSub, type Session } from './engine.ts';
 
 export const sessionKey = (path: string): string => `arena:session:${path}`;
+export const ghostKey = (path: string): string => `arena:ghost:${path}`;
 export const RAIL_KEY = 'arena:rail';
 
 /** 界面只需要一个能读写字符串的存储；测试注入桩件，不必造整个 DOM */
@@ -130,5 +132,72 @@ export function saveScrollTop(store: Store, top: number): void {
     store.setItem(SCROLL_KEY, String(Math.round(top)));
   } catch {
     /* 忽略 */
+  }
+}
+
+/* ---------- 「我的成绩」幽灵行（docs/20 §2.1 · v8 逐发）：每场一条，与回放会话 / vault 缓存互不相干 ---------- */
+
+export interface GhostData {
+  /** 面板里的「展示我」：关 = 行隐藏但数据留着（顶栏读数跟着消失） */
+  show: boolean;
+  /** 逐发提交（`t` = 比赛分钟），按 `p` 再按 `t` 升序存 */
+  subs: GhostSub[];
+}
+
+const intOf = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
+
+/**
+ * 单发录入的 sanitize：读不懂就整条丢（宁可少一发，也不按猜出来的判名占名次）。
+ * 判名只收面板给的那五档 —— `FB` 进不来，幽灵永不首杀。
+ */
+const subOf = (v: unknown): GhostSub | null => {
+  if (v === null || typeof v !== 'object') return null;
+  const o = v as { p?: unknown; t?: unknown; r?: unknown };
+  const p = intOf(o.p);
+  const t = intOf(o.t);
+  const r = typeof o.r === 'string' && (GHOST_RESULTS as readonly string[]).includes(o.r) ? (o.r as GhostResult) : null;
+  if (p === null || p < 0 || t === null || t < 0 || r === null) return null;
+  return { p, t, r };
+};
+
+export function loadGhost(store: Store, path: string): GhostData | null {
+  try {
+    const raw = store.getItem(ghostKey(path));
+    if (raw === null || raw === '') return null;
+    const v = JSON.parse(raw) as unknown;
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+    const o = v as { show?: unknown; subs?: unknown };
+    // v7 那份是 { show, marks:[{p,ac,fails}] } —— 形状换了就不迁，读出来当没有（面板全空重录）
+    if (!Array.isArray(o.subs)) return null;
+    const subs: GhostSub[] = [];
+    for (const x of o.subs) {
+      const s = subOf(x);
+      if (s !== null) subs.push(s);
+    }
+    return { show: o.show !== false, subs: subs.sort(ghostOrder) };
+  } catch {
+    return null;
+  }
+}
+
+/** 先题后时：与榜上的列序一致，逐发清单里改错好找 */
+const ghostOrder = (a: GhostSub, b: GhostSub): number => a.p - b.p || a.t - b.t;
+
+/** 写入前排序：minuteKey 要序列化这份 subs，顺序稳定才不会白重建榜 */
+export function saveGhost(store: Store, path: string, data: GhostData): void {
+  try {
+    const subs = [...data.subs].sort(ghostOrder);
+    store.setItem(ghostKey(path), JSON.stringify({ show: data.show, subs }));
+  } catch {
+    /* 存不下就丢掉这一场的成绩，榜照看 */
+  }
+}
+
+/** 「清除本场成绩」= 删键：下次进来面板留空，入口照旧在 */
+export function clearGhost(store: Store, path: string): void {
+  try {
+    store.removeItem(ghostKey(path));
+  } catch {
+    /* 同上 */
   }
 }

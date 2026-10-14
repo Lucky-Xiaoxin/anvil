@@ -231,6 +231,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .topbar__spacer{flex:1 1 auto}
+/* 顶栏挤时截标题优先（h2 有 ellipsis），按钮文字一律不折行 —— v8 复核：≤1406 时「回到目录」曾折两行 */
+.topbar .btn{white-space:nowrap}
 
 .content{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-2) var(--sp-4) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2)}
 .content::-webkit-scrollbar{width:11px}
@@ -950,6 +952,14 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .crow.is-live{background:rgba(245,165,36,.045)}
 .crow__live{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-num);font-size:11.5px;color:var(--accent);white-space:nowrap}
 .crow__live.is-paused{color:var(--text-dim)}
+/* v7 · 目录「预拉取」：已缓存行的「本地」小标（照 design/mock-04-simboard.html v7 原样抄） */
+.crow__cache{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.crow__cache .dot{width:5px;height:5px}
+/* 预拉取失败 = 该行下方的小字，不弹大 alert、不动全屏 error 态（docs/20 §1）。
+   `.crow` 是四列定高网格，小字是第 5 个网格项 —— 让它整行跨列独占第二行，
+   并给带小字的行放开高度（第一行仍是 38px，四件套对齐不变）。 */
+.crow__err{grid-column:1 / -1;font-size:10.5px;color:var(--bad);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.crow:has(.crow__err){height:auto;grid-template-rows:38px auto;padding-bottom:5px}
 .btn--xs{height:24px;padding:0 9px;font-size:11.5px;gap:6px;font-weight:600}
 .btn--xs svg{width:12px;height:12px}
 .btn--go{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
@@ -1015,6 +1025,11 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .brow.m-gold .c-r::before{background:var(--gold)}
 .brow.m-silver .c-r::before{background:var(--silver)}
 .brow.m-bronze .c-r::before{background:var(--bronze)}
+/* v7 · 「我的成绩」幽灵行（docs/20 §2.3）：accent 竖条 + 极淡 accent 底，可与奖牌底纹叠加。
+   这两条必须排在上面三条奖牌 `::before` 之后 —— 权重相同，靠顺序压过奖牌色。 */
+.brow.is-ghost{background-color:rgba(245,165,36,.055)}
+.brow.is-ghost .c-r::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:0 2px 2px 0;background:var(--accent)}
+.c-team__n.is-you{color:var(--accent);font-weight:600}
 .c-r b{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;color:var(--text)}
 .c-s{font-family:var(--font-num);font-size:11px;color:var(--text-mute)}
 .c-s b{color:var(--accent-2);font-weight:600}
@@ -1111,7 +1126,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .rbname{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;cursor:default}
 .pill{
   display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;
-  font-family:var(--font-num);font-size:10.5px;letter-spacing:.04em;
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.04em;white-space:nowrap;
   border:1px solid rgba(148,160,180,.34);color:#B4C0CF;background:rgba(148,160,180,.07);
 }
 .pill--live{border-color:rgba(63,185,80,.4);color:#A9E7B4;background:rgba(63,185,80,.08)}
@@ -1134,7 +1149,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .key__s--frz{background:repeating-linear-gradient(135deg,rgba(148,160,180,.11) 0 3px,rgba(148,160,180,.03) 3px 6px);border:1px dashed rgba(148,160,180,.34);color:var(--text-dim)}
 
 /* 复选（仅正式队） */
-.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap}
 .switch input{
   -webkit-appearance:none;appearance:none;margin:0;
   width:15px;height:15px;flex:0 0 auto;border-radius:3px;
@@ -1189,6 +1204,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   max-height:60vh;overflow:auto;
   animation:rise 200ms var(--ease) both;
 }
+/* 「我的成绩」录入面板：13 行 + 底部开关 + 小注比明细高，60vh 会把小注裁到滚动区外，
+   并和 `.ghgrid` 形成双滚动 —— 放开这一种弹层的高度，滚动只交给题目网格。 */
+.pop--panel{max-height:min(82vh,560px)}
 .pop__h{display:flex;align-items:baseline;gap:8px;min-width:0;padding-right:18px}
 .pop__t{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pop__x{position:absolute;right:12px;top:11px;font-family:var(--font-num);font-size:13px;color:var(--text-mute);line-height:1}
@@ -1219,6 +1237,36 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:var(--panel-2);border:1px solid var(--line);font-family:var(--font-num);font-size:11px;color:var(--text-dim);
 }
 .backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
+/* v8 · 「我的成绩」逐发录入面板 + 顶栏读数（照 design/mock-04-simboard.html v8 原样抄） */
+.ghin{width:58px;flex:0 0 auto;padding:3px 7px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);font-family:var(--font-num);font-size:11.5px;font-variant-numeric:tabular-nums}
+.ghin:focus{outline:none;border-color:rgba(245,165,36,.5)}
+.ghin::placeholder{color:#39434F}
+.ghfoot{display:flex;align-items:center;gap:10px}
+.ghfoot .spacer{flex:1 1 auto}
+.ghnote{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:1.6;margin-top:4px}
+.ghrank{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;font-size:11px;color:var(--text-dim);
+  background:rgba(245,165,36,.07);border:1px solid rgba(245,165,36,.32);border-radius:999px;cursor:pointer;white-space:nowrap}
+.ghrank:hover{color:var(--text);border-color:rgba(245,165,36,.6)}
+.ghrank b{font-family:var(--font-num);font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+.ghform{display:flex;align-items:center;gap:8px}
+.ghsel{height:26px;padding:0 5px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);
+  font-family:var(--font-num);font-size:11.5px}
+.ghsel:focus{outline:none;border-color:rgba(245,165,36,.5)}
+.ghin--t{width:54px;text-align:center}
+.ghin.is-bad{border-color:rgba(248,81,73,.6)}
+.ghhint{font-size:10px;color:var(--text-mute);line-height:1.5;margin-top:6px}
+.ghhint.is-bad{color:var(--bad)}
+.ghsubs{display:flex;flex-direction:column;max-height:214px;overflow:auto;padding:2px 0}
+.ghsub{display:grid;grid-template-columns:14px 44px 46px 1fr 14px;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.ghsub:last-child{border-bottom:none}
+.ghsub>b{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--text-dim)}
+.ghsub__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim)}
+.ghsub .res{height:17px;padding:0 5px;font-size:9.5px}
+.ghsub__x{background:none;border:none;color:#39434F;font-size:13px;line-height:1;cursor:pointer;padding:0}
+.ghsub__x:hover{color:var(--bad)}
+/* 顶栏读数点一下：滚到那一行后闪 1.1s（与 .brow 的奖牌底纹叠加，不改底色规则） */
+.brow.is-jump{animation:ghjump 1100ms var(--ease)}
+@keyframes ghjump{0%,55%{background-color:rgba(245,165,36,.17)}100%{background-color:transparent}}
 
 /* ---------- 22. 列头五档（r3：整格淡底承载状态） ---------- */
 /* 原先的 2px 下缘带画在 bottom:2，正好穿过 9px 的过题数那一行；

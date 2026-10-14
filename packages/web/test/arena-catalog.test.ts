@@ -5,12 +5,16 @@ import { describe, expect, it } from 'vitest';
 import type { ArenaCatalogNode } from '@anvil/shared';
 import { catalogHeadline, flattenLeaves, leafRowOf, searchLeaves, tierOf, toGroupNode } from '../src/components/arena/catalog.ts';
 import {
+  clearGhost,
   clearSession,
+  ghostKey,
+  loadGhost,
   loadOpenGroups,
   loadRail,
   loadScrollTop,
   loadSession,
   listSessionPaths,
+  saveGhost,
   saveOpenGroups,
   saveRail,
   saveScrollTop,
@@ -91,6 +95,24 @@ describe('目录行与搜索', () => {
     expect(row.badge).toEqual({ tier: 'other', label: '网络赛' });
   });
 
+  it('cached 透传：服务端标的本地缓存跟着进行，没标的当没缓存（docs/20 §1 预拉取）', () => {
+    const hit = leafRowOf({ ...leaf('2025-11-23 上海站', 'official/icpc/icpc2025/a.srk.json'), cached: true }, ['ICPC']);
+    expect(hit.cached).toBe(true);
+    expect(leafRowOf(leaf('2025-10-19 西安站', 'official/icpc/icpc2025/b.srk.json'), ['ICPC']).cached).toBe(false);
+    // 摊平（搜索命中）与分组（树视图）两条路都要带上，界面只从 LeafRow 读这一份
+    const tree: ArenaCatalogNode[] = [
+      { name: 'ICPC', count: 2, children: [
+        { ...leaf('2025-11-23 上海站', 'official/icpc/icpc2025/a.srk.json'), cached: true },
+        leaf('2025-10-19 西安站', 'official/icpc/icpc2025/b.srk.json'),
+      ] },
+    ];
+    expect(flattenLeaves(tree).map((r) => [r.path, r.cached])).toEqual([
+      ['official/icpc/icpc2025/a.srk.json', true],
+      ['official/icpc/icpc2025/b.srk.json', false],
+    ]);
+    expect(toGroupNode(tree[0]!, []).leaves.map((r) => r.cached)).toEqual([true, false]);
+  });
+
   it('摊平后按名称 / 日期 / 分组链命中，大小写不敏感', () => {
     const rows = flattenLeaves(TREE);
     expect(rows).toHaveLength(4);
@@ -168,6 +190,101 @@ describe('会话与轨道状态存储', () => {
     expect(loadRail(s)).toBe(false);
     s.setItem('arena:rail', 'yes');
     expect(loadRail(s)).toBe(false);
+  });
+});
+
+describe('「我的成绩」幽灵行存储（docs/20 §2.1 · v8 逐发）', () => {
+  const PATH = 'official/icpc/icpc2025/a.srk.json';
+
+  it('键族是 arena:ghost:<官方路径>，且不混进「进行中场次」的枚举', () => {
+    expect(ghostKey(PATH)).toBe(`arena:ghost:${PATH}`);
+    const s = memoryStore();
+    saveGhost(s, PATH, { show: true, subs: [{ p: 0, t: 113, r: 'AC' }] });
+    // 目录那行「回放中」只认 arena:session: 前缀，幽灵键不该被当成一场活着的回放
+    expect(listSessionPaths(s)).toEqual([]);
+  });
+
+  it('subs 先按题、再按时刻升序落盘（乱序录入也存成榜上的读法）', () => {
+    const s = memoryStore();
+    saveGhost(s, PATH, {
+      show: true,
+      subs: [
+        { p: 7, t: 187, r: 'AC' },
+        { p: 1, t: 45, r: 'AC' },
+        { p: 7, t: 170, r: 'WA' },
+        { p: 1, t: 28, r: 'WA' },
+      ],
+    });
+    expect(s.getItem(ghostKey(PATH))).toBe(
+      '{"show":true,"subs":[{"p":1,"t":28,"r":"WA"},{"p":1,"t":45,"r":"AC"},{"p":7,"t":170,"r":"WA"},{"p":7,"t":187,"r":"AC"}]}',
+    );
+  });
+
+  it('「展示我」关掉也照样留数据；全空的 subs 存得下（清除后重录）', () => {
+    const s = memoryStore();
+    saveGhost(s, PATH, { show: false, subs: [{ p: 0, t: 113, r: 'AC' }] });
+    expect(loadGhost(s, PATH)).toEqual({ show: false, subs: [{ p: 0, t: 113, r: 'AC' }] });
+    saveGhost(s, PATH, { show: true, subs: [] });
+    expect(loadGhost(s, PATH)).toEqual({ show: true, subs: [] });
+  });
+
+  it('没存过 / 空串 / 坏 JSON / 形状不对 → null（当没有，而不是半条榜）', () => {
+    const s = memoryStore();
+    expect(loadGhost(s, PATH)).toBeNull();
+    for (const raw of ['', '{ 半截', '[]', '3', 'null', '{"subs":"不是数组"}', '{"show":true}']) {
+      s.setItem(ghostKey(PATH), raw);
+      expect(loadGhost(s, PATH)).toBeNull();
+    }
+  });
+
+  it('v7 那份聚合形状（{ show, marks }）不迁移 → 当没有，面板全空重录', () => {
+    const s = memoryStore();
+    s.setItem(ghostKey(PATH), '{"show":true,"marks":[{"p":0,"ac":113},{"p":10,"fails":2}]}');
+    expect(loadGhost(s, PATH)).toBeNull();
+  });
+
+  it('缺 show 默认开（手改的键不该把行悄悄藏掉）', () => {
+    const s = memoryStore();
+    s.setItem(ghostKey(PATH), '{"subs":[{"p":1,"t":60,"r":"AC"}]}');
+    expect(loadGhost(s, PATH)).toEqual({ show: true, subs: [{ p: 1, t: 60, r: 'AC' }] });
+  });
+
+  it('非法逐发整条丢弃：题序或时刻不是非负整数、判名不在五档内都不要（FB 进不来 → 幽灵永不首杀）', () => {
+    const s = memoryStore();
+    s.setItem(
+      ghostKey(PATH),
+      '{"show":true,"subs":[null,7,{"p":0,"t":10},{"p":"A","t":10,"r":"AC"},{"p":-1,"t":10,"r":"AC"},' +
+        '{"p":1.5,"t":10,"r":"AC"},{"p":2,"t":-5,"r":"AC"},{"p":3,"t":1.5,"r":"AC"},' +
+        '{"p":4,"t":20,"r":"RJ"},{"p":5,"t":30,"r":"FB"},{"p":6,"t":40,"r":"AC"},{"p":7,"t":50,"r":"CE"},' +
+        '{"p":8,"t":60,"r":"AC","extra":"多字段不影响"}]}',
+    );
+    expect(loadGhost(s, PATH)?.subs).toEqual([
+      { p: 6, t: 40, r: 'AC' },
+      { p: 7, t: 50, r: 'CE' },
+      { p: 8, t: 60, r: 'AC' },
+    ]);
+  });
+
+  it('每场一条互不串台；clearGhost 只删这一场的键，会话记录照旧', () => {
+    const s = memoryStore();
+    saveGhost(s, 'official/x/a.srk.json', { show: true, subs: [{ p: 0, t: 10, r: 'AC' }] });
+    saveGhost(s, 'official/x/b.srk.json', { show: true, subs: [{ p: 1, t: 20, r: 'WA' }] });
+    saveSession(s, 'official/x/a.srk.json', { started: 1, hold: false, paused: false, ended: false, scrubMs: 0, at: 0, durationMs: 5 });
+    clearGhost(s, 'official/x/a.srk.json');
+    expect(loadGhost(s, 'official/x/a.srk.json')).toBeNull();
+    expect(loadGhost(s, 'official/x/b.srk.json')?.subs).toEqual([{ p: 1, t: 20, r: 'WA' }]);
+    expect(loadSession(s, 'official/x/a.srk.json')?.started).toBe(1);
+  });
+
+  it('存储抛错时静默降级：读回 null / 写不进去也不炸', () => {
+    const angry = {
+      getItem: () => { throw new Error('SecurityError'); },
+      setItem: () => { throw new Error('QuotaExceeded'); },
+      removeItem: () => { throw new Error('SecurityError'); },
+    };
+    expect(loadGhost(angry, PATH)).toBeNull();
+    expect(() => saveGhost(angry, PATH, { show: true, subs: [{ p: 0, t: 10, r: 'AC' }] })).not.toThrow();
+    expect(() => clearGhost(angry, PATH)).not.toThrow();
   });
 });
 

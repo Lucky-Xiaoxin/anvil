@@ -26,6 +26,8 @@ export interface LeafRow {
   /** 分组链（类目 → … → 年份 / 省），搜索与搜索结果的路径后缀用 */
   group: string[];
   badge: TierBadge;
+  /** 该场快照已在本地缓存（服务端 `existsSync` 给的口径，docs/20 §1） */
+  cached?: boolean;
 }
 
 export interface GroupNode {
@@ -81,6 +83,7 @@ export function leafRowOf(node: ArenaCatalogNode, group: string[]): LeafRow {
     name: rest === '' ? seg.replace(/\.srk\.json$/, '') : rest,
     group,
     badge: tierOf(`${raw} ${seg}`, category),
+    cached: node.cached === true,
   };
 }
 
