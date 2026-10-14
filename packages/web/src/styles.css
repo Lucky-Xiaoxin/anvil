@@ -1124,7 +1124,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .rbname{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;cursor:default}
 .pill{
   display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;
-  font-family:var(--font-num);font-size:10.5px;letter-spacing:.04em;
+  font-family:var(--font-num);font-size:10.5px;letter-spacing:.04em;white-space:nowrap;
   border:1px solid rgba(148,160,180,.34);color:#B4C0CF;background:rgba(148,160,180,.07);
 }
 .pill--live{border-color:rgba(63,185,80,.4);color:#A9E7B4;background:rgba(63,185,80,.08)}
@@ -1147,7 +1147,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .key__s--frz{background:repeating-linear-gradient(135deg,rgba(148,160,180,.11) 0 3px,rgba(148,160,180,.03) 3px 6px);border:1px dashed rgba(148,160,180,.34);color:var(--text-dim)}
 
 /* 复选（仅正式队） */
-.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);cursor:pointer;white-space:nowrap}
 .switch input{
   -webkit-appearance:none;appearance:none;margin:0;
   width:15px;height:15px;flex:0 0 auto;border-radius:3px;
@@ -1235,17 +1235,36 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   background:var(--panel-2);border:1px solid var(--line);font-family:var(--font-num);font-size:11px;color:var(--text-dim);
 }
 .backdrop{position:fixed;inset:0;z-index:55;background:rgba(5,7,10,.42)}
-/* v7 · 「我的成绩」面板（docs/20 §2.3 · 照 design/mock-04-simboard.html :538-547 原样抄） */
-.ghgrid{display:flex;flex-direction:column;gap:3px;max-height:330px;overflow:auto;padding:2px 0}
-.ghrow{display:flex;align-items:center;gap:8px}
-.ghrow>b{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--text-dim);width:14px;flex:0 0 auto}
+/* v8 · 「我的成绩」逐发录入面板 + 顶栏读数（照 design/mock-04-simboard.html v8 原样抄） */
 .ghin{width:58px;flex:0 0 auto;padding:3px 7px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);font-family:var(--font-num);font-size:11.5px;font-variant-numeric:tabular-nums}
 .ghin:focus{outline:none;border-color:rgba(245,165,36,.5)}
 .ghin::placeholder{color:#39434F}
-.ghlab{font-family:var(--font-num);font-size:9px;color:var(--text-mute);letter-spacing:.08em;width:58px;flex:0 0 auto}
 .ghfoot{display:flex;align-items:center;gap:10px}
 .ghfoot .spacer{flex:1 1 auto}
 .ghnote{font-family:var(--font-num);font-size:10px;color:var(--text-mute);line-height:1.6;margin-top:4px}
+.ghrank{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;font-size:11px;color:var(--text-dim);
+  background:rgba(245,165,36,.07);border:1px solid rgba(245,165,36,.32);border-radius:999px;cursor:pointer;white-space:nowrap}
+.ghrank:hover{color:var(--text);border-color:rgba(245,165,36,.6)}
+.ghrank b{font-family:var(--font-num);font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+.ghform{display:flex;align-items:center;gap:8px}
+.ghsel{height:26px;padding:0 5px;background:#0B0F14;border:1px solid var(--line);border-radius:var(--r-s);color:var(--text);
+  font-family:var(--font-num);font-size:11.5px}
+.ghsel:focus{outline:none;border-color:rgba(245,165,36,.5)}
+.ghin--t{width:54px;text-align:center}
+.ghin.is-bad{border-color:rgba(248,81,73,.6)}
+.ghhint{font-size:10px;color:var(--text-mute);line-height:1.5;margin-top:6px}
+.ghhint.is-bad{color:var(--bad)}
+.ghsubs{display:flex;flex-direction:column;max-height:214px;overflow:auto;padding:2px 0}
+.ghsub{display:grid;grid-template-columns:14px 44px 46px 1fr 14px;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.ghsub:last-child{border-bottom:none}
+.ghsub>b{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--text-dim)}
+.ghsub__t{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-dim)}
+.ghsub .res{height:17px;padding:0 5px;font-size:9.5px}
+.ghsub__x{background:none;border:none;color:#39434F;font-size:13px;line-height:1;cursor:pointer;padding:0}
+.ghsub__x:hover{color:var(--bad)}
+/* 顶栏读数点一下：滚到那一行后闪 1.1s（与 .brow 的奖牌底纹叠加，不改底色规则） */
+.brow.is-jump{animation:ghjump 1100ms var(--ease)}
+@keyframes ghjump{0%,55%{background-color:rgba(245,165,36,.17)}100%{background-color:transparent}}
 
 /* ---------- 22. 列头五档（r3：整格淡底承载状态） ---------- */
 /* 原先的 2px 下缘带画在 bottom:2，正好穿过 9px 的过题数那一行；

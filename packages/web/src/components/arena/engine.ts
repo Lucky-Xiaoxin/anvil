@@ -8,8 +8,9 @@
  * 单位陷阱（§2 的实测更正）：`statuses[].time` 是 `[值, 单位]` 元组（实测秒），
  * `solutions[].time` 同样是元组但单位是毫秒；引擎内部一律折算成毫秒。
  *
- * v7 起榜上还可以长出一行「我的成绩」幽灵（docs/20 §2.2）：`ghostCell` 造格 +
- * `buildBoard(..., ghost)` 注入 —— 占名次与奖牌带，但不进 S# / 列头读数 / 榜脚累计。
+ * v7 起榜上还可以长出一行「我的成绩」幽灵（docs/20 §2.2）：v8 改逐发录入 —— `ghostCell` 把
+ * 每发（题 · 时刻 · 判名）折算成 `SrkSolution` 交给 `cellAt`，`buildBoard(..., ghost)` 注入 ——
+ * 占名次与奖牌带，但不进 S# / 列头读数 / 榜脚累计。
  */
 
 /* ---------- 原始形状（只声明引擎要用的字段，其余原样透传不解读） ---------- */
@@ -215,29 +216,35 @@ export function cellAt(
 
 /* ---------- 重建后的榜 ---------- */
 
-/** 「我的成绩」单题录入（docs/20 §2.1）：`ac` 缺省 = 未过；单位 = **比赛分钟** */
-export interface GhostMark {
+/**
+ * 「我的成绩」的一发提交（docs/20 §2.1 · v8 逐发）：`t` = **比赛分钟**（时:分 录入折算），
+ * `r` = 判名。一题的过题与罚时全部由这些逐发记录派生，与真队同源。
+ */
+export interface GhostSub {
   p: number;
-  ac?: number;
-  fails?: number;
+  t: number;
+  r: GhostResult;
 }
 
+/** 录入可选的判名（照 CF 手输那五档）：FB 不给选 —— 幽灵永不首杀；CE 不罚时也不算失败发 */
+export type GhostResult = 'AC' | 'WA' | 'TLE' | 'RE' | 'CE';
+export const GHOST_RESULTS: readonly GhostResult[] = ['AC', 'WA', 'TLE', 'RE', 'CE'];
+
 /**
- * 幽灵行的一格（docs/20 §2.2）：手动录入没有逐发时刻，**不伪造 `SrkSolution` 去骗 `cellAt`**。
+ * 幽灵行的一格（docs/20 §2.2 · v8）。
  *
- * 罚时口径与全榜逐字一致：AC 前的失败计入（×20），未过题的失败不计 —— 那由 `buildBoard`
- * 只在 `st === 'ac'` 时取 `fails` 来保证。未过格 `t = 0` = 无时刻，显示层只出 `−n`。
+ * v7 只有聚合的「过题分钟 + 失败数」，未过题没有末次时刻，只能另造一格；v8 起每发都带时刻，
+ * 于是折算成 `SrkSolution` 直接走真队同一条 `cellAt` —— 判名、封榜段 `?n`、CE 格、post 两态
+ * 全部同源，不再维护第二套口径。罚时口径不变：AC 前失败 ×20、未过题不计（由 `buildBoard`
+ * 只在 `st === 'ac'` 时取 `fails` 保证）。
  */
-export function ghostCell(mark: GhostMark | undefined, elapsed: number, cap: number, freezeStart: number): Cell {
-  const fails = mark?.fails ?? 0;
-  const unmet: Cell = { st: 'pen', t: 0, n: fails, fails, nCap: fails, post: false };
-  if (mark?.ac === undefined) return fails > 0 ? unmet : EMPTY_CELL;
-  const t = mark.ac * 60_000;
-  // 还没走到这一分钟：这一格在当前的榜上还不存在
-  if (t > elapsed) return fails > 0 ? unmet : EMPTY_CELL;
-  if (t <= cap) return { st: 'ac', t, n: fails + 1, fails, nCap: fails + 1, post: t > freezeStart };
-  // 落在封榜段内（`cap < t ≤ elapsed`）：只说次数，不透露判名
-  return { st: 'frz', t, n: fails + 1, fails: 0, nCap: fails + 1, post: false };
+export function ghostCell(subs: GhostSub[] | undefined, elapsed: number, cap: number, freezeStart: number): Cell {
+  if (subs === undefined || subs.length === 0) return EMPTY_CELL;
+  const list: SrkSolution[] = subs
+    .slice()
+    .sort((a, b) => a.t - b.t)
+    .map((x) => ({ result: x.r, time: x.t * 60_000, language: '手动录入' }));
+  return cellAt(list, elapsed, cap, freezeStart);
 }
 
 export interface BoardRow {
@@ -496,7 +503,7 @@ export function buildBoard(
   elapsed: number,
   onlyFormal: boolean,
   unsealed = false,
-  ghost?: GhostMark[] | null,
+  ghost?: GhostSub[] | null,
 ): Board {
   const { duration, freezeStart, teams, problems, bands } = model;
   const cap = unsealed ? elapsed : capAt(elapsed, duration, freezeStart);
@@ -522,11 +529,15 @@ export function buildBoard(
     accs.push({ ti: team.ti, solved, pen, last, star: team.star, org: team.org, cells });
   }
 
-  /* 「我的成绩」：同一套 solved / pen / last 口径，格子走 ghostCell（手动录入，没有逐发时刻可用） */
+  /* 「我的成绩」：同一套 solved / pen / last 口径，格子由逐发记录走 cellAt（与真队同源） */
   let ghostTeam: TeamModel | null = null;
   if (ghost !== undefined && ghost !== null) {
-    const byP = new Map<number, GhostMark>();
-    for (const m of ghost) byP.set(m.p, m);
+    const byP = new Map<number, GhostSub[]>();
+    for (const s of ghost) {
+      const l = byP.get(s.p);
+      if (l === undefined) byP.set(s.p, [s]);
+      else l.push(s);
+    }
     let solved = 0;
     let pen = 0;
     let last = 0;

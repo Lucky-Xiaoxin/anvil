@@ -24,7 +24,8 @@ import {
   tick,
   toMs,
   unpause,
-  type GhostMark,
+  type GhostResult,
+  type GhostSub,
   type SrkDoc,
   type SrkSolution,
 } from '../src/components/arena/engine.ts';
@@ -664,52 +665,61 @@ describe('近似榜（只有终局判名）', () => {
   });
 });
 
-/* ---------- 幽灵行「我的成绩」（docs/20 §2.2） ---------- */
+/* ---------- 幽灵行「我的成绩」（docs/20 §2.2 · v8 逐发） ---------- */
 
-describe('幽灵格 ghostCell', () => {
+/** 一发的简写：`sub(0, 113)` = 第 0 题 · 第 113 分钟 · AC（判名默认 AC，测试里少打字） */
+const sub = (p: number, t: number, r: GhostResult = 'AC'): GhostSub => ({ p, t, r });
+
+describe('幽灵格 ghostCell（逐发折算后走真队同一条 cellAt）', () => {
   const freezeStart = 4 * H; // 5 小时场 · 未声明封榜 → 缺省最后 60 分钟
   const liveCap = 4 * H; // 回放中封榜段内的定格点
 
-  it('没录入 / 录了个空 → 空格，不占任何读数', () => {
+  it('没录 / 空数组 → 空格，不占任何读数', () => {
     expect(ghostCell(undefined, 5 * H, 5 * H, freezeStart)).toEqual(EMPTY_CELL);
-    expect(ghostCell({ p: 3 }, 5 * H, 5 * H, freezeStart)).toEqual(EMPTY_CELL);
+    expect(ghostCell([], 5 * H, 5 * H, freezeStart)).toEqual(EMPTY_CELL);
   });
 
-  it('只有失败 → pen 且 t = 0：输入里没有末次时刻，显示层只出 −n', () => {
-    expect(ghostCell({ p: 1, fails: 2 }, 260 * M, liveCap, freezeStart)).toEqual({
-      st: 'pen', t: 0, n: 2, fails: 2, nCap: 2, post: false,
+  it('只有失败 → pen，v8 起带末次时刻（与真行同形，不再只显 −n）', () => {
+    expect(ghostCell([sub(1, 28, 'WA'), sub(1, 35, 'WA')], 260 * M, liveCap, freezeStart)).toEqual({
+      st: 'pen', t: 35 * M, n: 2, fails: 2, nCap: 2, post: false,
     });
-    expect(minutesOf(ghostCell({ p: 1, fails: 2 }, 5 * H, 5 * H, freezeStart).t)).toBe(0);
   });
 
-  it('ac ≤ cap → ac，n = fails + 1，罚时按「AC 分钟 + 20 × AC 前失败」', () => {
-    const c = ghostCell({ p: 0, ac: 113, fails: 2 }, 5 * H, 5 * H, freezeStart);
+  it('CE 不罚也不算失败发：单独一发 CE → ce 格；夹在 AC 前 → 次数与罚时都不吃它', () => {
+    expect(ghostCell([sub(2, 50, 'CE')], 5 * H, 5 * H, freezeStart)).toMatchObject({ st: 'ce', t: 50 * M, n: 0, fails: 0 });
+    expect(ghostCell([sub(2, 50, 'CE'), sub(2, 60, 'WA'), sub(2, 70)], 5 * H, 5 * H, freezeStart)).toMatchObject({
+      st: 'ac', t: 70 * M, n: 2, fails: 1,
+    });
+  });
+
+  it('AC ≤ cap → ac，n = AC 前失败 + 1，罚时 = 分钟 + 20 × 失败', () => {
+    const c = ghostCell([sub(0, 28, 'WA'), sub(0, 35, 'WA'), sub(0, 113)], 5 * H, 5 * H, freezeStart);
     expect(c).toEqual({ st: 'ac', t: 113 * M, n: 3, fails: 2, nCap: 3, post: false });
     expect(minutesOf(c.t) + c.fails * 20).toBe(113 + 40);
   });
 
-  it('封榜前 AC 且一发就过 → ×1（界面靠 n > 1 才显次数）', () => {
-    expect(ghostCell({ p: 0, ac: 45 }, 5 * H, 5 * H, freezeStart)).toEqual({
-      st: 'ac', t: 45 * M, n: 1, fails: 0, nCap: 1, post: false,
+  it('封榜段（cap < t ≤ elapsed）→ frz：只报次数，不泄判名', () => {
+    expect(ghostCell([sub(0, 230, 'WA'), sub(0, 250)], 260 * M, liveCap, freezeStart)).toMatchObject({
+      st: 'frz', n: 2, fails: 0,
     });
   });
 
-  it('封榜段（cap < ac ≤ elapsed）→ frz ?(fails+1)，不提前泄判名', () => {
-    expect(ghostCell({ p: 0, ac: 250, fails: 1 }, 260 * M, liveCap, freezeStart)).toEqual({
-      st: 'frz', t: 250 * M, n: 2, fails: 0, nCap: 2, post: false,
+  it('还没走到那一刻（t > elapsed）→ 那些发根本不存在', () => {
+    expect(ghostCell([sub(0, 250)], 60 * M, 60 * M, freezeStart)).toEqual(EMPTY_CELL);
+    expect(ghostCell([sub(0, 20, 'WA'), sub(0, 250)], 60 * M, 60 * M, freezeStart)).toMatchObject({
+      st: 'pen', t: 20 * M, n: 1,
     });
   });
 
-  it('还没走到那一刻（ac > elapsed）→ 按未过处理：有失败显 −fails，没有就空', () => {
-    expect(ghostCell({ p: 0, ac: 250, fails: 3 }, 60 * M, 60 * M, freezeStart)).toEqual({
-      st: 'pen', t: 0, n: 3, fails: 3, nCap: 3, post: false,
+  it('解封视界（cap = elapsed）下段内 AC 直接显结果并挂 post', () => {
+    expect(ghostCell([sub(0, 250)], 260 * M, 260 * M, freezeStart)).toEqual({
+      st: 'ac', t: 250 * M, n: 1, fails: 0, nCap: 1, post: true,
     });
-    expect(ghostCell({ p: 0, ac: 250 }, 60 * M, 60 * M, freezeStart)).toEqual(EMPTY_CELL);
   });
 
-  it('解封视界（cap = elapsed）下段内的 AC 直接显结果并挂 post', () => {
-    expect(ghostCell({ p: 0, ac: 250, fails: 1 }, 260 * M, 260 * M, freezeStart)).toEqual({
-      st: 'ac', t: 250 * M, n: 2, fails: 1, nCap: 2, post: true,
+  it('录入顺序不参与判定：照时刻重排后再算（面板排序不背这个责任）', () => {
+    expect(ghostCell([sub(0, 113), sub(0, 28, 'WA')], 5 * H, 5 * H, freezeStart)).toMatchObject({
+      st: 'ac', t: 113 * M, n: 2, fails: 1,
     });
   });
 });
@@ -719,7 +729,7 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
 
   it('走正式队通道：占 place、吃奖牌带，其下队伍的名次与奖牌重排一位', () => {
     const plain = buildBoard(m, 5 * H, false);
-    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    const b = buildBoard(m, 5 * H, false, false, [sub(1, 100)]);
     expect(b.rows.map((r) => r.ti)).toEqual([2, 1, -1, 0, 3, 4]);
     const g = b.rows.find((r) => r.ghost)!;
     expect(g).toMatchObject({ ti: -1, rank: 3, place: 2, medal: 'silver', srank: '', solved: 1, pen: 100 });
@@ -728,14 +738,13 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
     // 幽灵之下的队伍：名次 +1、奖牌往下挪一档（原来 gold 的 T1 不动，silver 的 T0 变 bronze）
     expect(before.get(0)).toMatchObject({ rank: 3, place: 2, medal: 'silver' });
     expect(byTi.get(0)).toMatchObject({ rank: 4, place: 3, medal: 'bronze' });
-    expect(byTi.get(0)).toMatchObject({ rank: 4, place: 3, medal: 'bronze' });
     expect(byTi.get(3)).toMatchObject({ rank: 5, place: 4, medal: null });
     expect(byTi.get(1)!.medal).toBe('gold');
   });
 
   it('三排除：S# 不给号、列头读数不动、榜脚「累计过题」不计', () => {
     const plain = buildBoard(m, 5 * H, false);
-    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    const b = buildBoard(m, 5 * H, false, false, [sub(1, 100)]);
     expect(b.rows.find((r) => r.ghost)?.srank).toBe('');
     // 幽灵的 B 题 AC 不进列头「过 N / 交 M」
     expect(b.col).toEqual(plain.col);
@@ -749,20 +758,20 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
   });
 
   it('并列时 ti = -1 排在最前（沿用引擎既有 sameScore + (last, ti) 裁决）', () => {
-    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 60 }]);
+    const b = buildBoard(m, 5 * H, false, false, [sub(1, 60)]);
     expect(b.rows.map((r) => r.ti)).toEqual([2, -1, 1, 0, 3, 4]);
     expect(b.rows.map((r) => r.rank)).toEqual([1, 2, 2, 4, 5, 6]);
   });
 
   it('仅正式队开着也显示：打星队退场，幽灵不是打星队', () => {
-    const b = buildBoard(m, 5 * H, true, false, [{ p: 1, ac: 100 }]);
+    const b = buildBoard(m, 5 * H, true, false, [sub(1, 100)]);
     expect(b.rows.map((r) => r.ti)).toEqual([1, -1, 0, 3, 4]);
     expect(b.rows.every((r) => !r.star)).toBe(true);
   });
 
   it('封榜带读数计入：幽灵的段内格也是「结果未知」', () => {
     const plain = buildBoard(m, 260 * M, false);
-    const b = buildBoard(m, 260 * M, false, false, [{ p: 0, ac: 250 }]);
+    const b = buildBoard(m, 260 * M, false, false, [sub(0, 250)]);
     expect([plain.frzCells, plain.frozenRows]).toEqual([1, 1]);
     expect([b.frzCells, b.frozenRows]).toEqual([2, 2]);
     const g = b.rows.find((r) => r.ghost)!;
@@ -771,7 +780,7 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
   });
 
   it('回顾解封视界：段内的 AC 进门次与罚时，格上带「封榜后」', () => {
-    const b = buildBoard(m, 260 * M, false, true, [{ p: 0, ac: 250, fails: 1 }]);
+    const b = buildBoard(m, 260 * M, false, true, [sub(0, 230, 'WA'), sub(0, 250)]);
     const g = b.rows.find((r) => r.ghost)!;
     expect(g.cells[0]).toMatchObject({ st: 'ac', post: true, n: 2 });
     expect([g.solved, g.pen]).toEqual([1, 250 + 20]);
@@ -779,13 +788,13 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
   });
 
   it('ghostTeam 是合成队伍：ti = -1 / 队名「你」/ 校名「我的成绩」/ 机位「—」', () => {
-    const b = buildBoard(m, 5 * H, false, false, [{ p: 1, ac: 100 }]);
+    const b = buildBoard(m, 5 * H, false, false, [sub(1, 100)]);
     expect(b.ghostTeam).toMatchObject({ ti: -1, name: '你', org: '我的成绩', seat: '—', star: false, members: [] });
     expect(buildBoard(m, 5 * H, false).ghostTeam).toBeNull();
     expect(buildBoard(m, 5 * H, false, false, null).ghostTeam).toBeNull();
   });
 
-  /** 13 题 A–M 的空场：只为把 mock v7 `GHOSTVAL` 的手算钉进单测（docs/20 §2.4 验收 1） */
+  /** 13 题 A–M 的空场：只为把 mock v8 的演示逐发钉进单测（docs/20 §2.4 验收 1） */
   const sheet = buildModel({
     contest: { title: { 'zh-CN': '手算场' }, startAt: '', duration: [5, 'h'], frozenDuration: [0, 'h'] },
     problems: 'ABCDEFGHIJKLM'.split('').map((a) => ({ alias: a })),
@@ -796,10 +805,11 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
       },
     ],
   });
-  const GHOSTVAL: GhostMark[] = [
-    { p: 0, ac: 113 }, { p: 1, ac: 45, fails: 2 }, { p: 2, ac: 231 }, { p: 3, ac: 210 }, { p: 4, ac: 65 },
-    { p: 5, ac: 40 }, { p: 6, ac: 187, fails: 1 }, { p: 7, ac: 96 }, { p: 8, ac: 88 }, { p: 9, ac: 55 },
-    { p: 10, fails: 2 }, { p: 11, ac: 250 }, { p: 12, ac: 30 },
+  /** 照 design/mock-04-simboard.html 的 GHOST.subs（v8 演示逐发） */
+  const GHOSTVAL: GhostSub[] = [
+    sub(0, 113), sub(1, 28, 'WA'), sub(1, 35, 'WA'), sub(1, 45), sub(2, 231), sub(3, 210), sub(4, 65),
+    sub(5, 40), sub(6, 170, 'WA'), sub(6, 187), sub(7, 96), sub(8, 88), sub(9, 55),
+    sub(10, 120, 'WA'), sub(10, 205, 'TLE'), sub(11, 250), sub(12, 30),
   ];
 
   it('手算：拖到 4:32 · 定格视角 = 11 过 / 罚时 1220（L 的 250′ 还在封榜段）', () => {
@@ -807,7 +817,7 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
     const g = b.rows.find((r) => r.ghost)!;
     expect([g.solved, g.pen]).toEqual([11, 1220]);
     expect(g.cells[11]).toMatchObject({ st: 'frz', n: 1 }); // L：250′ 段内 → ?1
-    expect(g.cells[10]).toMatchObject({ st: 'pen', t: 0, n: 2 }); // K：只 2 发、未过
+    expect(g.cells[10]).toMatchObject({ st: 'pen', t: 205 * M, n: 2 }); // K：WA + TLE 两发未过，末次 205′
     expect(g.cells[0]).toMatchObject({ st: 'ac', t: 113 * M, n: 1 });
   });
 
@@ -819,8 +829,8 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
     expect(b.frzCells).toBe(0);
   });
 
-  it('未过题的失败不计罚时：K 的 2 发不进 pen，AC 前的失败才 ×20', () => {
-    const b = buildBoard(sheet, 272 * M, false, false, [{ p: 0, ac: 100, fails: 1 }, { p: 1, fails: 9 }]);
+  it('未过题的失败不计罚时：K 的两发不进 pen，AC 前的失败才 ×20', () => {
+    const b = buildBoard(sheet, 272 * M, false, false, [sub(0, 50, 'WA'), sub(0, 100), sub(1, 60, 'WA'), sub(1, 80, 'TLE')]);
     const g = b.rows.find((r) => r.ghost)!;
     expect([g.solved, g.pen]).toEqual([1, 100 + 20]);
   });

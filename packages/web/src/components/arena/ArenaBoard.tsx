@@ -33,7 +33,7 @@ import {
   type BoardRow,
   type Cell,
   type ContestModel,
-  type GhostMark,
+  type GhostSub,
   type Session,
   type SrkSolution,
   type TeamModel,
@@ -61,11 +61,11 @@ type Pop =
 
 const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
 
-/** 幽灵签名：拼进 minuteKey，改了数字就重建榜（不然只有分钟滚过才动） */
+/** 幽灵签名：拼进 minuteKey，改了逐发就重建榜（不然只有分钟滚过才动） */
 const ghostSig = (g: GhostData | null): string =>
   g === null
     ? 'none'
-    : `${g.show ? 1 : 0}|${g.marks.map((m) => `${m.p}:${m.ac ?? ''}:${m.fails ?? ''}`).join(',')}`;
+    : `${g.show ? 1 : 0}|${g.subs.map((s) => `${s.p}:${s.t}:${s.r}`).join(',')}`;
 
 export function ArenaBoard({ row, live, store, onBack }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
@@ -81,6 +81,8 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   /** 「我的成绩」的录入（docs/20 §2.1）：每场一条，进榜先读回来 */
   const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path));
   const [pop, setPop] = useState<Pop | null>(null);
+  /** 榜体滚动容器：顶栏读数「跳到自己」用它定位那一行 */
+  const boardBox = useRef<HTMLDivElement | null>(null);
   const { show, hide } = useTip();
 
   /* ---------- 取数：进回放才拉那 1.5MB；失败给重试（jsDelivr 冷缓存会暂时 403） ---------- */
@@ -177,16 +179,15 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       : inFreezeWindow(elapsed, duration, model.freezeStart));
 
   /*
-   * 幽灵行是否入榜：「展示我」开着 **且** 至少一格录了东西（过题分钟或 ≥1 次失败）。
-   * 全空就不传 marks —— 榜回到没有它的样子（docs/20 §2.4 验收 2）。
+   * 幽灵行是否入榜：「展示我」开着 **且** 至少录了一发（docs/20 §2.4 验收 2）。
+   * v8 起每发都自带判名与时刻，有一发就是一行成绩，不必再判"有没有填过内容"。
    */
-  const ghostMarks: GhostMark[] | null =
-    ghost !== null && ghost.show && ghost.marks.some((m) => m.ac !== undefined || (m.fails ?? 0) > 0) ? ghost.marks : null;
+  const ghostSubs: GhostSub[] | null = ghost !== null && ghost.show && ghost.subs.length > 0 ? ghost.subs : null;
 
   /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度；封榜视角开关与幽灵录入也要立即重建） */
   const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= duration ? 1 : 0)}|${ghostSig(ghost)}`;
   const board: Board | null = useMemo(
-    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView, ghostMarks)),
+    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView, ghostSubs)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model, minuteKey],
   );
@@ -257,13 +258,23 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
 
   const onGhostClear = useCallback((): void => {
     clearGhost(store, row.path);
-    setGhost({ show: true, marks: [] });
+    setGhost({ show: true, subs: [] });
   }, [row.path, store]);
 
   const openGhostPop = (ev: React.MouseEvent): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   };
+
+  /* 顶栏读数点一下 = 滚到榜上那一行并闪一下（几百行的榜里，"我在哪"不该靠滚） */
+  const jumpToGhost = useCallback((): void => {
+    const el = boardBox.current?.querySelector<HTMLElement>('.brow.is-ghost') ?? null;
+    if (el === null) return;
+    el.scrollIntoView({ block: 'center' });
+    el.classList.remove('is-jump');
+    void el.offsetWidth; // 重启同名动画要先断开
+    el.classList.add('is-jump');
+  }, []);
 
   if (load.kind === 'error') {
     return (
@@ -325,6 +336,8 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
    * 它占名次，但不是场上的一支队。
    */
   const teamCount = board.rows.length - (board.ghostTeam ? 1 : 0);
+  /* 顶栏读数那一行的数据：名次随时钟与封榜视角变，题数 / 罚时进 tooltip（榜上本来就有） */
+  const ghostRow = board.ghostTeam === null || board.ghostTeam === undefined ? null : board.rows.find((r) => r.ghost === true) ?? null;
   const nameTip = {
     x: 0,
     y: 0,
@@ -381,6 +394,16 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           </>
         )}
         <span className="topbar__spacer" />
+        {/* 常驻读数（v8）：只在幽灵真在榜上时出现，「展示我」关或一发未录就整块消失、不占位 */}
+        {ghostRow === null ? null : (
+          <button
+            className="ghrank"
+            onClick={jumpToGhost}
+            title={`我的成绩 · ${ghostRow.solved} 题 / ${ghostRow.pen} 罚时 · 点击跳到榜上那一行`}
+          >
+            <i className="dot dot--ok" />我 <b>第 {ghostRow.rank} 名</b>
+          </button>
+        )}
         {/* 「我的成绩」入口常驻顶栏（live 与回顾同一份顶栏）：不随数据出现/消失，每场长相一致 */}
         <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置" onClick={openGhostPop}>
           <Icon id="i-user" />
@@ -497,7 +520,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
               </div>
             ) : null}
 
-            <div className="boardscroll" onMouseLeave={hide}>
+            <div className="boardscroll" ref={boardBox} onMouseLeave={hide}>
               <div className="brow bhead">
                 <div
                   className="h-r"
@@ -628,7 +651,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
           ) : pop.kind === 'team' ? (
             <TeamPop model={model} ti={pop.ti} board={board} />
           ) : (
-            <GhostPanel problems={model.problems} data={ghost} onChange={onGhostChange} onClear={onGhostClear} />
+            <GhostPanel problems={model.problems} durationMs={duration} data={ghost} onChange={onGhostChange} onClear={onGhostClear} />
           )}
         </Popover>
       ) : null}
@@ -725,7 +748,7 @@ const BoardRowView = memo(function BoardRowView(props: RowProps) {
       valueClass: row.medal ? `is-${row.medal}` : 'is-dim',
       /* 幽灵行没有机位可显示（`seat` 是「—」），小字改说录入来源 —— 别在 tip 里留个空 # */
       sub: row.ghost
-        ? [`VP 手动录入 · 无逐发时刻${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题明细']
+        ? [`VP 手动录入${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题逐发']
         : [`机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`, '点击查看队员'],
     });
   };
@@ -787,9 +810,7 @@ const CellView = memo(function CellView({
   const readout = (): { value: string; cls: string } => {
     if (cell.st === 'ac') return { value: `AC ${minutesOf(cell.t)}′ ×${cell.n}${cell.post ? ' · 封榜后' : ''}`, cls: 'is-ok' };
     if (cell.st === 'fb') return { value: `首杀 ${minutesOf(cell.t)}′${cell.post ? ' · 封榜后' : ''}`, cls: 'is-ok' };
-    // `t === 0` 的罚时格 = 幽灵行手动录入，没有末次时刻可说（照 mock v7：只出 −n）
-    if (cell.st === 'pen')
-      return { value: `未过 −${cell.n}${cell.t === 0 ? '' : ` · 末次 ${minutesOf(cell.t)}′`}${cell.post ? ' · 封榜后' : ''}`, cls: 'is-bad' };
+    if (cell.st === 'pen') return { value: `未过 −${cell.n} · 末次 ${minutesOf(cell.t)}′${cell.post ? ' · 封榜后' : ''}`, cls: 'is-bad' };
     if (cell.st === 'ce') return { value: `CE · 不罚 · ${minutesOf(cell.t)}′`, cls: 'is-zero' };
     return { value: `封榜 ?${cell.n} · 末次 ${minutesOf(cell.t)}′`, cls: 'is-zero' };
   };
@@ -814,7 +835,7 @@ const CellView = memo(function CellView({
       }}
     >
       <span className="pcell__b">
-        {cell.st === 'pen' && cell.t === 0 ? null : <span className="pcell__t">{minutesOf(cell.t)}</span>}
+        <span className="pcell__t">{minutesOf(cell.t)}</span>
         <span className="pcell__n">{cell.st === 'ac' ? (cell.n > 1 ? `×${cell.n}` : '') : cell.st === 'fb' ? 'FB' : cell.st === 'pen' ? `−${cell.n}` : cell.st === 'ce' ? 'CE' : `?${cell.n}`}</span>
         {cell.post ? <i className="pcell__dot" /> : null}
       </span>
@@ -828,33 +849,34 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
   const problem = model.problems[p];
   /*
    * 幽灵行（`ti === -1`）：数据只在 `ghost` 里，**绝不查 `model.teams[-1]`**。
-   * 手动录入没有逐发时刻，明细就一行结果 + 一行说明（docs/20 §2.3）。
+   * v8 起逐发都带判名与时刻，明细与真队同一套行式（封榜段内一样显 Frozen），不再另造读法。
    */
   if (ti === -1) {
     if (problem === undefined) return null;
-    const m = ghost?.marks.find((x) => x.p === p);
-    // 录了一个还没走到的分钟：格子是空的，明细也不抢跑（别和榜上的读数自相矛盾）
-    const acMs = m?.ac !== undefined ? m.ac * 60_000 : undefined;
-    const shown = acMs !== undefined && acMs <= viewMs;
     const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: '你 @我的成绩' };
+    const rows = (ghost?.subs ?? [])
+      .filter((s) => s.p === p && s.t * 60_000 <= viewMs)
+      .sort((a, b) => a.t - b.t)
+      .map((s) => ({ r: s.r, t: s.t * 60_000, frozen: s.t * 60_000 > cap }));
     return (
       <PopShell head={head}>
-        {shown ? (
-          <div className="pop__row">
-            <span className="res res--ac">AC</span>
-            <span className="pop__tm num">{clockHMS(acMs!)}</span>
-            <span className="pop__lg">{(m!.fails ?? 0) + 1} 发</span>
-          </div>
-        ) : (m?.fails ?? 0) > 0 ? (
-          <div className="pop__row">
-            <span className="res res--bad">未过</span>
-            <span className="pop__tm num">—</span>
-            <span className="pop__lg">−{m!.fails} 发</span>
-          </div>
+        {rows.length === 0 ? (
+          <div className="hint">本题还没录。</div>
         ) : (
-          <div className="hint">未录入此题。</div>
+          <>
+            {rows.map((x, i) => (
+              <div className="pop__row" key={i}>
+                <span className={x.frozen ? 'res res--frz' : resClass(x.r)}>{x.frozen ? 'Frozen' : x.r}</span>
+                <span className="pop__tm num">{clockHMS(x.t)}</span>
+                <span className="pop__lg">手动录入</span>
+              </div>
+            ))}
+            <div className="hint" style={{ marginTop: 8 }}>
+              {viewMs > model.freezeStart && viewMs < model.duration ? '封榜段内结果未公开，一律显示 Frozen · ' : ''}
+              罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）
+            </div>
+          </>
         )}
-        <div className="hint" style={{ marginTop: 8 }}>手动录入 · 无逐发时刻。</div>
       </PopShell>
     );
   }

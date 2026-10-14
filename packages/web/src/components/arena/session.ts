@@ -6,7 +6,7 @@
  * 只碰这几个键；读写一律包 try —— localStorage 在某些隐私模式下会直接抛，
  * 会话读不出来就当没有（开新钟），不该让整屏打不开。
  */
-import type { GhostMark, Session } from './engine.ts';
+import { GHOST_RESULTS, type GhostResult, type GhostSub, type Session } from './engine.ts';
 
 export const sessionKey = (path: string): string => `arena:session:${path}`;
 export const ghostKey = (path: string): string => `arena:ghost:${path}`;
@@ -135,37 +135,29 @@ export function saveScrollTop(store: Store, top: number): void {
   }
 }
 
-/* ---------- 「我的成绩」幽灵行（docs/20 §2.1）：每场一条，与回放会话 / vault 缓存互不相干 ---------- */
+/* ---------- 「我的成绩」幽灵行（docs/20 §2.1 · v8 逐发）：每场一条，与回放会话 / vault 缓存互不相干 ---------- */
 
 export interface GhostData {
-  /** 面板里的「展示我」：关 = 行隐藏但数据留着 */
+  /** 面板里的「展示我」：关 = 行隐藏但数据留着（顶栏读数跟着消失） */
   show: boolean;
-  /** 每题一条（`ac` 缺省 = 未过；单位 = 比赛分钟），按 `p` 升序存 */
-  marks: GhostMark[];
+  /** 逐发提交（`t` = 比赛分钟），按 `p` 再按 `t` 升序存 */
+  subs: GhostSub[];
 }
 
 const intOf = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 
 /**
- * 单条录入的 sanitize：读不懂就整条丢（宁可少一行，也不按猜出来的成绩占名次）。
- * `p` 必须是 ≥0 整数；`ac` 给了就得是正有限数；`fails` 给了就得是 ≥1 的整数。
+ * 单发录入的 sanitize：读不懂就整条丢（宁可少一发，也不按猜出来的判名占名次）。
+ * 判名只收面板给的那五档 —— `FB` 进不来，幽灵永不首杀。
  */
-const markOf = (v: unknown): GhostMark | null => {
+const subOf = (v: unknown): GhostSub | null => {
   if (v === null || typeof v !== 'object') return null;
-  const o = v as { p?: unknown; ac?: unknown; fails?: unknown };
+  const o = v as { p?: unknown; t?: unknown; r?: unknown };
   const p = intOf(o.p);
-  if (p === null || p < 0) return null;
-  const m: GhostMark = { p };
-  if (o.ac !== undefined && o.ac !== null) {
-    if (typeof o.ac !== 'number' || !Number.isFinite(o.ac) || o.ac <= 0) return null;
-    m.ac = o.ac;
-  }
-  if (o.fails !== undefined && o.fails !== null) {
-    const f = intOf(o.fails);
-    if (f === null || f < 1) return null;
-    m.fails = f;
-  }
-  return m;
+  const t = intOf(o.t);
+  const r = typeof o.r === 'string' && (GHOST_RESULTS as readonly string[]).includes(o.r) ? (o.r as GhostResult) : null;
+  if (p === null || p < 0 || t === null || t < 0 || r === null) return null;
+  return { p, t, r };
 };
 
 export function loadGhost(store: Store, path: string): GhostData | null {
@@ -174,24 +166,28 @@ export function loadGhost(store: Store, path: string): GhostData | null {
     if (raw === null || raw === '') return null;
     const v = JSON.parse(raw) as unknown;
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
-    const o = v as { show?: unknown; marks?: unknown };
-    if (!Array.isArray(o.marks)) return null;
-    const marks: GhostMark[] = [];
-    for (const x of o.marks) {
-      const m = markOf(x);
-      if (m !== null) marks.push(m);
+    const o = v as { show?: unknown; subs?: unknown };
+    // v7 那份是 { show, marks:[{p,ac,fails}] } —— 形状换了就不迁，读出来当没有（面板全空重录）
+    if (!Array.isArray(o.subs)) return null;
+    const subs: GhostSub[] = [];
+    for (const x of o.subs) {
+      const s = subOf(x);
+      if (s !== null) subs.push(s);
     }
-    return { show: o.show !== false, marks: marks.sort((a, b) => a.p - b.p) };
+    return { show: o.show !== false, subs: subs.sort(ghostOrder) };
   } catch {
     return null;
   }
 }
 
-/** 写入前按 `p` 升序排：minuteKey 要序列化这份 marks，顺序稳定才不会白重建榜 */
+/** 先题后时：与榜上的列序一致，逐发清单里改错好找 */
+const ghostOrder = (a: GhostSub, b: GhostSub): number => a.p - b.p || a.t - b.t;
+
+/** 写入前排序：minuteKey 要序列化这份 subs，顺序稳定才不会白重建榜 */
 export function saveGhost(store: Store, path: string, data: GhostData): void {
   try {
-    const marks = [...data.marks].sort((a, b) => a.p - b.p);
-    store.setItem(ghostKey(path), JSON.stringify({ show: data.show, marks }));
+    const subs = [...data.subs].sort(ghostOrder);
+    store.setItem(ghostKey(path), JSON.stringify({ show: data.show, subs }));
   } catch {
     /* 存不下就丢掉这一场的成绩，榜照看 */
   }
