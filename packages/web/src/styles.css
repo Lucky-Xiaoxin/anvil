@@ -231,6 +231,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .chip i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 .topbar__spacer{flex:1 1 auto}
+/* 顶栏挤时截标题优先（h2 有 ellipsis），按钮文字一律不折行 —— v8 复核：≤1406 时「回到目录」曾折两行 */
+.topbar .btn{white-space:nowrap}
 
 .content{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-2) var(--sp-4) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2)}
 .content::-webkit-scrollbar{width:11px}
