@@ -1,5 +1,8 @@
 @echo off
 setlocal
+rem NOTE: stops whatever is listening on ANVIL_PORT (7788 by default) - that port belongs
+rem to ANVIL. If something else may own it, stop that process yourself instead of running
+rem this. Command line equivalent: Ctrl+C in the server window.
 rem ---------- port: same single source as start.bat / server / vite proxy ----------
 if not defined ANVIL_PORT set "ANVIL_PORT=7788"
 set "PORT=%ANVIL_PORT%"

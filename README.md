@@ -13,8 +13,13 @@
 
 1. Node ≥ 24（需要内置 `node:sqlite`）。
 2. `npm install`
-3. 双击 `start.bat` 启动（首次运行会读 `vault.example/` 初始化 `vault/`，然后自动打开浏览器）；`stop.bat` 一键停。
+3. 启动（**命令行为主入口**）：
+   - 开发：`npm run dev`（vite 5173 + 服务 7788，前端热更新）
+   - 正式：`npm run build` 后 `npm start`（只起 7788 服务构建产物），浏览器打开 http://localhost:7788
+   - 首次运行会读 `vault.example/` 初始化 `vault/`。
 4. 端口 7788（`ANVIL_PORT` 可覆写）。
+
+`start.bat` / `stop.bat` 是双击便捷入口（start 会自动构建并在独立窗口起服务、遇端口占用弹三选一）。注意：Windows 资源管理器双击 `.bat` 可能弹「无法验证发布者」提示——那是 Explorer 的外壳检查，与脚本无关（同一文件在命令行里运行不会弹），可忽略或直接用上面的命令行方式。
 
 `vault/` 是你的本地数据目录（库、配置、榜单缓存），**不入库**；换机器时把它一并拷走即可。
 

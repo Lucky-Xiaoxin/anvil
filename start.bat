@@ -1,6 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+rem NOTE: command line is the primary entry - "npm run dev" (vite 5173 + server 7788),
+rem or "npm run build" then "npm start" (serve built assets on 7788).
+rem This .bat stays as a double-click convenience. Explorer may warn about an unknown
+rem publisher for .bat files - that is Explorer's own shell check, not this script
+rem (running the same file from cmd does not prompt).
 set "ANVIL_OPEN=1"
 rem ---------- port: ANVIL_PORT is the single source (server / vite proxy / dev.mjs read the same) ----------
 if not defined ANVIL_PORT set "ANVIL_PORT=7788"
