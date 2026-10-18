@@ -101,9 +101,11 @@ for (const signal of signals) process.on(signal, () => void shutdown(signal));
 process.on('exit', (code) => life('exit', `code=${code}`));
 process.on('uncaughtException', (err) => {
   life('uncaughtException', err.stack ?? err.message);
+  console.error('[anvil] uncaughtException:', err);
   process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
   life('unhandledRejection', reason instanceof Error ? reason.stack ?? reason.message : String(reason));
+  console.error('[anvil] unhandledRejection:', reason);
   process.exit(1);
 });

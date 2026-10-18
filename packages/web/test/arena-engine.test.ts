@@ -388,6 +388,22 @@ describe('题目格状态', () => {
     expect(buildBoard(rejudged, 5 * H, false).rows[0]?.cells[0]?.st).toBe('ac');
   });
 
+  it('重判残留 FB 不当成绩：按后来的 AC 计时（实测 3 格：nanjing/东北 14 届/新疆省赛）', () => {
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '重判撤销 FB' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '被撤销首杀', official: true },
+          statuses: [{ result: 'AC', time: [17820, 's'], tries: 2, solutions: [sol('FB', 15300 * S), sol('AC', 17820 * S)] }],
+        },
+      ],
+    });
+    const cell = buildBoard(m, 5 * H, false).rows[0]?.cells[0];
+    // 被撤销的 FB 既不进过题时刻、也不算首杀（罚时口径与旧引擎一致：FB 不计失败）
+    expect(cell).toMatchObject({ st: 'ac', t: 17820 * S, fails: 0 });
+  });
+
   it('没有终局摘要时，多次 AC 认第一发（ICPC 口径）', () => {
     expect(cellAt([sol('AC', 10 * M), sol('AC', 20 * M)], 5 * H, 5 * H, m.freezeStart)).toMatchObject({ st: 'ac', t: 10 * M });
   });

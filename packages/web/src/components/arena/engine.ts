@@ -178,6 +178,9 @@ export function cellAt(
 ): Cell {
   if (subs.length === 0 && summary !== undefined) return cellFromSummary(summary, elapsed, cap, freezeStart);
   const trust = verdict === undefined || isAccept(verdict);
+  // 终局判名说"不是首杀"时，solutions 里的 FB 是被重判撤销的残留：不当成绩（实测 3 格）
+  const staleFb = (r: string | null | undefined): boolean =>
+    r === 'FB' && summary?.accepted === true && summary.fb === false;
   let last: SrkSolution | null = null;
   let ac: SrkSolution | null = null;
   let fails = 0;
@@ -191,8 +194,8 @@ export function cellAt(
     last = x;
     if (t <= cap) {
       nCap++;
-      if (trust && isAccept(x.result)) {
-        // 同题多次 AC 只认第一发；AC 之后的同题提交只进明细，不进罚时（实测 265 格赛后重复提交）
+      if (trust && isAccept(x.result) && !staleFb(x.result)) {
+        // 同题多次 AC 只认第一发；AC 之后的同题提交只进明细，不进罚时（97 场缓存里实测 280 格）
         if (ac === null) ac = x;
       } else if (x.result !== 'CE') fails++;
     } else after = true;
