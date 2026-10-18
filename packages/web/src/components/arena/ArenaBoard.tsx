@@ -691,7 +691,7 @@ const ProblemHead = memo(function ProblemHead({
   const state = problemHeadState(col);
   const fbText =
     fb !== undefined
-      ? `首杀 ${model.teams[fb.ti]?.org ?? ''} · ${minutesOf(fb.cells[index]?.t ?? 0)}′`
+      ? `首杀 ${model.teams[fb.ti]?.org || model.teams[fb.ti]?.name || '队伍信息未收录'} · ${minutesOf(fb.cells[index]?.t ?? 0)}′`
       : col.ac > 0
         ? '当前视图无首杀'
         : cap >= model.duration
@@ -747,17 +747,21 @@ const BoardRowView = memo(function BoardRowView(props: RowProps) {
 
   const teamTip = (e: React.MouseEvent): void => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const title = team.name === '' ? team.org || '队伍信息未收录' : team.name;
     show({
       x: r.left + Math.min(r.width / 2, 150),
       y: r.top,
-      date: `${team.name} · ${team.org}`,
+      date: team.org === '' || team.name === '' ? title : `${title} · ${team.org}`,
       value: `第 ${row.rank} 名 · 过 ${row.solved} 题 · 罚时 ${row.pen}`,
       zero: false,
       valueClass: row.medal ? `is-${row.medal}` : 'is-dim',
       /* 幽灵行没有机位可显示（`seat` 是「—」），小字改说录入来源 —— 别在 tip 里留个空 # */
       sub: row.ghost
         ? [`VP 手动录入${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题逐发']
-        : [`机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`, '点击查看队员'],
+        : [
+            `机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`,
+            team.members.length > 0 ? '点击查看队员' : '队员名单未收录 · 点击看队伍信息',
+          ],
     });
   };
 
@@ -894,7 +898,8 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
   /* 终局判名不是 FB 时，solutions 里残留的 FB 是重判前的旧标记，别拿它说「本题首杀」 */
   const verdict = team.verdicts[p];
   const fb = verdict === undefined || verdict === 'FB' ? team.subs[p]?.find((x) => x.result === 'FB') : undefined;
-  const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${team.name} @${team.org}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
+  const who = team.name === '' ? team.org || '队伍信息未收录' : team.org === '' ? team.name : `${team.name} @${team.org}`;
+  const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${who}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
   /*
    * 近似榜（上游没给逐次提交）：只有一行终局判名，次数照 `tries` 给。
    * 这里不能显示「本场未提交」—— 人家交了，是快照没记每一发。
@@ -964,16 +969,21 @@ function TeamPop({ model, ti, board }: { model: ContestModel; ti: number; board:
   }
   const team = model.teams[ti];
   if (team === undefined) return null;
-  const head = { title: team.name, sub: team.org };
+  const title = team.name === '' ? team.org || '队伍信息未收录' : team.name;
+  const head = { title, sub: team.name === '' || team.org === '' ? '' : team.org };
   return (
     <PopShell head={head}>
       <div className="pop__who">
-        {team.members.map((m, i) => (
-          <div className="pop__p" key={i}>
-            <span className="av">{m.slice(0, 1)}</span>
-            <span>{m}</span>
-          </div>
-        ))}
+        {team.members.length === 0 ? (
+          <div className="hint">快照未收录队员名单。</div>
+        ) : (
+          team.members.map((m, i) => (
+            <div className="pop__p" key={i}>
+              <span className="av">{m.slice(0, 1)}</span>
+              <span>{m}</span>
+            </div>
+          ))
+        )}
       </div>
       <div className="pop__rule" />
       <div className="pop__kv">

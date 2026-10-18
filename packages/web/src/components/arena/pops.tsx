@@ -84,7 +84,7 @@ export const PopShell = memo(function PopShell({ head, children }: { head: PopHe
       <div className="pop__h">
         <span className="pop__t">{head.title}</span>
       </div>
-      <div className="pop__sub">{head.sub}</div>
+      {head.sub === '' ? null : <div className="pop__sub">{head.sub}</div>}
       <div className="pop__rule" />
       {children}
     </>
