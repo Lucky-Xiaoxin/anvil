@@ -192,18 +192,15 @@ export function cellAt(
     if (t <= cap) {
       nCap++;
       if (trust && isAccept(x.result)) {
-        /*
-         * 多次 AC（实测 265 格：赛后重复提交 / 重判）只认第一发；终局判名带时刻时以它为准挑最接近的
-         * 那一发 —— 旧 FB 被重判作废、后面补 AC 的场次，只有终局时刻能分辨该认哪一发。
-         */
+        // 同题多次 AC 只认第一发；AC 之后的同题提交只进明细，不进罚时（实测 265 格赛后重复提交）
         if (ac === null) ac = x;
-        else if (summary?.accepted === true && Math.abs(t - summary.t) < Math.abs(toMs(ac.time) - summary.t)) ac = x;
       } else if (x.result !== 'CE') fails++;
     } else after = true;
   }
   if (last === null) return EMPTY_CELL;
   if (ac !== null) {
     const acT = toMs(ac.time);
+    // 罚时只算第一发 AC 之前的失败；AC 之后的同题提交只记录（nCap / 明细），不进罚时
     let nf = 0;
     for (const y of subs) {
       const t = toMs(y.time);
@@ -395,17 +392,12 @@ const pickText = (v: SrkText | undefined): string => {
 
 /**
  * statuses 说 FB、solutions 里却只记了 AC（实测 8 场 86 格；2024 武汉 / 西安 / 昆明邀请赛在列）：
- * 这些上游快照把首杀只写在终局判名里。把最接近终局时刻的那发 AC 认回首杀；已有 FB 或读不到 AC
- * 就原样返回，不猜。
+ * 这些上游快照把首杀只写在终局判名里。把第一发 AC 认回首杀；已有 FB 或读不到 AC 就原样返回，不猜。
+ * 判罚口径不变：首杀之后的同题提交只记录，不参与罚时。
  */
 function withStatusFb(sorted: SrkSolution[], status: SrkStatus | undefined): SrkSolution[] {
   if (status?.result !== 'FB' || sorted.some((x) => x.result === 'FB')) return sorted;
-  const at = toMs(status.time);
-  let pick = -1;
-  for (let i = 0; i < sorted.length; i++) {
-    if (sorted[i]!.result !== 'AC') continue;
-    if (pick < 0 || Math.abs(toMs(sorted[i]!.time) - at) < Math.abs(toMs(sorted[pick]!.time) - at)) pick = i;
-  }
+  const pick = sorted.findIndex((x) => x.result === 'AC');
   if (pick < 0) return sorted;
   const out = sorted.slice();
   out[pick] = { ...out[pick]!, result: 'FB' };

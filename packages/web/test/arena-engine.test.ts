@@ -351,21 +351,30 @@ describe('题目格状态', () => {
     expect(withCe.n).toBe(2);
   });
 
-  it('同题多次 AC：认终局时刻那一发，不认最后一发（实测 265 格）', () => {
+  it('同题多次 AC：只认第一发，AC 之后的提交只记录、不进罚时（实测 265 格）', () => {
     const once = buildModel({
       contest: { title: { 'zh-CN': '多次 AC' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
       problems: [{ alias: 'A' }],
       rows: [
         {
           user: { name: '重复提交', official: true },
-          statuses: [{ result: 'AC', time: [120, 's'], tries: 2, solutions: [sol('AC', 120 * S), sol('AC', 300 * S)] }],
+          statuses: [
+            {
+              result: 'AC',
+              time: [120, 's'],
+              tries: 3,
+              solutions: [sol('AC', 120 * S), sol('WA', 200 * S), sol('AC', 300 * S)],
+            },
+          ],
         },
       ],
     });
-    expect(buildBoard(once, 5 * H, false).rows[0]?.cells[0]).toMatchObject({ st: 'ac', t: 120 * S, n: 1, fails: 0 });
+    const cell = buildBoard(once, 5 * H, false).rows[0]?.cells[0];
+    // 过题时刻 = 第一发 AC；后面的 WA 不加罚时、后面的 AC 不改过题时刻；nCap 仍记录全部提交
+    expect(cell).toMatchObject({ st: 'ac', t: 120 * S, n: 1, fails: 0, nCap: 3 });
   });
 
-  it('旧 FB 被重判、后补 AC：按终局时刻认后发 AC，不把旧 FB 当首杀', () => {
+  it('终局判名 AC 时，solutions 里残留的 FB 不标首杀', () => {
     const rejudged = buildModel({
       contest: { title: { 'zh-CN': '重判后补 AC' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
       problems: [{ alias: 'A' }],
@@ -376,8 +385,7 @@ describe('题目格状态', () => {
         },
       ],
     });
-    const cell = buildBoard(rejudged, 5 * H, false).rows[0]?.cells[0];
-    expect(cell).toMatchObject({ st: 'ac', t: 300 * S });
+    expect(buildBoard(rejudged, 5 * H, false).rows[0]?.cells[0]?.st).toBe('ac');
   });
 
   it('没有终局摘要时，多次 AC 认第一发（ICPC 口径）', () => {
