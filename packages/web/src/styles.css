@@ -1083,12 +1083,12 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .pcell.is-frz .pcell__t,.pcell.is-frz .pcell__n{color:var(--text-dim)}
 .pcell.is-ce .pcell__b{background:rgba(148,160,180,.05);border-color:rgba(148,160,180,.22)}
-/* 封榜后揭晓（终榜才存在的两态）：底色与字色各退一档 + 右上角一枚圆点 */
-.pcell.is-post.is-ac .pcell__b,.pcell.is-post.is-fb .pcell__b{
+/* 封榜后揭晓：AC 底色与字色退一档；首杀保留深绿底座（身份不能因 post 消失），只加右上角圆点 */
+.pcell.is-post.is-ac .pcell__b{
   background:rgba(63,185,80,.055);border-color:rgba(63,185,80,.17);box-shadow:none;
 }
-.pcell.is-post.is-ac .pcell__t,.pcell.is-post.is-fb .pcell__t{color:var(--ok);opacity:.8}
-.pcell.is-post.is-fb .pcell__n{color:rgba(63,185,80,.8);letter-spacing:.02em}
+.pcell.is-post.is-ac .pcell__t{color:var(--ok);opacity:.8}
+.pcell.is-post.is-fb .pcell__dot{background:#D6FFDF;box-shadow:0 0 0 1px rgba(10,12,16,.55),0 0 6px rgba(155,243,172,.45)}
 .pcell.is-post.is-pen .pcell__b{background:rgba(248,81,73,.04);border-color:rgba(248,81,73,.14)}
 .pcell.is-post.is-pen .pcell__t{opacity:.62}
 .pcell.is-post.is-ce .pcell__b{background:rgba(148,160,180,.035);border-color:rgba(148,160,180,.15)}

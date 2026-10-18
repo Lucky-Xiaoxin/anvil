@@ -178,6 +178,9 @@ export function cellAt(
 ): Cell {
   if (subs.length === 0 && summary !== undefined) return cellFromSummary(summary, elapsed, cap, freezeStart);
   const trust = verdict === undefined || isAccept(verdict);
+  // 终局判名说"不是首杀"时，solutions 里的 FB 是被重判撤销的残留：不当成绩（实测 3 格）
+  const staleFb = (r: string | null | undefined): boolean =>
+    r === 'FB' && summary?.accepted === true && summary.fb === false;
   let last: SrkSolution | null = null;
   let ac: SrkSolution | null = null;
   let fails = 0;
@@ -191,21 +194,25 @@ export function cellAt(
     last = x;
     if (t <= cap) {
       nCap++;
-      if (trust && isAccept(x.result)) {
-        if (ac === null || t > toMs(ac.time)) ac = x;
+      if (trust && isAccept(x.result) && !staleFb(x.result)) {
+        // 同题多次 AC 只认第一发；AC 之后的同题提交只进明细，不进罚时（97 场缓存里实测 280 格）
+        if (ac === null) ac = x;
       } else if (x.result !== 'CE') fails++;
     } else after = true;
   }
   if (last === null) return EMPTY_CELL;
   if (ac !== null) {
     const acT = toMs(ac.time);
+    // 罚时只算第一发 AC 之前的失败；AC 之后的同题提交只记录（nCap / 明细），不进罚时
     let nf = 0;
     for (const y of subs) {
       const t = toMs(y.time);
       if (t > acT) break;
       if (t <= cap && !(trust && isAccept(y.result)) && y.result !== 'CE') nf++;
     }
-    return { st: ac.result === 'FB' ? 'fb' : 'ac', t: acT, n: nf + 1, fails: nf, nCap, post: acT > freezeStart };
+    // 终局判名在时它说了算：solutions 里那发 FB 可能已被重判作废
+    const fb = summary?.accepted === true ? summary.fb : ac.result === 'FB';
+    return { st: fb ? 'fb' : 'ac', t: acT, n: nf + 1, fails: nf, nCap, post: acT > freezeStart };
   }
   // 封榜段内有活动但结果未公开：只说「有 n 次提交」，不透露任何判名
   if (after) return { st: 'frz', t: toMs(last.time), n: nAll, fails: 0, nCap, post: false };
@@ -315,7 +322,7 @@ export interface TeamModel {
   star: boolean;
   /** 每题一列，已按时刻升序（§4 性能口径：solutions 预排序） */
   subs: SrkSolution[][];
-  /** 无逐次提交那批场次的兜底：每题的终局判名摘要（有 solutions 时为 undefined） */
+  /** 每题的终局判名摘要：无逐次提交时兜底；有逐次提交时也用来认终局 AC 是哪一发 */
   summaries: (StatusSummary | undefined)[];
   /** 每题的终局判名（`statuses[].result`）：重判撤销的题靠它才数对 */
   verdicts: (string | null | undefined)[];
@@ -386,6 +393,20 @@ const pickText = (v: SrkText | undefined): string => {
   return str(v['zh-CN']) || str(v.fallback) || str(v.en);
 };
 
+/**
+ * statuses 说 FB、solutions 里却只记了 AC（实测 8 场 86 格；2024 武汉 / 西安 / 昆明邀请赛在列）：
+ * 这些上游快照把首杀只写在终局判名里。把第一发 AC 认回首杀；已有 FB 或读不到 AC 就原样返回，不猜。
+ * 判罚口径不变：首杀之后的同题提交只记录，不参与罚时。
+ */
+function withStatusFb(sorted: SrkSolution[], status: SrkStatus | undefined): SrkSolution[] {
+  if (status?.result !== 'FB' || sorted.some((x) => x.result === 'FB')) return sorted;
+  const pick = sorted.findIndex((x) => x.result === 'AC');
+  if (pick < 0) return sorted;
+  const out = sorted.slice();
+  out[pick] = { ...out[pick]!, result: 'FB' };
+  return out;
+}
+
 /** srk.json → 一次性解析的模型（每秒重建只读它，不再遍历原始 JSON） */
 export function buildModel(doc: SrkDoc): ContestModel {
   const contest = doc.contest ?? {};
@@ -399,11 +420,12 @@ export function buildModel(doc: SrkDoc): ContestModel {
     const user = row.user ?? {};
     const statuses = Array.isArray(row.statuses) ? row.statuses : [];
     const subs = problems.map((_, p) => {
-      const list = statuses[p]?.solutions;
+      const status = statuses[p];
+      const list = status?.solutions;
       if (!Array.isArray(list)) return [] as SrkSolution[];
-      return [...list].sort((a, b) => toMs(a.time) - toMs(b.time));
+      return withStatusFb([...list].sort((a, b) => toMs(a.time) - toMs(b.time)), status);
     });
-    const summaries = problems.map((_, p) => (subs[p]!.length > 0 ? undefined : summaryOf(statuses[p])));
+    const summaries = problems.map((_, p) => summaryOf(statuses[p]));
     const verdicts = problems.map((_, p) => (statuses[p] === undefined ? undefined : statuses[p]?.result ?? null));
     return {
       ti,
