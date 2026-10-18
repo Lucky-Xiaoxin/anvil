@@ -191,6 +191,35 @@ describe('模型解析', () => {
     expect(m.teams[0]?.subs[0]?.map((x) => toMs(x.time))).toEqual([30 * M, 60 * M, 114 * M]);
   });
 
+  it('statuses 说 FB、solutions 只记 AC：把终局时刻那发认回首杀（2024 三场邀请赛）', () => {
+    const m = buildModel(
+      fixture({
+        rows: [
+          {
+            user: { name: '首杀队', id: 'F1', organization: '某大学', official: true },
+            statuses: [{ result: 'FB', time: [600, 's'], tries: 2, solutions: [sol('WA', 300 * S), sol('AC', 600 * S)] }],
+          },
+        ],
+      }),
+    );
+    expect(m.teams[0]?.subs[0]?.map((x) => x.result)).toEqual(['WA', 'FB']);
+    const b = buildBoard(m, 5 * H, false);
+    expect(b.rows[0]?.cells[0]).toMatchObject({ st: 'fb', t: 600 * S, n: 2, fails: 1, post: false });
+    expect(subsUntil(m.teams[0]!.subs[0]!, 5 * H, 5 * H, 'FB').map((x) => x.r)).toEqual(['WA', 'FB']);
+    // 首杀落在封榜段内：终榜格同时带 fb 与 post（榜上即「深绿底座 + 右上角小点」）
+    const late = buildModel({
+      contest: { title: { 'zh-CN': '封榜后首杀' }, duration: [5, 'h'], frozenDuration: [1, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '压哨队', official: true },
+          statuses: [{ result: 'FB', time: [298 * 60, 's'], tries: 1, solutions: [sol('AC', 298 * M)] }],
+        },
+      ],
+    });
+    expect(buildBoard(late, 5 * H, false, true).rows[0]?.cells[0]).toMatchObject({ st: 'fb', t: 298 * M, post: true });
+  });
+
   it('双语对象队名 / 校名：中文优先，空串不吃掉回退', () => {
     const m = buildModel(
       fixture({
@@ -320,6 +349,39 @@ describe('题目格状态', () => {
     expect(withCe.st).toBe('ac');
     expect(withCe.fails).toBe(1);
     expect(withCe.n).toBe(2);
+  });
+
+  it('同题多次 AC：认终局时刻那一发，不认最后一发（实测 265 格）', () => {
+    const once = buildModel({
+      contest: { title: { 'zh-CN': '多次 AC' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '重复提交', official: true },
+          statuses: [{ result: 'AC', time: [120, 's'], tries: 2, solutions: [sol('AC', 120 * S), sol('AC', 300 * S)] }],
+        },
+      ],
+    });
+    expect(buildBoard(once, 5 * H, false).rows[0]?.cells[0]).toMatchObject({ st: 'ac', t: 120 * S, n: 1, fails: 0 });
+  });
+
+  it('旧 FB 被重判、后补 AC：按终局时刻认后发 AC，不把旧 FB 当首杀', () => {
+    const rejudged = buildModel({
+      contest: { title: { 'zh-CN': '重判后补 AC' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '重判队', official: true },
+          statuses: [{ result: 'AC', time: [300, 's'], tries: 2, solutions: [sol('FB', 120 * S), sol('AC', 300 * S)] }],
+        },
+      ],
+    });
+    const cell = buildBoard(rejudged, 5 * H, false).rows[0]?.cells[0];
+    expect(cell).toMatchObject({ st: 'ac', t: 300 * S });
+  });
+
+  it('没有终局摘要时，多次 AC 认第一发（ICPC 口径）', () => {
+    expect(cellAt([sol('AC', 10 * M), sol('AC', 20 * M)], 5 * H, 5 * H, m.freezeStart)).toMatchObject({ st: 'ac', t: 10 * M });
   });
 });
 

@@ -689,6 +689,14 @@ const ProblemHead = memo(function ProblemHead({
   const { show, hide } = useTip();
   const fb = board.rows.find((r) => r.cells[index]?.st === 'fb');
   const state = problemHeadState(col);
+  const fbText =
+    fb !== undefined
+      ? `首杀 ${model.teams[fb.ti]?.org ?? ''} · ${minutesOf(fb.cells[index]?.t ?? 0)}′`
+      : col.ac > 0
+        ? '当前视图无首杀'
+        : cap >= model.duration
+          ? '全场无人通过'
+          : '尚无通过';
   return (
     <div
       className={`ph is-${state}`}
@@ -704,7 +712,7 @@ const ProblemHead = memo(function ProblemHead({
           sub: [
             HEAD_HINT[state],
             `交 ${col.sub} 次`,
-            fb ? `首杀 ${model.teams[fb.ti]?.org ?? ''} · ${minutesOf(fb.cells[index]?.t ?? 0)}′` : cap >= model.duration ? '全场无人通过' : '尚无通过',
+            fbText,
             col.frz > 0 ? `另有 ${col.frz} 格封榜未定` : '',
             col.postAc > 0 && col.postAc < col.ac ? `其中 ${col.postAc} 队封榜后才过` : '',
           ].filter((s) => s !== ''),
@@ -883,7 +891,9 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
   const team = model.teams[ti];
   if (team === undefined || problem === undefined) return null;
   const list = subsUntil(team.subs[p] ?? [], viewMs, cap, team.verdicts[p]);
-  const fb = team.subs[p]?.find((x) => x.result === 'FB');
+  /* 终局判名不是 FB 时，solutions 里残留的 FB 是重判前的旧标记，别拿它说「本题首杀」 */
+  const verdict = team.verdicts[p];
+  const fb = verdict === undefined || verdict === 'FB' ? team.subs[p]?.find((x) => x.result === 'FB') : undefined;
   const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${team.name} @${team.org}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
   /*
    * 近似榜（上游没给逐次提交）：只有一行终局判名，次数照 `tries` 给。
