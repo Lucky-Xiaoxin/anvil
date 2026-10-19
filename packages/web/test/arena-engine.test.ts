@@ -87,6 +87,12 @@ describe('时间单位换算', () => {
     expect(buildBoard(m, 5 * H, false).rows[0]?.cells[0]).toMatchObject({ st: 'ac', t: 60 * M });
   });
 
+  it('读不懂的 duration 不造合法时刻；整场 0 时长由界面判不可回放', () => {
+    const m = buildModel({ contest: { title: { 'zh-CN': '坏时长' }, duration: '坏', frozenDuration: [0, 'h'] }, problems: [], rows: [] });
+    expect(m.duration).toBe(0);
+    expect(m.freezeStart).toBe(0);
+  });
+
   it('statuses result ? 是未定档：不折成罚时，也不把 solutions 里的 AC 当 RJ', () => {
     const m = buildModel({
       contest: { title: { 'zh-CN': '冻结占位' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },

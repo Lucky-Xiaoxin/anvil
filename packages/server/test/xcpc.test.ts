@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
-import { countSubmissions, getSyncState, initSchema, loadXcpcPlayer, syncKey, upsertRatingHistory } from '../src/db.ts';
+import { countSubmissions, getSyncState, initSchema, loadXcpcPlayer, replaceXcpcPlayer, setSyncState, syncKey, upsertRatingHistory } from '../src/db.ts';
 import { registerApi } from '../src/api.ts';
 import { ArenaClient } from '../src/arena.ts';
 import {
@@ -297,6 +297,35 @@ describe('claim（docs/14 §4）', () => {
     expect(JSON.parse(row.payload).name).toBe('李鑫杰');
     expect(s.key()).toBe(KEY);
     expect(getSyncState(db, syncKey('xcpc', 'last_sync_at'))).not.toBeNull();
+    db.close();
+  });
+
+  it('setKey 失败会回滚旧档案，不把 DB 和 config 拆成两个 key', async () => {
+    const db = mem();
+    const other = '陈一鸣@南京邮电大学';
+    replaceXcpcPlayer(db, {
+      key: other,
+      payload: JSON.stringify({ ...FIX.detail, key: other, name: '陈一鸣' }),
+      snapshotAt: META.generatedAt,
+      rankTotal: FIX.rankTotal,
+      fetchedAt: 1,
+    });
+    setSyncState(db, syncKey('xcpc', 'last_sync_at'), '222');
+    setSyncState(db, syncKey('xcpc', 'last_error'), 'old');
+    let key = other;
+    const failingStore: XcpcStore = {
+      db,
+      getKey: () => key,
+      setKey: () => {
+        throw new Error('EPERM');
+      },
+    };
+    const m = mock(claimRoutes());
+    await expect(claimXcpc(failingStore, m.client, KEY)).rejects.toThrow('EPERM');
+    expect(loadXcpcPlayer(db)?.key).toBe(other);
+    expect(key).toBe(other);
+    expect(getSyncState(db, syncKey('xcpc', 'last_sync_at'))).toBe('222');
+    expect(getSyncState(db, syncKey('xcpc', 'last_error'))).toBe('old');
     db.close();
   });
 

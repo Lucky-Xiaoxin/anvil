@@ -18,6 +18,7 @@ import type {
   XcpcTier,
 } from '@anvil/shared';
 import {
+  clearXcpcPlayer,
   getSyncState,
   loadXcpcPlayer,
   replaceXcpcPlayer,
@@ -450,6 +451,9 @@ export async function claimXcpc(store: XcpcStore, client: XcpcClient, key: strin
     const player = toPlayerDto(detail);
     if (player === null) throw new XcpcError('unavailable', '这个档案读不出结构');
     const now = stamp();
+    const oldPlayer = loadXcpcPlayer(store.db);
+    const oldSyncAt = getSyncState(store.db, syncKey('xcpc', 'last_sync_at'));
+    const oldError = getSyncState(store.db, syncKey('xcpc', 'last_error'));
     replaceXcpcPlayer(store.db, {
       key,
       payload: JSON.stringify(detail),
@@ -459,7 +463,15 @@ export async function claimXcpc(store: XcpcStore, client: XcpcClient, key: strin
     });
     setSyncState(store.db, syncKey('xcpc', 'last_sync_at'), String(now));
     setSyncState(store.db, syncKey('xcpc', 'last_error'), '');
-    store.setKey(key);
+    try {
+      store.setKey(key);
+    } catch (err) {
+      if (oldPlayer === null) clearXcpcPlayer(store.db);
+      else replaceXcpcPlayer(store.db, oldPlayer);
+      setSyncState(store.db, syncKey('xcpc', 'last_sync_at'), oldSyncAt ?? '');
+      setSyncState(store.db, syncKey('xcpc', 'last_error'), oldError ?? '');
+      throw err;
+    }
     return { player, snapshotAt: meta.generatedAt, fetchedAt: now, rankTotal };
   } finally {
     running = false;

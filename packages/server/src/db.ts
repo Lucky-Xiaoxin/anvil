@@ -110,6 +110,12 @@ export function initSchema(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);');
   db.exec('CREATE TABLE IF NOT EXISTS sync_state (k TEXT PRIMARY KEY, v TEXT NOT NULL);');
 
+  const stored = db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as { v: string } | undefined;
+  const storedVersion = Number(stored?.v ?? SCHEMA_VERSION);
+  if (Number.isFinite(storedVersion) && storedVersion > SCHEMA_VERSION) {
+    throw new Error(`vault 数据库 schema v${storedVersion} 比当前应用 v${SCHEMA_VERSION} 更新；请先升级 ANVIL，别让旧版本迁移新库`);
+  }
+
   const fromV1 = isV1Submissions(db) || isV1RatingHistory(db);
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -440,6 +446,12 @@ export function replaceXcpcPlayer(db: DatabaseSync, row: XcpcStoredPlayer): void
     db
       .prepare('INSERT INTO xcpc_players (key, payload, snapshot_at, rank_total, fetched_at) VALUES (?,?,?,?,?)')
       .run(row.key, row.payload, row.snapshotAt, row.rankTotal, row.fetchedAt);
+  });
+}
+
+export function clearXcpcPlayer(db: DatabaseSync): void {
+  withTransaction(db, () => {
+    db.prepare('DELETE FROM xcpc_players').run();
   });
 }
 
