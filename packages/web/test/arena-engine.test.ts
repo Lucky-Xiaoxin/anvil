@@ -21,8 +21,10 @@ import {
   resume,
   startSession,
   subsUntil,
+  summaryOf,
   tick,
   toMs,
+  toMsOrNull,
   unpause,
   type GhostResult,
   type GhostSub,
@@ -60,6 +62,46 @@ describe('时间单位换算', () => {
     expect(toMs([NaN, 's'])).toBe(0);
     expect(toMs([])).toBe(0);
     expect(toMs(1234)).toBe(1234);
+  });
+
+  it('引擎不把读不懂的提交时刻折成 0 分钟 AC', () => {
+    expect(toMsOrNull('1h')).toBeNull();
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '坏时刻' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '坏时刻队', official: true },
+          statuses: [
+            {
+              result: 'AC',
+              time: [60, 'min'],
+              tries: 2,
+              solutions: [{ result: 'AC', time: '坏', language: '坏' }, sol('AC', 60 * M)],
+            },
+          ],
+        },
+      ],
+    });
+    expect(m.teams[0]?.subs[0]?.map((x) => toMs(x.time))).toEqual([60 * M]);
+    expect(buildBoard(m, 5 * H, false).rows[0]?.cells[0]).toMatchObject({ st: 'ac', t: 60 * M });
+  });
+
+  it('statuses result ? 是未定档：不折成罚时，也不把 solutions 里的 AC 当 RJ', () => {
+    const m = buildModel({
+      contest: { title: { 'zh-CN': '冻结占位' }, duration: [5, 'h'], frozenDuration: [0, 'h'] },
+      problems: [{ alias: 'A' }],
+      rows: [
+        {
+          user: { name: '占位队', official: true },
+          statuses: [{ result: '?', tries: 6 }],
+        },
+      ],
+    });
+    const cell = buildBoard(m, 5 * H, false).rows[0]?.cells[0];
+    expect(cell).toMatchObject({ st: 'frz', n: 6, fails: 0 });
+    expect(summaryOf({ result: '?', tries: 6 })).toMatchObject({ accepted: false, unknown: true, t: 0, tries: 6 });
+    expect(subsUntil([sol('AC', 60 * M)], 5 * H, 5 * H, '?').map((x) => x.r)).toEqual(['AC']);
   });
 
   it('分钟读数向下取整（罚时口径）', () => {
@@ -402,6 +444,9 @@ describe('题目格状态', () => {
     const cell = buildBoard(m, 5 * H, false).rows[0]?.cells[0];
     // 被撤销的 FB 既不进过题时刻、也不算首杀（罚时口径与旧引擎一致：FB 不计失败）
     expect(cell).toMatchObject({ st: 'ac', t: 17820 * S, fails: 0 });
+    const before = buildBoard(m, 16_000 * S, false).rows[0]?.cells[0];
+    // AC 还没发生时，残留 FB 只算「有活动、结果未定」，不算一发失败
+    expect(before).toMatchObject({ st: 'frz', n: 1, fails: 0 });
   });
 
   it('没有终局摘要时，多次 AC 认第一发（ICPC 口径）', () => {

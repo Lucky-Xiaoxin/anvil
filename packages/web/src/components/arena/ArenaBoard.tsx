@@ -94,6 +94,10 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
         const res = await getArenaContest(row.path);
         if (cancel) return;
         const model = buildModel(res.data as Parameters<typeof buildModel>[0]);
+        if (model.duration <= 0) {
+          setLoad({ kind: 'error', text: '本场快照的时长读不懂，无法回放', missing: false });
+          return;
+        }
         setLoad({ kind: 'ready', model });
       } catch (err) {
         if (cancel) return;
@@ -901,13 +905,13 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
   const who = team.name === '' ? team.org || '队伍信息未收录' : team.org === '' ? team.name : `${team.name} @${team.org}`;
   const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${who}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
   /*
-   * 近似榜（上游没给逐次提交）：只有一行终局判名，次数照 `tries` 给。
-   * 这里不能显示「本场未提交」—— 人家交了，是快照没记每一发。
+   * 没有逐次提交时：只要这题有终局摘要就按摘要回吐，不能按整场 `approx` 一刀切。
+   * 混合快照里也可能只有某队/某题缺 `solutions[]`；这里显示「本场未提交」会和格子自相矛盾。
    */
-  if (list.length === 0 && model.approx) {
+  if (list.length === 0) {
     const s = team.summaries[p];
-    if (s === undefined) return <PopShell head={head}><div className="hint">本场未提交。</div></PopShell>;
-    const shown = s.t > cap;
+    if (s === undefined || s.t > viewMs) return <PopShell head={head}><div className="hint">本场未提交。</div></PopShell>;
+    const shown = s.unknown || s.t > cap;
     return (
       <PopShell head={head}>
         <div className="pop__row">
@@ -915,29 +919,23 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
           <span className="pop__tm num">{clockHMS(s.t)}</span>
           <span className="pop__lg">{s.tries} 发</span>
         </div>
-        <div className="hint" style={{ marginTop: 8 }}>本场快照没有逐次提交记录，只有终局判名与总次数。</div>
+        <div className="hint" style={{ marginTop: 8 }}>这题没有逐次提交记录，只有终局判名与总次数。</div>
       </PopShell>
     );
   }
   return (
     <PopShell head={head}>
-      {list.length === 0 ? (
-        <div className="hint">本场未提交。</div>
-      ) : (
-        <>
-          {list.map((x, i) => (
-            <div className="pop__row" key={i}>
-              <span className={x.frozen ? 'res res--frz' : resClass(x.r)}>{x.frozen ? 'Frozen' : x.r}</span>
-              <span className="pop__tm num">{clockHMS(x.t)}</span>
-              <span className="pop__lg">{x.language}</span>
-            </div>
-          ))}
-          <div className="hint" style={{ marginTop: 8 }}>
-            {viewMs > model.freezeStart && viewMs < model.duration ? '封榜段内结果未公开，一律显示 Frozen · ' : ''}
-            罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）
-          </div>
-        </>
-      )}
+      {list.map((x, i) => (
+        <div className="pop__row" key={i}>
+          <span className={x.frozen ? 'res res--frz' : resClass(x.r)}>{x.frozen ? 'Frozen' : x.r}</span>
+          <span className="pop__tm num">{clockHMS(x.t)}</span>
+          <span className="pop__lg">{x.language}</span>
+        </div>
+      ))}
+      <div className="hint" style={{ marginTop: 8 }}>
+        {viewMs > model.freezeStart && viewMs < model.duration ? '封榜段内结果未公开，一律显示 Frozen · ' : ''}
+        罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）
+      </div>
     </PopShell>
   );
 }

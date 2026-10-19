@@ -84,19 +84,22 @@ export interface SrkDoc {
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1_000, min: 60_000, h: 3_600_000, d: 86_400_000 };
 
 /**
- * `[值, 单位]` 元组 → 毫秒。裸数字按毫秒解读；读不懂 → 0 ——
+ * `[值, 单位]` 元组 → 毫秒。裸数字按毫秒解读；读不懂 → `null` ——
  * 宁可把这格当作没发生过，也不把它插到一个猜出来的时刻上。
  */
-export function toMs(input: unknown): number {
-  if (typeof input === 'number') return Number.isFinite(input) ? input : 0;
+export function toMsOrNull(input: unknown): number | null {
+  if (typeof input === 'number') return Number.isFinite(input) ? input : null;
   if (Array.isArray(input)) {
     const n = Number(input[0]);
-    if (!Number.isFinite(n)) return 0;
+    if (!Number.isFinite(n)) return null;
     const unit = typeof input[1] === 'string' ? input[1] : 'ms';
     return Math.round(n * (UNIT_MS[unit] ?? 1));
   }
-  return 0;
+  return null;
 }
+
+/** 兼容读数：调用方必须自己处理「读不懂」，不要把 0 当成合法时刻。 */
+export const toMs = (input: unknown): number => toMsOrNull(input) ?? 0;
 
 /** 榜上的「分钟」读数：向下取整（ICPC 罚时口径） */
 export const minutesOf = (ms: number): number => Math.floor(ms / 60_000);
@@ -133,6 +136,8 @@ const isAccept = (r: string | null | undefined): boolean => r === 'AC' || r === 
 export interface StatusSummary {
   accepted: boolean;
   fb: boolean;
+  /** 终局判名是上游的冻结占位 `?`：只知道有过活动，不知道结果 */
+  unknown: boolean;
   /** 终局判名对应的时刻（毫秒）；AC 是过题时刻，未过是末次提交时刻 */
   t: number;
   tries: number;
@@ -141,16 +146,19 @@ export interface StatusSummary {
 export function summaryOf(status: SrkStatus | undefined): StatusSummary | undefined {
   if (status === undefined) return undefined;
   const tries = Number.isFinite(status.tries) ? (status.tries as number) : 0;
-  const t = toMs(status.time);
+  const t = toMsOrNull(status.time);
   const accepted = isAccept(status.result);
-  if (!accepted && tries === 0 && t === 0) return undefined;
-  return { accepted, fb: status.result === 'FB', t, tries };
+  const unknown = status.result === '?';
+  if (accepted && t === null) return undefined;
+  if (!accepted && !unknown && tries === 0 && (t ?? 0) === 0) return undefined;
+  return { accepted, fb: status.result === 'FB', unknown, t: t ?? 0, tries };
 }
 
 /** 兜底路径下的格子：只知道"何时定论、共几发"，段内一律算未定 */
 function cellFromSummary(s: StatusSummary, elapsed: number, cap: number, freezeStart: number): Cell {
   if (s.t > elapsed) return EMPTY_CELL;
   const nCap = s.t <= cap ? s.tries : 0;
+  if (s.unknown) return { st: 'frz', t: s.t, n: s.tries, fails: 0, nCap, post: false };
   if (s.accepted) {
     if (s.t > cap) return { st: 'frz', t: s.t, n: s.tries, fails: 0, nCap, post: false };
     const fails = Math.max(0, s.tries - 1);
@@ -177,7 +185,7 @@ export function cellAt(
   verdict?: string | null,
 ): Cell {
   if (subs.length === 0 && summary !== undefined) return cellFromSummary(summary, elapsed, cap, freezeStart);
-  const trust = verdict === undefined || isAccept(verdict);
+  const trust = verdict === undefined || verdict === '?' || isAccept(verdict);
   // 终局判名说"不是首杀"时，solutions 里的 FB 是被重判撤销的残留：不当成绩（实测 3 格）
   const staleFb = (r: string | null | undefined): boolean =>
     r === 'FB' && summary?.accepted === true && summary.fb === false;
@@ -188,7 +196,8 @@ export function cellAt(
   let nCap = 0;
   let after = false;
   for (const x of subs) {
-    const t = toMs(x.time);
+    const t = toMsOrNull(x.time);
+    if (t === null) continue;
     if (t > elapsed) break;
     nAll++;
     last = x;
@@ -197,7 +206,7 @@ export function cellAt(
       if (trust && isAccept(x.result) && !staleFb(x.result)) {
         // 同题多次 AC 只认第一发；AC 之后的同题提交只进明细，不进罚时（97 场缓存里实测 280 格）
         if (ac === null) ac = x;
-      } else if (x.result !== 'CE') fails++;
+      } else if (x.result !== 'CE' && !staleFb(x.result)) fails++;
     } else after = true;
   }
   if (last === null) return EMPTY_CELL;
@@ -206,9 +215,10 @@ export function cellAt(
     // 罚时只算第一发 AC 之前的失败；AC 之后的同题提交只记录（nCap / 明细），不进罚时
     let nf = 0;
     for (const y of subs) {
-      const t = toMs(y.time);
+      const t = toMsOrNull(y.time);
+      if (t === null) continue;
       if (t > acT) break;
-      if (t <= cap && !(trust && isAccept(y.result)) && y.result !== 'CE') nf++;
+      if (t <= cap && !(trust && isAccept(y.result)) && !staleFb(y.result) && y.result !== 'CE') nf++;
     }
     // 终局判名在时它说了算：solutions 里那发 FB 可能已被重判作废
     const fb = summary?.accepted === true ? summary.fb : ac.result === 'FB';
@@ -218,6 +228,7 @@ export function cellAt(
   if (after) return { st: 'frz', t: toMs(last.time), n: nAll, fails: 0, nCap, post: false };
   const t = toMs(last.time);
   if (fails === 0 && last.result === 'CE') return { st: 'ce', t, n: 0, fails: 0, nCap, post: t > freezeStart };
+  if (fails === 0 && staleFb(last.result)) return { st: 'frz', t, n: nAll, fails: 0, nCap, post: false };
   return { st: 'pen', t, n: fails, fails, nCap, post: t > freezeStart };
 }
 
@@ -300,10 +311,11 @@ export function subsUntil(
   verdict?: string | null,
 ): { r: string; t: number; language: string; frozen: boolean }[] {
   // 重判撤销的题：solutions 里那发 AC 已经不是结果，按终局判名标出去，别和红色格子自相矛盾
-  const trust = verdict === undefined || isAccept(verdict);
+  const trust = verdict === undefined || verdict === '?' || isAccept(verdict);
   const out: { r: string; t: number; language: string; frozen: boolean }[] = [];
   for (const x of subs) {
-    const t = toMs(x.time);
+    const t = toMsOrNull(x.time);
+    if (t === null) continue;
     if (t > elapsed) break;
     const raw = x.result ?? '?';
     out.push({ r: trust || !isAccept(raw) ? raw : 'RJ', t, language: x.language ?? '', frozen: t > cap });
@@ -423,7 +435,12 @@ export function buildModel(doc: SrkDoc): ContestModel {
       const status = statuses[p];
       const list = status?.solutions;
       if (!Array.isArray(list)) return [] as SrkSolution[];
-      return withStatusFb([...list].sort((a, b) => toMs(a.time) - toMs(b.time)), status);
+      const timed = list
+        .map((x) => ({ x, t: toMsOrNull(x.time) }))
+        .filter((e): e is { x: SrkSolution; t: number } => e.t !== null)
+        .sort((a, b) => a.t - b.t)
+        .map((e) => e.x);
+      return withStatusFb(timed, status);
     });
     const summaries = problems.map((_, p) => summaryOf(statuses[p]));
     const verdicts = problems.map((_, p) => (statuses[p] === undefined ? undefined : statuses[p]?.result ?? null));
