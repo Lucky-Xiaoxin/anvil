@@ -393,7 +393,7 @@ export class ArenaClient {
   private annotateCached(nodes: ArenaCatalogNode[]): ArenaCatalogNode[] {
     return nodes.map((n) =>
       n.path !== undefined
-        ? { ...n, cached: existsSync(join(this.dir, n.path)) }
+        ? { ...n, cached: contestPathOk(n.path) && existsSync(join(this.dir, n.path)) }
         : { ...n, children: this.annotateCached(n.children ?? []) },
     );
   }

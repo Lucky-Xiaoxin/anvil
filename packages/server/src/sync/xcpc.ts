@@ -245,16 +245,19 @@ function toProfile(stored: XcpcStoredPlayer): XcpcProfileDto | null {
 
 export interface XcpcClientOptions {
   fetchImpl?: typeof fetch;
+  retryDelayMs?: number;
 }
 
 export class XcpcClient {
   private readonly fetchImpl: typeof fetch;
+  private readonly retryDelayMs: number;
   /** Promise 级去重：同一桶 / 同一分片并发也只发一次（docs/14 §2.2） */
   private readonly buckets = new Map<string, Promise<SearchEntry[]>>();
   private readonly shards = new Map<string, Promise<Record<string, unknown>>>();
 
   constructor(options: XcpcClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.retryDelayMs = options.retryDelayMs ?? 500;
   }
 
   /** 快照版本变了就把缓存丢掉，下一轮重新拉 */
@@ -283,6 +286,7 @@ export class XcpcClient {
         // 只报原因，不报主机名 —— 界面要把这句直接当第二行显示（docs/14 §5.5）
         throw new XcpcError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`);
       }
+      if (this.retryDelayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, this.retryDelayMs));
     }
   }
 

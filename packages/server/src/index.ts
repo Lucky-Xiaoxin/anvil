@@ -40,6 +40,14 @@ const sources = {
 };
 
 const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
+app.setErrorHandler((err, request, reply) => {
+  const e = err as { message?: unknown; statusCode?: number };
+  life('request-error', `${request.method} ${request.url} ${String(e.message ?? err)}`);
+  console.error('[anvil] request-error:', err);
+  return reply.code(e.statusCode ?? 500).send({
+    error: { kind: 'internal', message: '服务端内部错误，详情见 vault/anvil-server.log' },
+  });
+});
 registerApi(app, {
   db,
   sources,
