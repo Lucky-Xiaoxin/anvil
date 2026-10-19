@@ -1131,6 +1131,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 .pill--live{border-color:rgba(63,185,80,.4);color:#A9E7B4;background:rgba(63,185,80,.08)}
 .pill--over{border-color:rgba(76,201,240,.36);color:#B6E9F8;background:rgba(76,201,240,.07)}
+.pill--over.is-mid{border-color:rgba(148,160,180,.34);color:#B4C0CF;background:rgba(148,160,180,.07)}
 .board__foot{
   flex:0 0 auto;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
   padding:9px 16px;border-top:1px solid var(--line-soft);background:rgba(0,0,0,.14);
