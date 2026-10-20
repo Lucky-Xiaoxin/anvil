@@ -64,8 +64,7 @@ export interface SrkSeries {
     preset?: string;
     options?: {
       count?: { value?: number[] };
-      ratio?: { value?: number[] };
-      denom?: unknown;
+      ratio?: { value?: number[]; rounding?: string; denominator?: string };
       field?: string;
       includeOfficialOnly?: boolean;
     };
@@ -364,33 +363,76 @@ export interface ContestModel {
 }
 
 const METALS = new Set(['gold', 'silver', 'bronze']);
+const METAL_CN: Record<MedalBand['style'], string> = { gold: '金', silver: '银', bronze: '铜' };
+const ROUNDING: Record<string, (n: number) => number> = { ceil: Math.ceil, floor: Math.floor, round: Math.round };
+
+/** 比率分母的三种口径（全部按**正式队**数，打星队按上游规定既不进分母也不入段） */
+export interface MedalDenoms {
+  /** `all`：正式队总数 */
+  all: number;
+  /** `submitted`：至少交过一发的正式队 */
+  submitted: number;
+  /** `scored`：终局得分 > 0 的正式队 */
+  scored: number;
+}
 
 /**
- * 奖牌带：取 `series[]` 里同时带 `segments` 与 `rule` 的那支（实测 preset `ICPC`、
- * `count.value` = 累计上界 [30,60,90]）。`ratio` 与 `count` 并存时逐段取 `min(count, ratio×denom)`，
- * `denom` = all（全部队）或 scored（计分队）。没有这支 = 不挂带，不猜。
+ * 奖牌带：取 `series[]` 里同时带 `segments` 与 `rule` 的那支（实测 preset `ICPC`）。
+ *
+ * **`count.value` / `ratio.value` 是各段名额数，不是累计上界**（上游 SRK `specs/series.md`：
+ * `[4,4,4]` = 4 金 4 银 4 铜；`[0.1,0.2,0.3]` = 10% 金 / 20% 银 / 30% 铜）。带的 `upTo` 由名额**取前缀和**。
+ * 累计读法在真实数据上自相矛盾：北京省赛 2026 是 `[15,7,14]`（银上界 7 小于金上界 15）、
+ * 第 48 届总决赛是 `[4,4,4]`（累计读法下 = 4 金 0 银 0 铜）。
+ *
+ * `ratio` 另带 `denominator`（all / submitted / scored，缺省 all）与 `rounding`（缺省 **ceil**）。
+ * `count` 与 `ratio` 同时声明时按上游口径取**交集**（两条各自的前缀和逐段取小）。
+ * 名额 ≤ 0 的段不挂；全场零名额 = 空带（界面据此显示「本场无奖牌规则」），不猜。
+ * 未建模：`ratio.noTied`（并列强制展开成顺序名次再划段）与 `options.filter`（多组奖牌）。
  */
-export function medalBands(series: SrkSeries[] | undefined, teams: number, scored: number): MedalBand[] {
+export function medalBands(series: SrkSeries[] | undefined, den: MedalDenoms): MedalBand[] {
   const entry = series?.find((s) => Array.isArray(s.segments) && s.segments.length > 0 && s.rule !== undefined);
   if (entry?.segments === undefined) return [];
   const opts = entry.rule?.options;
   const counts = opts?.count?.value;
   const ratios = opts?.ratio?.value;
   if (!Array.isArray(counts) && !Array.isArray(ratios)) return [];
-  const denom = String(opts?.denom ?? 'all').toLowerCase() === 'scored' ? scored : teams;
-  const n = Math.max(counts?.length ?? 0, ratios?.length ?? 0);
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : Number.NaN);
+  if ([...(counts ?? []), ...(ratios ?? [])].some((v) => Number.isNaN(num(v)))) return [];
+  const dkey = String(opts?.ratio?.denominator ?? 'all').toLowerCase();
+  const denom = dkey === 'all' ? den.all : dkey === 'submitted' ? den.submitted : dkey === 'scored' ? den.scored : Number.NaN;
+  if (Array.isArray(ratios) && Number.isNaN(denom)) return [];
+  const round = ROUNDING[String(opts?.ratio?.rounding ?? 'ceil').toLowerCase()] ?? Math.ceil;
+
   const out: MedalBand[] = [];
+  const n = Math.max(counts?.length ?? 0, ratios?.length ?? 0);
+  const INF = Number.POSITIVE_INFINITY;
+  const at = (arr: number[] | undefined, i: number): number => (arr !== undefined && i < arr.length ? num(arr[i]) : 0);
+  let cumCount = 0;
+  let cumRatio = 0;
+  let prev = 0;
   for (let i = 0; i < n; i++) {
+    cumCount += Math.max(0, Math.trunc(at(counts, i)));
+    cumRatio += Math.max(0, round(at(ratios, i) * denom));
+    /* 只声明一种算法时另一种不设界；段比名额长 → 该段没人，名额比段长 → 多出来的照样吃掉（上游：匿名段） */
+    const upTo = Math.min(counts !== undefined ? cumCount : INF, ratios !== undefined ? cumRatio : INF);
     const seg = entry.segments[i];
     const style = seg?.style ?? '';
-    if (!METALS.has(style)) continue;
-    const c = Array.isArray(counts) ? Number(counts[i]) : Number.POSITIVE_INFINITY;
-    const r = Array.isArray(ratios) ? Number(ratios[i]) * denom : Number.POSITIVE_INFINITY;
-    const upTo = Math.min(Number.isFinite(c) ? c : Number.POSITIVE_INFINITY, r);
-    if (!Number.isFinite(upTo)) continue;
-    out.push({ upTo: Math.floor(upTo), style: style as MedalBand['style'], title: seg?.title ?? style });
+    if (upTo > prev && METALS.has(style)) out.push({ upTo, style: style as MedalBand['style'], title: seg?.title ?? style });
+    prev = upTo;
   }
   return out;
+}
+
+/** 奖牌带读数：`1–36 金 / 37–108 银 / 109–216 铜`（列头 tooltip 用，段序即 `bands` 序） */
+export function bandRanges(bands: readonly MedalBand[]): string {
+  let from = 1;
+  return bands
+    .map((b) => {
+      const text = `${from}–${b.upTo} ${METAL_CN[b.style]}`;
+      from = b.upTo + 1;
+      return text;
+    })
+    .join(' / ');
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -464,6 +506,14 @@ export function buildModel(doc: SrkDoc): ContestModel {
    */
   const approx = teams.length > 0 && teams.every((t) => t.subs.every((list) => list.length === 0));
 
+  /* 奖牌比率的分母：一律只数正式队（打星队按上游规定既不进分母也不入段） */
+  const official = teams.filter((t) => !t.star);
+  const den: MedalDenoms = {
+    all: official.length,
+    submitted: official.filter((t) => t.summaries.some((s) => (s?.tries ?? 0) > 0) || t.subs.some((list) => list.length > 0)).length,
+    scored: official.filter((t) => t.verdicts.some((v) => v === 'AC' || v === 'FB')).length,
+  };
+
   return {
     title: pickText(contest.title),
     startAt: str(contest.startAt),
@@ -473,7 +523,7 @@ export function buildModel(doc: SrkDoc): ContestModel {
     approx,
     problems,
     teams,
-    bands: medalBands(doc.series, teams.length, teams.filter((t) => !t.star).length),
+    bands: medalBands(doc.series, den),
   };
 }
 
@@ -597,7 +647,7 @@ export function buildBoard(
 
   /*
    * 名次：并列同名次、其后跳号（1,2,2,4）。打星队占位但不进 `place`，
-   * 奖牌带按 `place`（正式队名次）划段 —— §4 的 1-30 / 31-60 / 61-90。
+   * 奖牌带按 `place`（正式队名次）划段 —— 各段名额的前缀和，见 `medalBands`。
    * `S#` = 每校头队（`UniqByUserField organization` · 官方队）：只有该校最好的一支拿到序号。
    */
   const rows: BoardRow[] = [];
