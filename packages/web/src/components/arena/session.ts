@@ -1,7 +1,7 @@
 /**
- * 回会话持久化（docs/16 §3）：每场一条 `arena:session:<官方路径>`，侧栏收起态 `arena:rail`，
+ * 回会话持久化（docs/contracts/16 §3）：每场一条 `arena:session:<官方路径>`，侧栏收起态 `arena:rail`，
  * 目录收放 `arena:tree` 与停留位置 `arena:tree-scroll`；「我的成绩」幽灵行每场一条
- * `arena:ghost:<官方路径>`（docs/20 §2.1）。
+ * `arena:ghost:<官方路径>`（docs/contracts/20 §2.1）。
  *
  * 只碰这几个键；读写一律包 try —— localStorage 在某些隐私模式下会直接抛，
  * 会话读不出来就当没有（开新钟），不该让整屏打不开。
@@ -135,7 +135,7 @@ export function saveScrollTop(store: Store, top: number): void {
   }
 }
 
-/* ---------- 「我的成绩」幽灵行（docs/20 §2.1 · v8 逐发）：每场一条，与回放会话 / vault 缓存互不相干 ---------- */
+/* ---------- 「我的成绩」幽灵行（docs/contracts/20 §2.1 · v8 逐发）：每场一条，与回放会话 / vault 缓存互不相干 ---------- */
 
 export interface GhostData {
   /** 面板里的「展示我」：关 = 行隐藏但数据留着（顶栏读数跟着消失） */

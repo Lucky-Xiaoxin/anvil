@@ -5,7 +5,7 @@ import { IDLE_STATE as AT_IDLE, deriveAtState } from './at.ts';
 import type { SyncSource } from './source.ts';
 
 /**
- * 每个源一份进度快照：AT 挂了不拖累 CF 的读数，反之也一样（docs/09 §2/§3.3）。
+ * 每个源一份进度快照：AT 挂了不拖累 CF 的读数，反之也一样（docs/contracts/09 §2/§3.3）。
  * 两源可以并发跑 —— 串行管的是「同一个源内部的请求之间」，不是「源与源之间」。
  */
 const snapshots: SyncStatesDto = { cf: { ...CF_IDLE }, at: { ...AT_IDLE } };

@@ -34,7 +34,7 @@ export interface ApiContext {
   setHandles: (patch: { cfHandle?: string; atHandle?: string }) => void;
   /** XCPC 不跑 /api/sync runner：认领态在 config、档案在 xcpc_players，取数客户端可注入便于测 */
   xcpc: XcpcStore & { client: XcpcClient };
-  /** 模拟榜单只走文件缓存、不进 anvil.db（docs/16 §3），客户端同样可注入 */
+  /** 模拟榜单只走文件缓存、不进 anvil.db（docs/contracts/16 §3），客户端同样可注入 */
   arena: ArenaClient;
 }
 
@@ -77,7 +77,7 @@ export function buildStatus(
 ): StatusDto {
   const cf = sourceStatus(db, 'cf', handles.cf, now);
   const at = sourceStatus(db, 'at', handles.at, now);
-  // 顶层四字段 = CF 源原样镜像，切片 1 的调用方不用改（docs/09 §4）
+  // 顶层四字段 = CF 源原样镜像，切片 1 的调用方不用改（docs/contracts/09 §4）
   return {
     configured: cf.configured,
     handle: cf.handle,
@@ -90,7 +90,7 @@ export function buildStatus(
 }
 
 /**
- * XCPC 的错误分派：查无此档 404、上游不在线 502、正在忙 409（docs/14 §4）。
+ * XCPC 的错误分派：查无此档 404、上游不在线 502、正在忙 409（docs/contracts/14 §4）。
  * `detail` 是路径 / key / 主机名这类开发信息，留在错误对象里供日志用，不进界面文案。
  */
 function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
@@ -101,7 +101,7 @@ function sendXcpcError(reply: FastifyReply, err: unknown): FastifyReply {
   return reply.code(502).send({ error: { kind: 'unavailable', message: `拉取失败：${String(err)}` } });
 }
 
-/** arena 的错误分派：路径非法 400，上游没有这份榜 404，取不到且无缓存 502（docs/16 §2.2） */
+/** arena 的错误分派：路径非法 400，上游没有这份榜 404，取不到且无缓存 502（docs/contracts/16 §2.2） */
 function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof ArenaError) {
     const code = err.kind === 'invalid' ? 400 : err.kind === 'not-found' ? 404 : 502;
@@ -164,7 +164,7 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
 
   app.get('/api/sync/state', async () => syncSnapshot());
 
-  /* ---- XCPC（docs/14 §4）：认领制，不进 /api/sync runner ---- */
+  /* ---- XCPC（docs/contracts/14 §4）：认领制，不进 /api/sync runner ---- */
 
   app.get('/api/xcpc', async (_request, reply) => {
     const profile = xcpcProfile(ctx.xcpc);
@@ -213,7 +213,7 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
     }
   });
 
-  /* ---- 模拟榜单（docs/16 §2.2）：目录与单场都经服务端代理 + vault/arena/ 文件缓存 ---- */
+  /* ---- 模拟榜单（docs/contracts/16 §2.2）：目录与单场都经服务端代理 + vault/arena/ 文件缓存 ---- */
 
   app.get('/api/arena/catalog', async (request, reply) => {
     const refresh = (request.query as { refresh?: string }).refresh === '1';
@@ -244,7 +244,7 @@ export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
     if (parsed.data.source === 'xcpc') {
       return reply
         .code(501)
-        .send({ error: { kind: 'not-implemented', message: 'XCPC 没有提交粒度 · 档案走 /api/xcpc（docs/14）' } });
+        .send({ error: { kind: 'not-implemented', message: 'XCPC 没有提交粒度 · 档案走 /api/xcpc（docs/contracts/14）' } });
     }
     return buildDashboard(ctx.db, parsed.data.source);
   });

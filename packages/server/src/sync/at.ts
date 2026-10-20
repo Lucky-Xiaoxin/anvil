@@ -21,7 +21,7 @@ import type { CheckResult, SyncSource } from './source.ts';
 
 export const SOURCE = 'at' as const;
 
-/** 端点主机是 kenkoooo.com/atcoder/… 这条路径；atcoder-api.kenkoooo.com 等旧子域已死（docs/09 §2） */
+/** 端点主机是 kenkoooo.com/atcoder/… 这条路径；atcoder-api.kenkoooo.com 等旧子域已死（docs/contracts/09 §2） */
 export const KENKOOLO_BASE = 'https://kenkoooo.com/atcoder/atcoder-api/v3';
 export const AT_BASE = 'https://atcoder.jp';
 
@@ -30,7 +30,7 @@ export const SUBMISSIONS_PAGE_SIZE = 500;
 /** 翻页兜底：真有人提交到 200 页，也该停下来看一眼，别让同步无限跑 */
 export const MAX_PAGES = 200;
 
-/** 限流：kenkoooo ≈ 1 req/s、官方同低频；全程串行，不并发（docs/09 §2） */
+/** 限流：kenkoooo ≈ 1 req/s、官方同低频；全程串行，不并发（docs/contracts/09 §2） */
 export const MIN_INTERVAL_MS = 1000;
 /** 社区 best-effort 源：429/5xx 退避重试 ≤2 次 */
 export const MAX_RETRIES = 2;
@@ -169,7 +169,7 @@ export class AtClient {
     }
   }
 
-  /** 存在性只能走页面状态码：history/json 对不存在的 handle 也回 200 + []（docs/09 §2） */
+  /** 存在性只能走页面状态码：history/json 对不存在的 handle 也回 200 + []（docs/contracts/09 §2） */
   async pageStatus(handle: string): Promise<number> {
     const res = await this.send(`${AT_BASE}/users/${encodeURIComponent(handle)}`, HISTORY_TIMEOUT_MS);
     return res.status;
@@ -232,7 +232,7 @@ export class AtClient {
   }
 }
 
-/** `agc078.contest.atcoder.jp` → `agc078`（docs/09 §2） */
+/** `agc078.contest.atcoder.jp` → `agc078`（docs/contracts/09 §2） */
 export function atContestKey(screenName: string): string {
   return screenName.endsWith(AT_CONTEST_SUFFIX) ? screenName.slice(0, -AT_CONTEST_SUFFIX.length) : screenName;
 }
@@ -245,10 +245,10 @@ export function parseAtSubmission(s: AtSubmissionRaw): SubmissionRow {
     // 题号缺失时退化到提交号：宁可不去重，也不能把两道题并成一道
     problemKey: s.problem_id ? `at:${s.problem_id}` : `at:sub:${s.id}`,
     problemName: null,
-    // 题目难度 / 标签本切片不拉（docs/09 §10）→ 存 NULL，界面渲染 —
+    // 题目难度 / 标签本切片不拉（docs/contracts/09 §10）→ 存 NULL，界面渲染 —
     problemRating: null,
     problemTagsJson: null,
-    // AC → OK：与 CF 用同一个判定词，shared 的聚合函数才能直接复用（docs/09 §5）；
+    // AC → OK：与 CF 用同一个判定词，shared 的聚合函数才能直接复用（docs/contracts/09 §5）；
     // 判题中的 result 是空串 → 归 NULL（`??` 拦不住空串），否则订正谓词认不出它是"非最终判定"
     verdict: s.result === 'AC' ? 'OK' : (s.result || null),
     language: s.language ?? null,
@@ -295,7 +295,7 @@ export function deriveAtState(db: DatabaseSync): Pick<SyncStateDto, 'total' | 'p
 
 /**
  * AT 同步：一次 = 翻页拉提交明细 + 一次官方参赛史，全程串行。
- * 只有用户点击才会走到这里 —— history/json 属官方 robots 灰色口径，不轮询、不预取、不后台跑（docs/09 §2）。
+ * 只有用户点击才会走到这里 —— history/json 属官方 robots 灰色口径，不轮询、不预取、不后台跑（docs/contracts/09 §2）。
  */
 export async function syncAt(
   db: DatabaseSync,

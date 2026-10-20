@@ -1,5 +1,5 @@
 /**
- * 长卷派生层单测（docs/14 §4 末段 / §5.3 / §7）：服务端只做完官方单口径，
+ * 长卷派生层单测（docs/contracts/14 §4 末段 / §5.3 / §7）：服务端只做完官方单口径，
  * 这里测的是前端那套「最佳名次 / 跨度 / delta / 年份分组 / 百分位 / 勋章折叠」。
  */
 import { describe, expect, it } from 'vitest';
@@ -55,7 +55,7 @@ const player = (history: XcpcHistoryRow[], medals: XcpcMedals = {}): XcpcPlayerD
   history,
 });
 
-describe('荣誉陈列（docs/14 §5.3）', () => {
+describe('荣誉陈列（docs/contracts/14 §5.3）', () => {
   it('一枚 = 一块奖牌：聚合桶按计数拆开，金属按金→银→铜排', () => {
     const rows = medalRows({ provincial: { gold: 2, bronze: 1, silver: 0 } });
     expect(rows).toHaveLength(1);
@@ -90,7 +90,7 @@ describe('荣誉陈列（docs/14 §5.3）', () => {
   });
 });
 
-describe('时间轴与 delta（docs/14 §5.3）', () => {
+describe('时间轴与 delta（docs/contracts/14 §5.3）', () => {
   const history = [
     row({ startAt: '2023-10-21T09:00:00+08:00', ratingAfter: 1480 }),
     row({ startAt: '2024-04-27T09:00:00+08:00', ratingAfter: 1489 }),
@@ -126,7 +126,7 @@ describe('时间轴与 delta（docs/14 §5.3）', () => {
   });
 });
 
-describe('队名墙（docs/14 §5.3）', () => {
+describe('队名墙（docs/contracts/14 §5.3）', () => {
   it('连续同名算一段，换名开新段（哪怕后来又叫回同一个名）', () => {
     const runs = teamRuns([
       row({ teamName: 'A' }),
@@ -150,7 +150,7 @@ describe('队名墙（docs/14 §5.3）', () => {
   });
 });
 
-describe('逐场编年分章（docs/14 §5.3）', () => {
+describe('逐场编年分章（docs/contracts/14 §5.3）', () => {
   const chapters = chronicleChapters(
     player([
       row({ startAt: '2023-10-21T09:00:00+08:00', ratingAfter: 1480 }),
@@ -174,7 +174,7 @@ describe('逐场编年分章（docs/14 §5.3）', () => {
   });
 });
 
-describe('名衔读数（docs/14 §5.3）', () => {
+describe('名衔读数（docs/contracts/14 §5.3）', () => {
   it('最佳名次 = 逐场官方榜名次最小值，打星与空名次不参与', () => {
     const best = bestRank([row({ rank: null }), row({ star: true, rank: 3 }), row({ rank: 15 }), row({ rank: 60 })]);
     expect(best!.rank).toBe(15);
@@ -206,7 +206,7 @@ describe('名衔读数（docs/14 §5.3）', () => {
   });
 });
 
-describe('两钟口径（docs/14 §2.4）', () => {
+describe('两钟口径（docs/contracts/14 §2.4）', () => {
   it('数据版本取 generatedAt 的日期部分，不做时区换算', () => {
     expect(snapshotDate('2026-09-28T19:57:35.521003+00:00')).toBe('2026-09-28');
     expect(snapshotDate(null)).toBe('—');
@@ -224,7 +224,7 @@ describe('两钟口径（docs/14 §2.4）', () => {
   });
 });
 
-describe('编年档位格（docs/14 §5.3，复核后修订）', () => {
+describe('编年档位格（docs/contracts/14 §5.3，复核后修订）', () => {
   it('网络预选赛顶替 tier 徽章：上游归进 regional，展示上不算区域赛', () => {
     expect(chronBadge(row({ online: true, tier: 'regional' }))).toEqual({ tier: null, text: '网络赛' });
   });

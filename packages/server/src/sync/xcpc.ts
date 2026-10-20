@@ -1,5 +1,5 @@
 /**
- * XCPC 取数 · 搜索 · 认领 · 快照刷新（docs/14 §2 / §4）—— 数据源是 heimaom.cn 的静态导出，
+ * XCPC 取数 · 搜索 · 认领 · 快照刷新（docs/contracts/14 §2 / §4）—— 数据源是 heimaom.cn 的静态导出，
  * 即 xcpcrating 社区快照，**非官方**。"同步" = 拉最新快照，不是实时数据。
  */
 import { createHash } from 'node:crypto';
@@ -28,14 +28,14 @@ import {
 } from '../db.ts';
 
 export const XCPC_BASE = 'https://heimaom.cn/data/';
-/** 社区快照周期本来就慢：过期判据看「数据版本」而不是本地同步时刻（docs/14 §4） */
+/** 社区快照周期本来就慢：过期判据看「数据版本」而不是本地同步时刻（docs/contracts/14 §4） */
 export const XCPC_STALE_AFTER_DAYS = 10;
 export const SEARCH_TIMEOUT_MS = 20_000;
-/** 详情分片实测单片 1.8MB，超时放宽（docs/14 §2.2） */
+/** 详情分片实测单片 1.8MB，超时放宽（docs/contracts/14 §2.2） */
 export const DETAIL_TIMEOUT_MS = 60_000;
 export const MAX_RESULTS = 8;
 export const MAX_RETRIES = 1;
-/** 缺 key 时保留旧数据，这条就是那条错误原文（docs/14 §4） */
+/** 缺 key 时保留旧数据，这条就是那条错误原文（docs/contracts/14 §4） */
 export const MISSING_IN_SNAPSHOT = '档案在新版快照中未找到 · 保留本地数据';
 
 const USER_AGENT = 'ANVIL/1.0 (personal ICPC training dashboard)';
@@ -77,13 +77,13 @@ function md5hex(input: string): string {
   return createHash('md5').update(input, 'utf8').digest('hex');
 }
 
-/** 桶名 = md5(小写后首字符)[:2]（docs/14 §2.1） */
+/** 桶名 = md5(小写后首字符)[:2]（docs/contracts/14 §2.1） */
 export function bucketOf(query: string): string {
   const first = String.fromCodePoint(query.codePointAt(0) ?? 0);
   return md5hex(first).slice(0, 2);
 }
 
-/** 详情分片 = md5(key)[:2]（docs/14 §2） */
+/** 详情分片 = md5(key)[:2]（docs/contracts/14 §2） */
 export function shardOf(key: string): string {
   return md5hex(key).slice(0, 2);
 }
@@ -132,7 +132,7 @@ function toEntry(raw: unknown): SearchEntry | null {
   return { key, name, org, contests: Number.isFinite(n) ? n : 0, hay: hayOf(name, org) };
 }
 
-/** 检索面只有姓名与校名两段（拼音不做，见 docs/14 §2.2 修订） */
+/** 检索面只有姓名与校名两段（拼音不做，见 docs/contracts/14 §2.2 修订） */
 function hayOf(name: string, org: string): string {
   return `${name}${HAY_SEP}${org}`.toLowerCase();
 }
@@ -152,7 +152,7 @@ function str(input: unknown): string {
   return typeof input === 'string' ? input : '';
 }
 
-/* ---------- DTO 映射：官方单口径，服务端做完这一层（docs/14 §4） ---------- */
+/* ---------- DTO 映射：官方单口径，服务端做完这一层（docs/contracts/14 §4） ---------- */
 
 /** 上游只有四档 tier，实测存在缺失行；没见过的值不硬套一档，交回 null → 界面「—」 */
 function tierOf(input: unknown): XcpcTier | null {
@@ -181,7 +181,7 @@ function toHistoryRow(raw: XcpcRawHistory): XcpcHistoryRow {
     teamName: str(raw.teamName),
     tier: tierOf(raw.tier),
     online: isOnline(contestId, title),
-    // solved 不是官方榜单字段，打星行照给真实值（docs/14 §2.3）
+    // solved 不是官方榜单字段，打星行照给真实值（docs/contracts/14 §2.3）
     solved: num(raw.solved),
     star,
     rank: official(raw.rankOfficial),
@@ -252,7 +252,7 @@ export interface XcpcClientOptions {
 export class XcpcClient {
   private readonly fetchImpl: typeof fetch;
   private readonly retryDelayMs: number;
-  /** Promise 级去重：同一桶 / 同一分片并发也只发一次（docs/14 §2.2） */
+  /** Promise 级去重：同一桶 / 同一分片并发也只发一次（docs/contracts/14 §2.2） */
   private readonly buckets = new Map<string, Promise<SearchEntry[]>>();
   private readonly shards = new Map<string, Promise<Record<string, unknown>>>();
 
@@ -284,7 +284,7 @@ export class XcpcClient {
         transient = reasonOf(err);
       }
       if (attempt >= MAX_RETRIES) {
-        // 只报原因，不报主机名 —— 界面要把这句直接当第二行显示（docs/14 §5.5）
+        // 只报原因，不报主机名 —— 界面要把这句直接当第二行显示（docs/contracts/14 §5.5）
         throw new XcpcError('unavailable', `${transient} · 已重试 ${MAX_RETRIES} 次`);
       }
       if (this.retryDelayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, this.retryDelayMs));
@@ -307,7 +307,7 @@ export class XcpcClient {
 
   /**
    * 官方榜分母。响应里没 total、或这个文件干脆 404 → null（界面显示 —，不瞎编）；
-   * 只有网络 / 5xx 才算失败 —— docs/14 §2 与 §4 在这一点上取「分母可以缺」这一头。
+   * 只有网络 / 5xx 才算失败 —— docs/contracts/14 §2 与 §4 在这一点上取「分母可以缺」这一头。
    */
   async officialTotal(): Promise<number | null> {
     try {
@@ -356,7 +356,7 @@ export class XcpcClient {
   }
 
   /**
-   * 一段式（docs/14 §2.2 修订版）：查询首字符进桶，桶内对「姓名 + 校名」做子串匹配。
+   * 一段式（docs/contracts/14 §2.2 修订版）：查询首字符进桶，桶内对「姓名 + 校名」做子串匹配。
    * 固有边界：必须从姓名或校名的**第一个字**起头 —— 搜「邮电」找不到北京邮电大学。
    * 不做全扫兜底：拼音检索已整体取消。
    */
@@ -372,7 +372,7 @@ const stripHay = ({ key, name, org, contests }: SearchEntry): XcpcSearchRow => (
 
 /* ---------- 状态 ---------- */
 
-/** 快照距今多少天：拿 generatedAt 那个真实时刻算（docs/14 §4 的「数据版本」口径） */
+/** 快照距今多少天：拿 generatedAt 那个真实时刻算（docs/contracts/14 §4 的「数据版本」口径） */
 export function snapshotAgeDays(generatedAt: string | null, now = Date.now()): number | null {
   if (generatedAt === null) return null;
   const ts = Date.parse(generatedAt);
@@ -424,7 +424,7 @@ export function xcpcProfile(store: XcpcStore): XcpcProfileDto | null {
   return stored === null ? null : toProfile(stored);
 }
 
-/* ---------- 认领 / 刷新：进程内串行（docs/14 §4 互斥） ---------- */
+/* ---------- 认领 / 刷新：进程内串行（docs/contracts/14 §4 互斥） ---------- */
 
 let running = false;
 

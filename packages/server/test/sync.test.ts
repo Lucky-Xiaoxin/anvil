@@ -251,7 +251,7 @@ describe('本地库只归属一个 handle', () => {
     db.close();
   });
 
-  it('换 CF handle 只清 CF 域：AT 的提交与曲线原样留着（docs/09 §3.3）', async () => {
+  it('换 CF handle 只清 CF 域：AT 的提交与曲线原样留着（docs/contracts/09 §3.3）', async () => {
     const db = mem();
     const first = makeClient((url) => (url.includes('user.rating') ? ok([ratingRow()]) : ok([sub(1), sub(2)])));
     await syncOnce(db, 'Benq', first.client);

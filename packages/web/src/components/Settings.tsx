@@ -156,7 +156,7 @@ function Row({ source, status, states, busy, onStatus, onHandleSaved, onRun }: P
   );
 }
 
-/** 设置页的 XCPC 行：认领态 + 行内搜索换人，同款搜索组件（docs/14 §1.4 / §5.5） */
+/** 设置页的 XCPC 行：认领态 + 行内搜索换人，同款搜索组件（docs/contracts/14 §1.4 / §5.5） */
 function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
   const x = status.xcpc;
   const [open, setOpen] = useState(false);
@@ -244,7 +244,7 @@ function XcpcRow({ status, xcpc, busy, onRunXcpc, onClaimed }: Props) {
   );
 }
 
-/** 设置页三行：CF / AT 各含 handle 校验与单源同步，XCPC 是认领 + 拉快照（docs/14 §1.4） */
+/** 设置页三行：CF / AT 各含 handle 校验与单源同步，XCPC 是认领 + 拉快照（docs/contracts/14 §1.4） */
 export function Settings(props: Props) {
   return (
     <div className="content" style={{ maxWidth: 760 }}>

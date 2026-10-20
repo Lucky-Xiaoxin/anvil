@@ -18,7 +18,7 @@ interface Props {
   /** 空态：整张网格按 0 档铺满，不动效 */
   ghost?: boolean;
   totalLabel?: number;
-  /** AT 青阶（档位仍与 CF 共用，只换色相，docs/09 §5） */
+  /** AT 青阶（档位仍与 CF 共用，只换色相，docs/contracts/09 §5） */
   alt?: boolean;
   /** 首次载入才逐格点亮；换屏回来时图里已是终态 */
   stagger?: boolean;

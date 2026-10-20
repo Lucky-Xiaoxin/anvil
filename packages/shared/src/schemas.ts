@@ -8,7 +8,7 @@ export const cfHandleSchema = z
   .max(40, 'handle 太长')
   .regex(/^[A-Za-z0-9_]+$/, 'handle 只能是字母、数字、下划线');
 
-/** AT handle：官方页允许的宽松字符集（docs/09 §3.2），存在性走上游页面状态码 */
+/** AT handle：官方页允许的宽松字符集（docs/contracts/09 §3.2），存在性走上游页面状态码 */
 export const atHandleSchema = z
   .string()
   .trim()
@@ -48,7 +48,7 @@ export const cfEnvelopeSchema = z.object({
 
 export type VaultConfig = z.infer<typeof vaultConfigSchema>;
 
-/** 单场榜单查询：路径原样交给服务端白名单（docs/16 §2.1），这里只挡长度 */
+/** 单场榜单查询：路径原样交给服务端白名单（docs/contracts/16 §2.1），这里只挡长度 */
 export const arenaContestQuerySchema = z.object({
   path: z.string().min(1, '缺少榜单路径').max(300, '路径太长'),
   refresh: z.union([z.literal('0'), z.literal('1')]).default('0'),

@@ -1,6 +1,6 @@
 /**
- * 赛事目录（docs/16 §5.1）：五类 → 年份 / 省 → 场次，带搜索、计数、三态与进行中标记。
- * 行内第三枚动作「预拉取」= docs/20 §1：该场快照先拉到本地缓存，已缓存的行换成「本地」小标。
+ * 赛事目录（docs/contracts/16 §5.1）：五类 → 年份 / 省 → 场次，带搜索、计数、三态与进行中标记。
+ * 行内第三枚动作「预拉取」= docs/contracts/20 §1：该场快照先拉到本地缓存，已缓存的行换成「本地」小标。
  *
  * 诚实标注两处照 §2.3 原样：顶栏「目录 N 场 · 榜单来自官方快照」、卡底「来源 algoux/srk-collection
  * （社区快照）· 回放的是已打完的比赛」。
@@ -33,7 +33,7 @@ interface Props {
 }
 
 /**
- * 预拉取三态（docs/20 §1）：容器持有一份，随目录行往下传。
+ * 预拉取三态（docs/contracts/20 §1）：容器持有一份，随目录行往下传。
  * `cachedNow` = 本次会话里刚拉完的（服务端 `cached` 要等下次取目录才更新，先就地记账）。
  */
 interface PrefetchState {
@@ -106,7 +106,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const total = dto?.total ?? 0;
 
   /*
-   * 预拉取（docs/20 §1）：不新开接口，直接走进回放同一条 `GET /api/arena/contest?path=`
+   * 预拉取（docs/contracts/20 §1）：不新开接口，直接走进回放同一条 `GET /api/arena/contest?path=`
    * —— 命中缓存即秒回，未命中走双源轮换 + 总预算，失败口径也照旧（messageOf）。
    * 拉到就落 `vault/arena/`，本层只补一条「这次会话里刚拉完」的记账，不进入回放。
    */
@@ -406,7 +406,7 @@ interface RowProps {
   alt?: boolean;
   path?: string;
   onEnter: Props['onEnter'];
-  /** 预拉取三态（docs/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
+  /** 预拉取三态（docs/contracts/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
   cached: boolean;
   busy: boolean;
   err: string;

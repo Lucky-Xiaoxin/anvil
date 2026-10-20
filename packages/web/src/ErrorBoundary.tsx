@@ -1,5 +1,5 @@
 /**
- * 全局错误边界（docs/19 §2.5）：任何一次渲染期抛错都不该把整棵树卸成白屏。
+ * 全局错误边界（docs/prompts/19 §2.5）：任何一次渲染期抛错都不该把整棵树卸成白屏。
  * 只兜渲染；事件回调 / 异步里的错误照旧各自处理（那些抛不出来把这棵树炸掉）。
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';

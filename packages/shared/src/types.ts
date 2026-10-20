@@ -1,4 +1,4 @@
-/** 接口契约（docs/09 §4，继承 docs/04 §4.4；XCPC 段见 docs/14 §2/§4）：字段名与视觉基线的 data-bind 一一对应。 */
+/** 接口契约（docs/contracts/09 §4，继承 docs/contracts/04 §4.4；XCPC 段见 docs/contracts/14 §2/§4）：字段名与视觉基线的 data-bind 一一对应。 */
 
 export type SyncSourceId = 'cf' | 'at';
 
@@ -6,7 +6,7 @@ export type SyncSourceId = 'cf' | 'at';
 export type SourceId = SyncSourceId | 'xcpc';
 
 /**
- * 源状态点四态（docs/09 §1.1 / mock-02 屏 4）：
+ * 源状态点四态（docs/contracts/09 §1.1 / mock-02 屏 4）：
  * idle = 未配置，down = 最近一次同步没打通，stale = 缓存过期，ok = 正常。
  */
 export type SourceState = 'ok' | 'stale' | 'down' | 'idle';
@@ -26,7 +26,7 @@ export interface SourceStatusDto {
 }
 
 export interface StatusDto {
-  /** 顶层四字段 = CF 源的原样镜像，保持切片 1 兼容（docs/09 §4） */
+  /** 顶层四字段 = CF 源的原样镜像，保持切片 1 兼容（docs/contracts/09 §4） */
   configured: boolean;
   handle: string | null;
   lastSyncAt: number | null;
@@ -56,7 +56,7 @@ export interface SyncStateDto {
   resetNote?: string | null;
 }
 
-/** GET /api/sync/state 按源分列（docs/09 §4）：单源失败不牵连另一源 */
+/** GET /api/sync/state 按源分列（docs/contracts/09 §4）：单源失败不牵连另一源 */
 export interface SyncStatesDto {
   cf: SyncStateDto;
   at: SyncStateDto;
@@ -94,7 +94,7 @@ export interface StatsDto {
   gaps3: string;
   weekendPct: string | null;
   emptyCells: string;
-  /** AT 专有：「参赛 18 场 · 非 rated 2 场」成品串（docs/09 §4/§5）。CF 不出这个键 */
+  /** AT 专有：「参赛 18 场 · 非 rated 2 场」成品串（docs/contracts/09 §4/§5）。CF 不出这个键 */
   entryCount?: string;
 }
 
@@ -103,7 +103,7 @@ export interface RatingPointDto {
   newRating: number;
   contestName: string;
   delta: number;
-  /** 非 rated 场不入曲线，只计参赛数（docs/09 §2） */
+  /** 非 rated 场不入曲线，只计参赛数（docs/contracts/09 §2） */
   isRated: boolean;
   /** AT 专有：本场上游名次；CF 无此字段 → null */
   place?: number | null;
@@ -125,7 +125,7 @@ export interface RatingDto {
   lastContestShort: string;
   lastContest: string;
   series: RatingPointDto[];
-  /** AT 专有：诚实标注一行（docs/09 §5）。CF 无 → null */
+  /** AT 专有：诚实标注一行（docs/contracts/09 §5）。CF 无 → null */
   note: string | null;
 }
 
@@ -141,7 +141,7 @@ export interface AcEvent {
   problemKey: string;
 }
 
-/** rating_history 行（docs/09 §3.1） */
+/** rating_history 行（docs/contracts/09 §3.1） */
 export interface RatingRow {
   /** CF: "2268" / AT: "abc300" */
   contestKey: string;
@@ -157,7 +157,7 @@ export interface RatingRow {
 }
 
 /* ==========================================================================
-   XCPC（切片 3 · docs/14）—— 选手档案走社区快照，不进 CF/AT 那套提交/rating 表
+   XCPC（切片 3 · docs/contracts/14）—— 选手档案走社区快照，不进 CF/AT 那套提交/rating 表
    ========================================================================== */
 
 export type XcpcTier = 'final' | 'regional' | 'invitational' | 'provincial';
@@ -166,12 +166,12 @@ export type XcpcMetal = 'gold' | 'silver' | 'bronze';
 
 /**
  * tier 与金属的固定序：荣誉陈列的行序、勋章的摆序、medals 桶的归一化都读这两张表。
- * 契约口径（docs/14 §2.3 / §5.3），服务端与前端共用一份，免得两边各写一遍走岔。
+ * 契约口径（docs/contracts/14 §2.3 / §5.3），服务端与前端共用一份，免得两边各写一遍走岔。
  */
 export const XCPC_TIERS: readonly XcpcTier[] = ['final', 'regional', 'invitational', 'provincial'];
 export const XCPC_METALS: readonly XcpcMetal[] = ['gold', 'silver', 'bronze'];
 
-/** 搜索分片的一行（docs/14 §2 紧凑行 `[key,name,org,contests]`） */
+/** 搜索分片的一行（docs/contracts/14 §2 紧凑行 `[key,name,org,contests]`） */
 export interface XcpcSearchRow {
   key: string;
   name: string;
@@ -183,7 +183,7 @@ export interface XcpcSearchRow {
 export type XcpcMedals = Partial<Record<XcpcTier, Partial<Record<XcpcMetal, number>>>>;
 
 /**
- * 逐场一行，服务端只做完官方单口径映射（docs/14 §4）：
+ * 逐场一行，服务端只做完官方单口径映射（docs/contracts/14 §4）：
  * `rank/teams/rankPercent/perf/ratingAfter` 取的是 `*Official` 套装，打星场（`star`）整组为 null。
  * 数值原样给 —— 取整与百分比格式都是前端的显示口径。
  */
@@ -227,7 +227,7 @@ export interface XcpcPlayerDto {
   history: XcpcHistoryRow[];
 }
 
-/** 档案载荷：GET /api/xcpc、claim 成功、refresh 成功三处共用（docs/14 §4） */
+/** 档案载荷：GET /api/xcpc、claim 成功、refresh 成功三处共用（docs/contracts/14 §4） */
 export interface XcpcProfileDto {
   player: XcpcPlayerDto;
   /** 上游 meta.json 的 generatedAt 原样串；展示取日期部分 */
@@ -244,7 +244,7 @@ export interface XcpcRefreshDto extends XcpcProfileDto {
   status: SourceState;
 }
 
-/** XCPC 的源读数：`fetchedAt`/`snapshotAt` 两钟口径 separate（docs/14 §2.4） */
+/** XCPC 的源读数：`fetchedAt`/`snapshotAt` 两钟口径 separate（docs/contracts/14 §2.4） */
 export interface XcpcStatusDto {
   claimed: boolean;
   key: string | null;
@@ -255,7 +255,7 @@ export interface XcpcStatusDto {
   error: string | null;
 }
 
-/* ---------- 模拟榜单（docs/16 §2.2）：目录经服务端代理 + vault/arena/ 缓存 ---------- */
+/* ---------- 模拟榜单（docs/contracts/16 §2.2）：目录经服务端代理 + vault/arena/ 缓存 ---------- */
 
 /** 目录树节点：叶子带 `path`，分组带 `children`；`count` = 该节点下的叶子数 */
 export interface ArenaCatalogNode {
@@ -265,7 +265,7 @@ export interface ArenaCatalogNode {
   format?: string;
   children?: ArenaCatalogNode[];
   count?: number;
-  /** 叶子：该场快照已在本地缓存（docs/20 §1，目录行据此显「本地」还是「预拉取」） */
+  /** 叶子：该场快照已在本地缓存（docs/contracts/20 §1，目录行据此显「本地」还是「预拉取」） */
   cached?: boolean;
 }
 

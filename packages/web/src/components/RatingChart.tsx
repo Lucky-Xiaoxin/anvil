@@ -107,7 +107,7 @@ export function RatingChart({ series, withPlace = false }: { series: RatingPoint
             fill="rgba(76,201,240,.035)"
           />
 
-          {/* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/09 §7） */}
+          {/* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/contracts/09 §7） */}
           {series.slice(0, -1).map((p, s) => {
             const up = series[s + 1]!.newRating >= p.newRating;
             return (

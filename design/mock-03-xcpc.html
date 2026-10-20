@@ -11,7 +11,7 @@
    底子 = mock-02（切片 2，已冻结）的 tokens 与组件，逐条拷来，未改 mock-02。
    增量 = XCPC 档案屏四组新组件（选手卡 / 奖牌墙 / 战绩表 / 认领搜索）
         + 平台色候选（绯 / 银 / 紫）对照。
-   契约：docs/09-AT规格.md §9（取数）· docs/13-设计brief-mock03.md（本稿规格）。
+   契约：docs/contracts/09-AT规格.md §9（取数）· docs/briefs/13-设计brief-mock03.md（本稿规格）。
    ========================================================================== */
 
 /* ---------- 1. Tokens（拷贝自 mock-02，未改） ---------- */
@@ -1054,7 +1054,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
   <div class="main">
     <div class="topbar">
       <h2>组件与状态</h2>
-      <span class="topbar__meta">实现对照 · 变量名与 <code>docs/09</code> §9 一致</span>
+      <span class="topbar__meta">实现对照 · 变量名与 <code>docs/contracts/09</code> §9 一致</span>
       <span class="topbar__spacer"></span>
       <div class="demo-tools" style="border:none;padding:0;background:none">
         <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
@@ -1426,9 +1426,9 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 <script>
 /* ==========================================================================
    XCPC 演示数据：全部静态手工编排 —— 每次打开一模一样（确定性）。
-   画像（docs/13 §1）：18 场 / 跨 3 年（2023-10 → 2026-06）/ rating 1480 → 1951 带起伏
+   画像（docs/briefs/13 §1）：18 场 / 跨 3 年（2023-10 → 2026-06）/ rating 1480 → 1951 带起伏
      奖牌 = 省赛金2银1 + 邀请赛金1 + 区域赛银2 / 无决赛 / 含 1 场打星行。
-   实现 agent 注意：这一段在真实产品里来自 heimaom 快照（docs/09 §9），
+   实现 agent 注意：这一段在真实产品里来自 heimaom 快照（docs/contracts/09 §9），
    字段名照 §9 的 history / medals，不要照抄进 React 组件。
    ========================================================================== */
 (function(){
@@ -1446,7 +1446,7 @@ var SNAPSHOT="2026-09-28", SNAPSHOT_AGO="7 天前";
 
 var TIER_NAME={final:"决赛", regional:"区域赛", invitational:"邀请赛", provincial:"省赛"};
 
-/* history 逐场（oldest → newest）。字段名 = docs/09 §9 实测字段：
+/* history 逐场（oldest → newest）。字段名 = docs/contracts/09 §9 实测字段：
    rank/teams/perf/r 都是"官方榜套装"（rankOfficial / teamCountOfficial / perfOfficial / ratingAfterOfficial）；
    star 场的官方榜套装全 null → 成绩列 —；solved / dirt / fa / lh 不是官方榜字段，照常显示。 */
 var CONTESTS=[
@@ -1742,7 +1742,7 @@ function renderTable(){
 
 /* ==========================================================================
    认领搜索（演示实现）：固定候选集 + 姓名 / 学校 / 拼音声母 过滤
-   真实实现见 docs/09 §9：search 分片按 md5(首字符) 取，客户端同款四项拼串过滤。
+   真实实现见 docs/contracts/09 §9：search 分片按 md5(首字符) 取，客户端同款四项拼串过滤。
    ========================================================================== */
 var CANDIDATES=[
   {name:"李鑫杰", org:"佛山大学",         n:3,  py:"lxj fsdx"},

@@ -1,12 +1,12 @@
 import { dayOf, formatMonth } from './days.ts';
 import type { RatingDto, RatingRow, SyncSourceId } from './types.ts';
 
-/** 段位色按源分派；'xcpc' 无段位色名，不进这张表（docs/09 §9） */
+/** 段位色按源分派；'xcpc' 无段位色名，不进这张表（docs/contracts/09 §9） */
 export type RankSource = SyncSourceId;
 
 /**
  * [档位下限, 段位色名, 站点原生色, 深底可用色]
- * 第四位只在原生值读不出来时提亮，同色相只提明度（docs/09 §7 定稿表）。
+ * 第四位只在原生值读不出来时提亮，同色相只提明度（docs/contracts/09 §7 定稿表）。
  */
 const RANKS: Record<RankSource, readonly (readonly [number, string, string, string])[]> = {
   cf: [
@@ -21,7 +21,7 @@ const RANKS: Record<RankSource, readonly (readonly [number, string, string, stri
     [1200, 'Pupil', '#008000', '#41D06B'],
     [0, 'Newbie', '#808080', '#808080'],
   ],
-  // AT 只有颜色没有段位名：色名即段位名（docs/09 §5）
+  // AT 只有颜色没有段位名：色名即段位名（docs/contracts/09 §5）
   at: [
     [2800, 'Red', '#FF0000', '#FF0000'],
     [2400, 'Orange', '#FF8000', '#FF8000'],
@@ -79,7 +79,7 @@ export function monthOfTs(epochSeconds: number): string {
 }
 
 /**
- * 主曲线只收 `isRated` 的场次（docs/09 §2：非 rated 的 OldRating==NewRating、Performance=0，
+ * 主曲线只收 `isRated` 的场次（docs/contracts/09 §2：非 rated 的 OldRating==NewRating、Performance=0，
  * 收进来会把平段画成噪声）；非 rated 场由调用方折算成「参赛 N 场」副行。
  * 传空表或全非 rated → null，界面按「取不到 → —」渲染。
  */
@@ -95,7 +95,7 @@ export function buildRating(rows: readonly RatingRow[], source: RankSource = 'cf
     contestName: r.contestName,
     delta: i === 0 ? 0 : r.newRating - sorted[i - 1]!.newRating,
     isRated: true,
-    // place / performance 是 AT 那侧的增量槽位（docs/09 §4）；CF 的 rank 不借这个口子，切片 1 的载荷形状原样不动
+    // place / performance 是 AT 那侧的增量槽位（docs/contracts/09 §4）；CF 的 rank 不借这个口子，切片 1 的载荷形状原样不动
     place: source === 'at' ? r.rank : null,
     performance: source === 'at' ? r.performance : null,
   }));

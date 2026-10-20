@@ -327,7 +327,7 @@ export function ColdStart({ source, dash, status, today, notice, onGoSettings }:
   );
 }
 
-/** 该源没配 handle：空态 + 去设置 CTA（docs/09 §1.3） */
+/** 该源没配 handle：空态 + 去设置 CTA（docs/contracts/09 §1.3） */
 export function Unconfigured({ source, onGoSettings }: { source: SyncSourceId; onGoSettings: () => void }) {
   return (
     <div className="content" id={`content-${source}`} role="tabpanel">

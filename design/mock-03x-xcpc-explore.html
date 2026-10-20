@@ -13,7 +13,7 @@
      卡片网格 → 连续长卷叙事；计数 chip → 一枚一枚的勋章陈列；
      新增队名墙（CF / AT 没有的字段）；折线 → 阶梯轨迹。
    深色体系与工作台外壳（nav / topbar / tab 条）不动，性格全部长在 .content 里。
-   契约：docs/09 §9（取数）· docs/13（数据现实）· mock-03（内容基准）。
+   契约：docs/contracts/09 §9（取数）· docs/briefs/13（数据现实）· mock-03（内容基准）。
    ========================================================================== */
 
 /* ---------- 1. Tokens（与 mock-03 一致，未改） ---------- */
@@ -1532,7 +1532,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
    XCPC 演示数据：与 mock-03 完全一致（静态手工编排，确定性）。
    画像：18 场 / 跨 3 年（2023-10 → 2026-06）/ rating 1480 → 1951 带起伏
      奖牌 = 省赛金2银1 + 邀请赛金1 + 区域赛银2 / 默认无决赛（#s1,medal 演示态补决赛金1银1）/ 含 1 场打星行。
-   实现 agent 注意：真实产品里这段来自 heimaom 快照（docs/09 §9），
+   实现 agent 注意：真实产品里这段来自 heimaom 快照（docs/contracts/09 §9），
    字段名照 §9 的 history / medals；奖牌是聚合桶，逐枚勋章 = 计数拆开的视觉。
    ========================================================================== */
 (function(){
@@ -1549,7 +1549,7 @@ var SNAPSHOT="2026-09-28";
 var TIER_NAME={final:"决赛", regional:"区域赛", invitational:"邀请赛", provincial:"省赛"};
 var METAL_NAME={gold:"金", silver:"银", bronze:"铜"};
 
-/* history 逐场（oldest → newest）。字段名 = docs/09 §9 实测字段；
+/* history 逐场（oldest → newest）。字段名 = docs/contracts/09 §9 实测字段；
    star 场的官方榜套装全 null → 成绩列 —；solved / dirt / fa / lh 不是官方榜字段。 */
 var CONTESTS=[
   {i:1,  d:"2023-10-21", title:"2023 ICPC 亚洲区域赛 · 合肥站", tier:"regional",     team:"赛博火柴人",   rank:268, teams:416, solved:2, perf:1494, r:1480, dirt:0.50, fa:47, lh:0},

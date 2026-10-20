@@ -1,5 +1,5 @@
 /**
- * 回放引擎单测（docs/16 §7）。纯函数、零网络、夹具全部自造（§2.4 许可证纪律）。
+ * 回放引擎单测（docs/contracts/16 §7）。纯函数、零网络、夹具全部自造（§2.4 许可证纪律）。
  * 形状照 2026-10-09 实测的 srk.json：`statuses[].time` = [值,'s']、`solutions[].time` = [值,'ms']。
  */
 import { describe, expect, it } from 'vitest';
@@ -802,7 +802,7 @@ describe('近似榜（只有终局判名）', () => {
   });
 });
 
-/* ---------- 幽灵行「我的成绩」（docs/20 §2.2 · v8 逐发） ---------- */
+/* ---------- 幽灵行「我的成绩」（docs/contracts/20 §2.2 · v8 逐发） ---------- */
 
 /** 一发的简写：`sub(0, 113)` = 第 0 题 · 第 113 分钟 · AC（判名默认 AC，测试里少打字） */
 const sub = (p: number, t: number, r: GhostResult = 'AC'): GhostSub => ({ p, t, r });
@@ -931,7 +931,7 @@ describe('幽灵行入榜（占名额 + 三排除）', () => {
     expect(buildBoard(m, 5 * H, false, false, null).ghostTeam).toBeNull();
   });
 
-  /** 13 题 A–M 的空场：只为把 mock v8 的演示逐发钉进单测（docs/20 §2.4 验收 1） */
+  /** 13 题 A–M 的空场：只为把 mock v8 的演示逐发钉进单测（docs/contracts/20 §2.4 验收 1） */
   const sheet = buildModel({
     contest: { title: { 'zh-CN': '手算场' }, startAt: '', duration: [5, 'h'], frozenDuration: [0, 'h'] },
     problems: 'ABCDEFGHIJKLM'.split('').map((a) => ({ alias: a })),

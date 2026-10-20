@@ -1,7 +1,7 @@
 import { prefersReduced } from './format.ts';
 
 /**
- * 卡片飞出飞入编排（docs/09 §7，2026-10-04 第 15 轮口径 · 定稿档 = 极缓）。
+ * 卡片飞出飞入编排（docs/contracts/09 §7，2026-10-04 第 15 轮口径 · 定稿档 = 极缓）。
  * 时序不变量：第 i 张 delay = i×STEP、duration = DUR + i×DSTEP，STEP 与 DSTEP 同为正
  * ⇒ 起步与完成时间都严格递增 —— 任意两张卡不会同时起步、也不会同时完成。
  */
@@ -29,7 +29,7 @@ export function legTimes(n: number, leg: 'out' | 'in'): { start: number; duratio
 
 /**
  * 飞行物 = 内容区的直接子卡片：四张统计卡、格子卡 / 曲线卡、降级条；
- * XCPC 屏两个飞行单元 —— 整卷（.dossier）与认领卡（.stack > .card），docs/14 §5.4。
+ * XCPC 屏两个飞行单元 —— 整卷（.dossier）与认领卡（.stack > .card），docs/contracts/14 §5.4。
  */
 const FLY_SELECTOR =
   ':scope > .grid-4 > .stat, :scope > .card, :scope > .alert, :scope > .dossier, :scope > .stack > .card';

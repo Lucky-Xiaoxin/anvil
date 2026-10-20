@@ -1,11 +1,11 @@
 /**
- * 回放榜（docs/16 §5.2 / §5.3）：s2 跟比赛时钟，s3 跟时间轴滑条 —— 榜体同一份。
+ * 回放榜（docs/contracts/16 §5.2 / §5.3）：s2 跟比赛时钟，s3 跟时间轴滑条 —— 榜体同一份。
  *
  * 走钟每秒一次，但**榜只在分钟滚过的那一刻重建**（§4 性能口径）：356 队 × 13 题
  * 每秒重排全表是不可接受的，而读数本来就是分钟粒度。行组件 memo 化，
  * 于是 hover / 弹层 / 计时跳动都不会带着整张表重渲。
  *
- * v7 起这份榜体还多一行「我的成绩」幽灵（docs/20 §2）：顶栏常驻入口 + 录入面板
+ * v7 起这份榜体还多一行「我的成绩」幽灵（docs/contracts/20 §2）：顶栏常驻入口 + 录入面板
  * （`GhostPanel.tsx`）+ 引擎侧占名额注入；幽灵签名拼进 `minuteKey`，改了数字才重建得到。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -53,7 +53,7 @@ interface Props {
 
 type Load = { kind: 'loading' } | { kind: 'error'; text: string; missing: boolean } | { kind: 'ready'; model: ContestModel };
 
-/** 三个弹层（docs/16 §5.2 + docs/20 §2.3）：提交明细 / 队伍 / 「我的成绩」面板 */
+/** 三个弹层（docs/contracts/16 §5.2 + docs/contracts/20 §2.3）：提交明细 / 队伍 / 「我的成绩」面板 */
 type Pop =
   | { anchor: Anchor; kind: 'sub'; ti: number; p: number }
   | { anchor: Anchor; kind: 'team'; ti: number }
@@ -78,7 +78,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
   const [frozenView, setFrozenView] = useState(false);
   const [resumed, setResumed] = useState(false);
-  /** 「我的成绩」的录入（docs/20 §2.1）：每场一条，进榜先读回来 */
+  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条，进榜先读回来 */
   const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path));
   const [pop, setPop] = useState<Pop | null>(null);
   /** 榜体滚动容器：顶栏读数「跳到自己」用它定位那一行 */
@@ -183,7 +183,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
       : inFreezeWindow(elapsed, duration, model.freezeStart));
 
   /*
-   * 幽灵行是否入榜：「展示我」开着 **且** 至少录了一发（docs/20 §2.4 验收 2）。
+   * 幽灵行是否入榜：「展示我」开着 **且** 至少录了一发（docs/contracts/20 §2.4 验收 2）。
    * v8 起每发都自带判名与时刻，有一发就是一行成绩，不必再判"有没有填过内容"。
    */
   const ghostSubs: GhostSub[] | null = ghost !== null && ghost.show && ghost.subs.length > 0 ? ghost.subs : null;
@@ -251,7 +251,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     setPop({ kind: 'team', ti, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   }, []);
 
-  /* ---------- 「我的成绩」：每次输入即存即重建（docs/20 §2.3 响应）；清除 = 删键 + 面板留空 ---------- */
+  /* ---------- 「我的成绩」：每次输入即存即重建（docs/contracts/20 §2.3 响应）；清除 = 删键 + 面板留空 ---------- */
   const onGhostChange = useCallback(
     (next: GhostData): void => {
       setGhost(next);
@@ -336,7 +336,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   const frozen = board.cap < viewMs || inFrz;
   const freezeLabel = clockHM(model.freezeStart);
   /*
-   * 榜脚「榜上 N 队」与列头「过 N / N 队」的分母都不含幽灵（docs/20 §2.2 三排除）：
+   * 榜脚「榜上 N 队」与列头「过 N / N 队」的分母都不含幽灵（docs/contracts/20 §2.2 三排除）：
    * 它占名次，但不是场上的一支队。
    */
   const teamCount = board.rows.length - (board.ghostTeam ? 1 : 0);

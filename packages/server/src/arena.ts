@@ -1,5 +1,5 @@
 /**
- * 模拟榜单数据层（docs/16 §2）：目录与单场榜单经 jsDelivr 拉取 + `vault/arena/` 落盘缓存。
+ * 模拟榜单数据层（docs/contracts/16 §2）：目录与单场榜单经 jsDelivr 拉取 + `vault/arena/` 落盘缓存。
  *
  * 许可证纪律（§2.4，AGPL-3.0）：只运行时拉取、只落 `vault/`（gitignore），
  * 不把 srk-collection 的代码或数据文件带进本仓。
@@ -21,7 +21,7 @@ export const ARENA_RAW_BASE = 'https://raw.githubusercontent.com/algoux/srk-coll
 export const ARENA_HOSTS = [ARENA_BASE, ARENA_RAW_BASE];
 export const CATALOG_PATH = 'official/config.yaml';
 /**
- * 取数预算（docs/16 §2.1）：目录 20s、单场 90s。
+ * 取数预算（docs/contracts/16 §2.1）：目录 20s、单场 90s。
  * 这两个数是**总预算** —— 重试与退避都从里面扣，不让"重试到天荒地老"把界面挂住。
  */
 export const CATALOG_TIMEOUT_MS = 20_000;
@@ -157,7 +157,7 @@ interface Draft {
 }
 
 /**
- * 缩进式 YAML 树 → `{name, path, format?, children?, count}` + 每层叶子计数（docs/16 §2.1）。
+ * 缩进式 YAML 树 → `{name, path, format?, children?, count}` + 每层叶子计数（docs/contracts/16 §2.1）。
  *
  * 手写、零依赖、只认四个键（实测 config.yaml 2026-10-09 的形状）：
  * - 每个节点的 `path` 是**一段**目录名，完整官方路径 = 沿链的 `path` 段以 `/` 连接 + `official/` 前缀
@@ -386,7 +386,7 @@ export class ArenaClient {
   }
 
   /**
-   * 给树叶子标 `cached`（docs/20 §1）：镜像文件 `vault/arena/<官方路径>` 在不在磁盘上。
+   * 给树叶子标 `cached`（docs/contracts/20 §1）：镜像文件 `vault/arena/<官方路径>` 在不在磁盘上。
    * 目录的**两条**回吐路径（新鲜拉取 / 读缓存文件）都要过这里 —— 只标一条会在读缓存目录时全漏。
    * 394 枚叶子 × existsSync，本地磁盘判断，零压力。
    */

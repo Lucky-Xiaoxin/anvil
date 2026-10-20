@@ -55,7 +55,7 @@ describe('CF 载荷保持切片 1 语义', () => {
   });
 });
 
-describe('AT 载荷（docs/09 §4/§5）', () => {
+describe('AT 载荷（docs/contracts/09 §4/§5）', () => {
   it('诚实标注一行 + 参赛副行', () => {
     const db = mem();
     insertSubmissions(db, 'at', [sub(1, 'at', { y: 2026, m: 10, d: 1 })]);

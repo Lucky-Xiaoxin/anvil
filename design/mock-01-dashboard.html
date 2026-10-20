@@ -10,7 +10,7 @@
    ANVIL 视觉稿 v2
    基调：深色机房 + 铁匠铺炉火。精密、安静、有锻打的力量感。
    游戏化但克制 —— 是"成就系统"，不是"手游大厅"。
-   迁移说明：本文件所有 :root 变量与 docs/04 §5 的 token 一一对应，直接抄。
+   迁移说明：本文件所有 :root 变量与 docs/contracts/04 §5 的 token 一一对应，直接抄。
    ========================================================================== */
 
 /* ---------- 1. Tokens ---------- */
@@ -870,7 +870,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
   <div class="main">
     <div class="topbar">
       <h2>组件与 Token</h2>
-      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/04</code> §5 一致</span>
+      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/contracts/04</code> §5 一致</span>
       <span class="topbar__spacer"></span>
       <div class="demo-tools" style="border:none;padding:0;background:none">
         <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
@@ -1022,7 +1022,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
               <tr><td>stats.activityTotal</td><td>格子图右上注</td><td class="t">int</td><td>单位是「题次」，与 totalSolved 无加法关系</td></tr>
               <tr><td>stats.months[]</td><td>卡 2 主数字 + 迷你柱状</td><td class="t">{month,solved,partial}[]</td><td>近 6 个本地日历月，末项 = 当月。<b>主数字绑 <code>stats.months.-1.solved</code></b>（<code>-1</code> = 末项）。柱高按这 6 项的最大值归一</td></tr>
               <tr><td>stats.months[].partial</td><td>末根柱的"进行中"样式</td><td class="t">boolean</td><td>true → 半透明柱 + 虚底，hover 出「2026-10 · 9 题 · 进行中」。<b>不做任何高于 / 低于判断</b>，涨跌看柱形、细节看 hover</td></tr>
-              <tr><td>stats.streak.days</td><td>卡 4 主数字</td><td class="t">int</td><td>今天无 AC 时从昨天起算（docs/04 §4.3）</td></tr>
+              <tr><td>stats.streak.days</td><td>卡 4 主数字</td><td class="t">int</td><td>今天无 AC 时从昨天起算（docs/contracts/04 §4.3）</td></tr>
               <tr><td>stats.streak.sub</td><td>卡 4 副行</td><td class="t">string</td><td>「今天还没开张」这类诚实文案由后端拼，前端不猜状态</td></tr>
               <tr><td>stats.longestRun.days<br>stats.longestRun.range</td><td>格子图右侧读数</td><td class="t">string</td><td>已带单位的成品串</td></tr>
               <tr><td>stats.gaps3 · stats.weekendPct</td><td>格子图右侧读数</td><td class="t">string</td><td>同源派生，整块可删，删了不动布局</td></tr>
@@ -1212,7 +1212,7 @@ function shortContest(n){
 /* ==========================================================================
    数据层 —— 界面上每一个具体数字都从这里来。
    真实产品里这一整块由 GET /api/status + GET /api/dashboard 提供，
-   形状照 docs/04 §4.4；把它换成 fetch 的结果，下面的渲染一行都不用改。
+   形状照 docs/contracts/04 §4.4；把它换成 fetch 的结果，下面的渲染一行都不用改。
    ========================================================================== */
 var API = (function(){
   var TOTAL_SUB = 8540, TOTAL_PROBLEM = 912;

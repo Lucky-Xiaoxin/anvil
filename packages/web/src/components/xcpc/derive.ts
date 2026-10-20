@@ -1,5 +1,5 @@
 /**
- * 档案长卷的派生层（docs/14 §4 末段 / §5.3）：服务端只做完官方单口径的映射，
+ * 档案长卷的派生层（docs/contracts/14 §4 末段 / §5.3）：服务端只做完官方单口径的映射，
  * 最佳名次 / 跨度 / delta / 年份分组 / 百分位格式都留在这里，纯函数便于单测。
  */
 import type { XcpcHistoryRow, XcpcMedals, XcpcMetal, XcpcPlayerDto, XcpcTier } from '@anvil/shared';
@@ -13,15 +13,15 @@ export const TIER_NAME: Record<XcpcTier, string> = {
 };
 export const METAL_NAME: Record<XcpcMetal, string> = { gold: '金', silver: '银', bronze: '铜' };
 
-/** 单 tier 超过 12 枚就折：渲染前 12 枚 + 「+N」计数 chip（docs/14 §5.3） */
+/** 单 tier 超过 12 枚就折：渲染前 12 枚 + 「+N」计数 chip（docs/contracts/14 §5.3） */
 export const MEDAL_FOLD = 12;
 
-/** 上游原文已是 +08:00，日期取前 10 位就是比赛那天（docs/14 §5.3） */
+/** 上游原文已是 +08:00，日期取前 10 位就是比赛那天（docs/contracts/14 §5.3） */
 export const dayOf = (startAt: string): string => startAt.slice(0, 10);
 export const monthOf = (startAt: string): string => startAt.slice(0, 7);
 export const yearOf = (startAt: string): string => startAt.slice(0, 4);
 
-/** 版本 = generatedAt 原串，展示取日期部分（docs/14 §2） */
+/** 版本 = generatedAt 原串，展示取日期部分（docs/contracts/14 §2） */
 export const snapshotDate = (generatedAt: string | null): string => (generatedAt === null ? '—' : generatedAt.slice(0, 10));
 
 export function snapshotDaysAgo(generatedAt: string | null, now = Date.now()): number | null {
@@ -34,7 +34,7 @@ export function snapshotDaysAgo(generatedAt: string | null, now = Date.now()): n
 /** 百分位读数统一一位小数 */
 export const pctText = (percent: number): string => `前 ${percent.toFixed(1)}%`;
 
-/** 名衔那格是 R/T×100（docs/14 §5.3）；分母取不到就不给编一个 */
+/** 名衔那格是 R/T×100（docs/contracts/14 §5.3）；分母取不到就不给编一个 */
 export function pctFrom(rank: number, teams: number | null): string | null {
   if (teams === null || teams <= 0) return null;
   return pctText((rank / teams) * 100);
@@ -193,7 +193,7 @@ export function timeline(history: readonly XcpcHistoryRow[]): Timeline {
   };
 }
 
-/** 涨蓝跌琥珀：delta 缺失（首点）按涨（docs/14 §5.3） */
+/** 涨蓝跌琥珀：delta 缺失（首点）按涨（docs/contracts/14 §5.3） */
 export const isUp = (delta: number | null): boolean => delta === null || delta >= 0;
 
 /** 编年按年分章、最新在上；某年一场 rated 都没有就不写年度首末分 */
@@ -230,7 +230,7 @@ export function chronicleChapters(player: XcpcPlayerDto): ChronicleChapter[] {
 }
 
 /**
- * 编年行的档位格（docs/14 §5.3）：网络预选赛上游归进 `regional`，但展示上不算区域赛 ——
+ * 编年行的档位格（docs/contracts/14 §5.3）：网络预选赛上游归进 `regional`，但展示上不算区域赛 ——
  * 该格整格换成「网络赛」；`tier` 缺失给「—」；其余走四档徽章。
  */
 export function chronBadge(row: XcpcHistoryRow): { tier: XcpcTier | null; text: string } {

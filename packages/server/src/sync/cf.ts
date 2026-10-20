@@ -174,7 +174,7 @@ export function parseSubmission(sub: CfSubmissionRaw): SubmissionRow {
 
 export function parseRating(r: CfRatingRaw): RatingInput {
   return {
-    // CF 的 contest_id 落进 source 化的 rating_history 时转成字符串键（docs/09 §3.1）
+    // CF 的 contest_id 落进 source 化的 rating_history 时转成字符串键（docs/contracts/09 §3.1）
     contestKey: String(r.contestId),
     contestName: r.contestName,
     rank: r.rank,
