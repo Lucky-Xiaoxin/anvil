@@ -3,7 +3,7 @@ import { dayKeyOf, type AcEvent, type RatingRow, type SourceId, type SyncSourceI
 
 export const SCHEMA_VERSION = 3;
 
-/** v3 增量：只加 xcpc_players 一张表（docs/14 §3）—— v2 库直接补表，老表与老数据不动 */
+/** v3 增量：只加 xcpc_players 一张表（docs/contracts/14 §3）—— v2 库直接补表，老表与老数据不动 */
 const DDL = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS submissions (
@@ -73,7 +73,7 @@ export interface RatingInput {
   updatedTs: number;
 }
 
-/** sync_state 键按源命名：`cf:last_sync_at`、`at:last_sync_at`、`xcpc:last_sync_at`（docs/09 §3.1 / docs/14 §4） */
+/** sync_state 键按源命名：`cf:last_sync_at`、`at:last_sync_at`、`xcpc:last_sync_at`（docs/contracts/09 §3.1 / docs/contracts/14 §4） */
 export function syncKey(source: SourceId, name: string): string {
   return `${source}:${name}`;
 }
@@ -322,7 +322,7 @@ export function upsertRatingHistory(db: DatabaseSync, source: SyncSourceId, rows
 
 /**
  * 参赛史整域重建（AT）：先清本源、再逐行写入，**同一事务**内完成 ——
- * 中途抛错整体回滚，不会留下「曲线被清空且没恢复」的半截状态（docs/09 §3.3）。
+ * 中途抛错整体回滚，不会留下「曲线被清空且没恢复」的半截状态（docs/contracts/09 §3.3）。
  * CF 的增量路径不走这里，只 upsert（job.ts）。
  */
 export function replaceRatingHistory(db: DatabaseSync, source: SyncSourceId, rows: readonly RatingInput[]): number {
@@ -335,7 +335,7 @@ export function replaceRatingHistory(db: DatabaseSync, source: SyncSourceId, row
 
 /**
  * 参赛史整域重建用：官方接口不给"这场撤了"的事件，只有全量重放才能让上游删掉的一场从本地消失。
- * 只清本源的行，另一源的曲线不受影响（docs/09 §3.3）。
+ * 只清本源的行，另一源的曲线不受影响（docs/contracts/09 §3.3）。
  */
 export function clearRatingHistory(db: DatabaseSync, source: SyncSourceId): void {
   db.prepare('DELETE FROM rating_history WHERE source = ?').run(source);
@@ -379,7 +379,7 @@ export function latestRating(db: DatabaseSync, source: SyncSourceId): number | n
   return row?.n === null || row?.n === undefined ? null : Number(row.n);
 }
 
-/** 参赛场次：含非 rated（AT 的「参赛 N 场」口径，docs/09 §2） */
+/** 参赛场次：含非 rated（AT 的「参赛 N 场」口径，docs/contracts/09 §2） */
 export function countRatingEntries(db: DatabaseSync, source: SyncSourceId): number {
   return Number(db.prepare('SELECT COUNT(*) AS n FROM rating_history WHERE source = ?').get(source)!['n']);
 }
@@ -401,7 +401,7 @@ export function setMeta(db: DatabaseSync, key: string, value: string): void {
 }
 
 /**
- * 按源域清空：换 AT handle 只清 source='at'，CF 的提交与 rating 一根毛都不动（docs/09 §3.3）。
+ * 按源域清空：换 AT handle 只清 source='at'，CF 的提交与 rating 一根毛都不动（docs/contracts/09 §3.3）。
  * 该源的 sync_state 键与归属标记一起清掉。
  */
 export function resetSourceData(db: DatabaseSync, source: SyncSourceId): void {
@@ -422,7 +422,7 @@ export function getSyncState(db: DatabaseSync, key: string): string | null {
   return row?.v ?? null;
 }
 
-/* ---------- XCPC（切片 3 · docs/14 §3）：PlayerDetail 整存 JSON 文本，读时再映射 DTO ---------- */
+/* ---------- XCPC（切片 3 · docs/contracts/14 §3）：PlayerDetail 整存 JSON 文本，读时再映射 DTO ---------- */
 
 export interface XcpcStoredPlayer {
   key: string;

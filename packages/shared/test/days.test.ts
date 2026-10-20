@@ -22,7 +22,7 @@ afterEach(() => {
   process.env.TZ = ORIGINAL_TZ;
 });
 
-describe('时区口径钉死 Asia/Shanghai（docs/09 §6）', () => {
+describe('时区口径钉死 Asia/Shanghai（docs/contracts/09 §6）', () => {
   it('UTC+8 整点：偏移量就是 8 小时', () => {
     expect(TZ_OFFSET_SECONDS).toBe(8 * 3600);
   });

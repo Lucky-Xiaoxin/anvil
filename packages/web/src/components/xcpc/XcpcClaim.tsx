@@ -1,5 +1,5 @@
 /**
- * 认领屏与同款搜索组件（docs/14 §1.2 / §5.2）：搜索 → 候选 → 确认 → 完成。
+ * 认领屏与同款搜索组件（docs/contracts/14 §1.2 / §5.2）：搜索 → 候选 → 确认 → 完成。
  * 设置页的换人用同一个 `XcpcPicker`，只是完成条上不给「看档案」动作。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -9,7 +9,7 @@ import { messageOf } from '../../format.ts';
 import { snapshotDate } from './derive.ts';
 import { Icon } from '../ui.tsx';
 
-/** 站点自身的防抖节奏（docs/14 §5.2） */
+/** 站点自身的防抖节奏（docs/contracts/14 §5.2） */
 const DEBOUNCE_MS = 260;
 
 type Phase = 'idle' | 'loading' | 'results' | 'confirm' | 'done';

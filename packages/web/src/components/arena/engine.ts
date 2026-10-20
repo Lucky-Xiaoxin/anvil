@@ -1,5 +1,5 @@
 /**
- * 回放引擎（docs/16 §4）：纯函数、零依赖、零 DOM。
+ * 回放引擎（docs/contracts/16 §4）：纯函数、零依赖、零 DOM。
  *
  * 榜单不是「存下来的」，是按当前时刻从逐次提交**重建**出来的 —— 稿内参照实现（mock-04 的 s2 引擎）
  * 的口径整体移植，数据换成 srk.json 的真实形状（2026-10-09 实测）；部分场次的队名 / 校名 / 成员名
@@ -8,7 +8,7 @@
  * 单位陷阱（§2 的实测更正）：`statuses[].time` 是 `[值, 单位]` 元组（实测秒），
  * `solutions[].time` 同样是元组但单位是毫秒；引擎内部一律折算成毫秒。
  *
- * v7 起榜上还可以长出一行「我的成绩」幽灵（docs/20 §2.2）：v8 改逐发录入 —— `ghostCell` 把
+ * v7 起榜上还可以长出一行「我的成绩」幽灵（docs/contracts/20 §2.2）：v8 改逐发录入 —— `ghostCell` 把
  * 每发（题 · 时刻 · 判名）折算成 `SrkSolution` 交给 `cellAt`，`buildBoard(..., ghost)` 注入 ——
  * 占名次与奖牌带，但不进 S# / 列头读数 / 榜脚累计。
  */
@@ -235,7 +235,7 @@ export function cellAt(
 /* ---------- 重建后的榜 ---------- */
 
 /**
- * 「我的成绩」的一发提交（docs/20 §2.1 · v8 逐发）：`t` = **比赛分钟**（时:分 录入折算），
+ * 「我的成绩」的一发提交（docs/contracts/20 §2.1 · v8 逐发）：`t` = **比赛分钟**（时:分 录入折算），
  * `r` = 判名。一题的过题与罚时全部由这些逐发记录派生，与真队同源。
  */
 export interface GhostSub {
@@ -249,7 +249,7 @@ export type GhostResult = 'AC' | 'WA' | 'TLE' | 'RE' | 'CE';
 export const GHOST_RESULTS: readonly GhostResult[] = ['AC', 'WA', 'TLE', 'RE', 'CE'];
 
 /**
- * 幽灵行的一格（docs/20 §2.2 · v8）。
+ * 幽灵行的一格（docs/contracts/20 §2.2 · v8）。
  *
  * v7 只有聚合的「过题分钟 + 失败数」，未过题没有末次时刻，只能另造一格；v8 起每发都带时刻，
  * 于是折算成 `SrkSolution` 直接走真队同一条 `cellAt` —— 判名、封榜段 `?n`、CE 格、post 两态
@@ -511,7 +511,7 @@ interface Acc {
   ghost?: boolean;
 }
 
-/** 幽灵行的合成队伍（docs/22 §2.2）：`ti = -1` 是它与弹层之间的寻址暗号，不在 `model.teams[]` 里 */
+/** 幽灵行的合成队伍（docs/prompts/22 §2.2）：`ti = -1` 是它与弹层之间的寻址暗号，不在 `model.teams[]` 里 */
 const ghostTeamModel = (): TeamModel => ({
   ti: -1,
   name: '你',
@@ -530,7 +530,7 @@ const ghostTeamModel = (): TeamModel => ({
  * `unsealed = true` 时 cap 直接取 `elapsed`（回顾模式的「解封视界」：封榜段的格子显示真实结果，
  * 名次 / 罚时 / 列头读数全部按该时刻全量解封算）；默认 false = 现状（封榜即定格）。
  *
- * `ghost` = 「我的成绩」的录入（docs/20 §2.2）：传来就注入成一行合成队，**占名额** ——
+ * `ghost` = 「我的成绩」的录入（docs/contracts/20 §2.2）：传来就注入成一行合成队，**占名额** ——
  * 走正式队通道占 `place`、吃奖牌带，其下队伍的名次与奖牌随之重排一位；`S#` 不给号、
  * 不进列头读数、不进榜脚「榜上 N 队 / 累计过题」，但封榜带的「结果未知」读数**计入**。
  * 是否注入由界面判（「展示我」关或全空就不传）。
@@ -627,7 +627,7 @@ export function buildBoard(
       seenOrg.add(a.org);
       srank = String(seenOrg.size);
     }
-    /* 列头读数与榜脚「累计过题」按官方口径：幽灵整行跳过（docs/20 §2.2 三排除） */
+    /* 列头读数与榜脚「累计过题」按官方口径：幽灵整行跳过（docs/contracts/20 §2.2 三排除） */
     if (!a.ghost) {
       for (let p = 0; p < n; p++) {
         const c = a.cells[p]!;

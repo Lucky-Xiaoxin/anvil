@@ -1,5 +1,5 @@
 /**
- * 目录派生（docs/16 §5.1）：把服务端给的 `{name, path, children, count}` 树折成界面用的行。
+ * 目录派生（docs/contracts/16 §5.1）：把服务端给的 `{name, path, children, count}` 树折成界面用的行。
  *
  * tier 徽章与日期都是从**实测命名**里推出来的（2026-10-09 抽样）：
  * 叶子名 = `YYYY-MM-DD 站名/届数`，分组名 = `ICPC 2025 (50th)` / `北京市赛` / `Universal Cup`。
@@ -26,7 +26,7 @@ export interface LeafRow {
   /** 分组链（类目 → … → 年份 / 省），搜索与搜索结果的路径后缀用 */
   group: string[];
   badge: TierBadge;
-  /** 该场快照已在本地缓存（服务端 `existsSync` 给的口径，docs/20 §1） */
+  /** 该场快照已在本地缓存（服务端 `existsSync` 给的口径，docs/contracts/20 §1） */
   cached?: boolean;
 }
 

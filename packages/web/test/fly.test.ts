@@ -3,7 +3,7 @@ import { FLY, legTimes } from '../src/fly.ts';
 
 const endsOf = (n: number, leg: 'out' | 'in') => legTimes(n, leg).map((t) => t.start + t.duration);
 
-describe('切换编排的时序不变量（docs/09 §7：任意两张卡不同时起步、也不同时完成）', () => {
+describe('切换编排的时序不变量（docs/contracts/09 §7：任意两张卡不同时起步、也不同时完成）', () => {
   it('第 i 张 = start i×STEP、duration DUR + i×DSTEP', () => {
     expect(legTimes(6, 'out').map((t) => t.start)).toEqual([0, 20, 40, 60, 80, 100]);
     expect(legTimes(6, 'out').map((t) => t.duration)).toEqual([180, 185, 190, 195, 200, 205]);

@@ -14,7 +14,7 @@
      ② 侧栏页脚按模块语境化 —— 个人数据 = 源读数 / 模拟榜单 = 榜单缓存 / 设置·工坊 = 本地信息；
      ③ 列头五档整格淡底回迁（r2/r3 已交付样式，附榜脚五档图例与 s4 样张）；
      ④ 行级 content-visibility —— 收放侧栏卡顿修复的预览（与实现批次同一味药）。
-   v6.2 修订（修复批次 · docs/19 §2.2）：
+   v6.2 修订（修复批次 · docs/prompts/19 §2.2）：
      ⑤ 回顾模式「封榜视角」开关（两个都要）—— 默认关 = 解封视界：滑动即重建、封榜段直接给结果；
         开 = 定格回看（即 v6 的旧行为）：名次/罚时定格在封榜点、段内格回 ?n、封榜带换「定格视角」文案。
         s3 顶栏开关真可切换；mock 自己的 capAt/buildBoard 同吃 unsealed 参数；s4 加一行两态对照。
@@ -32,7 +32,7 @@
         只在「展示我」开着且至少录了一发时出现，否则不占位（不随数据在顶栏长出别的控件）。
    基线：mock-03x（切三定稿 · 平台色玫瑰）+ mock-02（切二）——
      tokens / 组件 / 动效全部沿用，本稿只加「第四块」与一处壳改动。
-   契约：docs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
+   契约：docs/briefs/15（本稿 brief）· 数据现实 = algoux/srk-collection 静态导出（2026-10-07 实测）。
    壳改动：侧栏可收起（图标轨道 + 悬停浮标）+ 导航三处改名（个人数据 / 工坊 / 模拟榜单）。
    ========================================================================== */
 
@@ -1136,7 +1136,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 <script>
 /* ==========================================================================
    模拟榜单 · 演示数据与回放引擎（确定性 · 零依赖）
-   实现 agent 注意：这一段在真实产品里换成 srk.json（docs/15 §1）——
+   实现 agent 注意：这一段在真实产品里换成 srk.json（docs/briefs/15 §1）——
      · 提交时刻源为毫秒，本稿同样按毫秒存 t，读数取整分钟；
      · 榜单不是"存下来的"，是按当前时刻重建出来的（buildBoard）；
      · 封榜段 = 时长 − 60 分钟（本场未声明，按缺省）；封榜后公开榜按封榜时刻定格，
@@ -1180,7 +1180,7 @@ function capFor(o,e){                                   /* v6.2：回顾解封�
   return (o.mode==="scrub" && !o.frozen) ? e : capAt(e);
 }
 
-/* ---------- 本场：形状严格按 docs/15 §1 的实测解剖 ---------- */
+/* ---------- 本场：形状严格按 docs/briefs/15 §1 的实测解剖 ---------- */
 var CONTEST={
   name:"The 50th ICPC Asia Shanghai Regional Contest · 2025 ICPC 亚洲区域赛 上海站",
   short:"2025 ICPC 亚洲区域赛 · 上海站",
@@ -1406,7 +1406,7 @@ function cellHTML(c,ti,p){
   return '<div class="'+cls+'" data-t="'+ti+'" data-p="'+p+'"><span class="pcell__b">'+body+
          (c.post?'<i class="pcell__dot"></i>':'')+'</span></div>';
 }
-/* 列头五档（与 docs/16 §5.2 判定口径一致）：quiet 无人提交 / pending 待定 / noone 交而没过 / any 有人过 / late 封榜后才解开 */
+/* 列头五档（与 docs/contracts/16 §5.2 判定口径一致）：quiet 无人提交 / pending 待定 / noone 交而没过 / any 有人过 / late 封榜后才解开 */
 function headState(rows,p){
   var anyCell=false, frz=false, ac=0, preAc=0;
   rows.forEach(function(r){
@@ -2238,7 +2238,7 @@ function renderTK(){
 +'1280 依旧不横滚（余 335 ≈ 158 / 177），1440 下 ≈ 233 / 262 —— 代价还是校名 / 队名截断，靠 tooltip 兜底。</p></div>'
     +'</div></section>';
 
-  sect+='<section><h3>Decisions <span>必答四题的主张（docs/15 §2）</span></h3><div class="dec">'
+  sect+='<section><h3>Decisions <span>必答四题的主张（docs/briefs/15 §2）</span></h3><div class="dec">'
     +'<div class="dec__i"><div><div class="dec__t">1 · 表格密度与列宽<span class="must">主张</span></div>'
       +'<p class="dec__p">题列 <b>36px 轨 / 32px 格</b>、行高 <b>36px</b>、主读数 12.5px 等宽 —— 四个定宽信息列 '
 +'<code>46 + 34 + 46 + 56</code> 加 13 题列 <code>13×36=468</code> 加榜内滚动条 11px = <b>661px</b>。'

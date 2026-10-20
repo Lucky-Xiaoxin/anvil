@@ -1,5 +1,5 @@
 /**
- * 目录派生与会话存储单测（docs/16 §5.1 / §3）。零网络、夹具自造。
+ * 目录派生与会话存储单测（docs/contracts/16 §5.1 / §3）。零网络、夹具自造。
  */
 import { describe, expect, it } from 'vitest';
 import type { ArenaCatalogNode } from '@anvil/shared';
@@ -95,7 +95,7 @@ describe('目录行与搜索', () => {
     expect(row.badge).toEqual({ tier: 'other', label: '网络赛' });
   });
 
-  it('cached 透传：服务端标的本地缓存跟着进行，没标的当没缓存（docs/20 §1 预拉取）', () => {
+  it('cached 透传：服务端标的本地缓存跟着进行，没标的当没缓存（docs/contracts/20 §1 预拉取）', () => {
     const hit = leafRowOf({ ...leaf('2025-11-23 上海站', 'official/icpc/icpc2025/a.srk.json'), cached: true }, ['ICPC']);
     expect(hit.cached).toBe(true);
     expect(leafRowOf(leaf('2025-10-19 西安站', 'official/icpc/icpc2025/b.srk.json'), ['ICPC']).cached).toBe(false);
@@ -193,7 +193,7 @@ describe('会话与轨道状态存储', () => {
   });
 });
 
-describe('「我的成绩」幽灵行存储（docs/20 §2.1 · v8 逐发）', () => {
+describe('「我的成绩」幽灵行存储（docs/contracts/20 §2.1 · v8 逐发）', () => {
   const PATH = 'official/icpc/icpc2025/a.srk.json';
 
   it('键族是 arena:ghost:<官方路径>，且不混进「进行中场次」的枚举', () => {

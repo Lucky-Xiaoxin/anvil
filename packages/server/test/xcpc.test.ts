@@ -1,5 +1,5 @@
 /**
- * XCPC 服务端单测（docs/14 §7）。一律 mock fetch —— 单测禁止打真实网络（技术锁）。
+ * XCPC 服务端单测（docs/contracts/14 §7）。一律 mock fetch —— 单测禁止打真实网络（技术锁）。
  * 夹具是真实快照裁剪件：`李鑫杰@佛山大学` 的 PlayerDetail（skillPanel 已删）+ 同分片里
  * 一条真实的 official:false 打星行。
  */
@@ -128,7 +128,7 @@ function store(db: DatabaseSync): Store {
 
 /* ---------- 分桶键与声母 ---------- */
 
-describe('分桶键（docs/14 §2.1）', () => {
+describe('分桶键（docs/contracts/14 §2.1）', () => {
   it('详情分片 = md5(key)[:2]，与实测的 b1 一致', () => {
     expect(shardOf(KEY)).toBe('b1');
   });
@@ -143,7 +143,7 @@ describe('分桶键（docs/14 §2.1）', () => {
 
 /* ---------- 搜索 ---------- */
 
-describe('搜索一段式（docs/14 §2.2 修订版：拼音检索已取消）', () => {
+describe('搜索一段式（docs/contracts/14 §2.2 修订版：拼音检索已取消）', () => {
   it('首字符进桶、桶内对姓名 + 校名做子串匹配：只发一个桶请求', async () => {
     const m = mock(claimRoutes());
     const out = await m.client.search('李');
@@ -204,7 +204,7 @@ describe('搜索一段式（docs/14 §2.2 修订版：拼音检索已取消）',
 
 /* ---------- DTO 映射 ---------- */
 
-describe('官方单口径映射（docs/14 §4）', () => {
+describe('官方单口径映射（docs/contracts/14 §4）', () => {
   it('取的是 *Official 套装，数值原样给', () => {
     const player = toPlayerDto(FIX.detail)!;
     expect(player.key).toBe(KEY);
@@ -282,7 +282,7 @@ describe('官方单口径映射（docs/14 §4）', () => {
 
 /* ---------- claim ---------- */
 
-describe('claim（docs/14 §4）', () => {
+describe('claim（docs/contracts/14 §4）', () => {
   it('成功：三个请求都到位才落库 + 写 config', async () => {
     const db = mem();
     const s = store(db);
@@ -413,7 +413,7 @@ describe('claim（docs/14 §4）', () => {
 
 /* ---------- refresh ---------- */
 
-describe('refresh（docs/14 §4）', () => {
+describe('refresh（docs/contracts/14 §4）', () => {
   async function claimed(): Promise<{ db: DatabaseSync; s: Store; routes: Record<string, unknown>; calls: string[] }> {
     const db = mem();
     const s = store(db);
@@ -518,7 +518,7 @@ describe('refresh（docs/14 §4）', () => {
 
 /* ---------- 状态四态 ---------- */
 
-describe('XCPC 状态（docs/14 §4）', () => {
+describe('XCPC 状态（docs/contracts/14 §4）', () => {
   const NOW = Date.UTC(2026, 9, 6, 4) / 1000;
   const day = 86_400;
 
@@ -622,7 +622,7 @@ INSERT INTO meta(k, v) VALUES ('schema_version', '2'), ('cf_handle', 'jywlq');
 
 /* ---------- 路由 ---------- */
 
-describe('XCPC 路由（docs/14 §4）', () => {
+describe('XCPC 路由（docs/contracts/14 §4）', () => {
   async function boot(
     routes: Record<string, unknown>,
     opts: { claim?: boolean; fail?: string[] } = {},

@@ -74,14 +74,14 @@ export function loadConfig(): VaultConfig {
   }
 }
 
-/** 分源保存：带哪个改哪个，没带的保持原样（docs/09 §4） */
+/** 分源保存：带哪个改哪个，没带的保持原样（docs/contracts/09 §4） */
 export function saveHandles(patch: { cfHandle?: string; atHandle?: string }): VaultConfig {
   const cfg = { ...loadConfig(), ...patch };
   writeConfig(cfg);
   return cfg;
 }
 
-/** 认领 / 换人写的就是这一个键；'' = 未认领（docs/14 §3） */
+/** 认领 / 换人写的就是这一个键；'' = 未认领（docs/contracts/14 §3） */
 export function saveXcpcPlayerKey(key: string): VaultConfig {
   const cfg = { ...loadConfig(), xcpcPlayerKey: key };
   writeConfig(cfg);

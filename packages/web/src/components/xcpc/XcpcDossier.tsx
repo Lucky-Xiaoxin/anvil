@@ -1,5 +1,5 @@
 /**
- * 档案长卷（docs/14 §5.3）：名衔 → 荣誉陈列 → 阶梯轨迹 → 队名墙 → 逐场编年 → 卷脚。
+ * 档案长卷（docs/contracts/14 §5.3）：名衔 → 荣誉陈列 → 阶梯轨迹 → 队名墙 → 逐场编年 → 卷脚。
  * 一整卷是一个飞行单元（.dossier），组件全部自绘：阶梯是 SVG、勋章是 CSS。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -224,7 +224,7 @@ const PT = 30;
 const PB = 28;
 const FALLBACK_W = 760;
 
-/** 命中区与浮层的落点：打星点没有 y，钉在中段（docs/14 §5.3） */
+/** 命中区与浮层的落点：打星点没有 y，钉在中段（docs/contracts/14 §5.3） */
 function pointTip(point: TimelinePoint): TipSpec {
   const { row, delta } = point;
   const date = `${row.title} · ${dayOf(row.startAt)}`;
@@ -264,7 +264,7 @@ function Ridge({ tl, animate }: { tl: Timeline; animate: boolean }) {
     return () => ro.disconnect();
   }, []);
 
-  // 一场 rated 都没有就没有台阶可画（docs/14 §5.3 边界）
+  // 一场 rated 都没有就没有台阶可画（docs/contracts/14 §5.3 边界）
   if (tl.rated.length === 0) {
     return <div className="skel">没有 rated 场次</div>;
   }
@@ -422,7 +422,7 @@ function ridgeGeometry(tl: Timeline, W: number) {
   const colW = N > 1 ? span : W - PL - PR;
   const hits = tl.points.map((p) => ({ index: p.index, x: N > 1 ? X(p.index) - span / 2 : PL, w: colW }));
 
-  // x 刻度四枚：第 1 / ⌈N/3⌉ / ⌈2N/3⌉ / N 场（docs/14 §5.3，按 1 起的场次序号）
+  // x 刻度四枚：第 1 / ⌈N/3⌉ / ⌈2N/3⌉ / N 场（docs/contracts/14 §5.3，按 1 起的场次序号）
   const axis: number[] = [];
   for (const label of [1, Math.ceil(N / 3), Math.ceil((2 * N) / 3), N]) {
     const i = Math.max(0, Math.min(N - 1, label - 1));

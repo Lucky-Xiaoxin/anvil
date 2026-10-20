@@ -1,5 +1,5 @@
 /**
- * 模拟榜单数据层单测（docs/16 §7）。一律 mock fetch —— 单测禁止打真实网络（技术锁）。
+ * 模拟榜单数据层单测（docs/contracts/16 §7）。一律 mock fetch —— 单测禁止打真实网络（技术锁）。
  * 夹具全部自造（§2.4 许可证纪律：不裁真实 srk.json / config.yaml 入库）。
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -256,7 +256,7 @@ describe('目录缓存', () => {
     expect(dto.fetchedAt).toBe(when);
   });
 
-  /* 预拉取的界面口径靠这两条撑着（docs/20 §1）：目录叶子得知道镜像文件在不在磁盘上 */
+  /* 预拉取的界面口径靠这两条撑着（docs/contracts/20 §1）：目录叶子得知道镜像文件在不在磁盘上 */
   const SH = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
   const SHENYANG = 'official/icpc/icpc2025/icpc2025shenyang.srk.json';
   const FINAL = 'official/ccpc/ccpc2025/ccpc2025final.srk.json';
@@ -507,7 +507,7 @@ describe('单场缓存', () => {
   });
 });
 
-/* ---------- 路由（docs/16 §2.2）---------- */
+/* ---------- 路由（docs/contracts/16 §2.2）---------- */
 
 async function makeApp(routes: Record<string, () => Promise<Response>>) {
   const { fetchImpl, hits } = countingFetch(routes);

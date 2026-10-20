@@ -26,7 +26,7 @@ import {
   type SubmissionRow,
 } from '../src/db.ts';
 
-/** docs/04 §4.2 的 v1 原样 DDL：迁移测试的夹具就地建一个老库 */
+/** docs/contracts/04 §4.2 的 v1 原样 DDL：迁移测试的夹具就地建一个老库 */
 const DDL_V1 = `
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS submissions (
@@ -322,7 +322,7 @@ describe('按源隔离', () => {
     db.close();
   });
 
-  it('参赛场次含非 rated，曲线场次只数 rated（docs/09 §2）', () => {
+  it('参赛场次含非 rated，曲线场次只数 rated（docs/contracts/09 §2）', () => {
     const db = mem();
     upsertRatingHistory(db, 'at', [
       { contestKey: 'abc300', contestName: 'ABC 300', rank: 1, oldRating: 0, newRating: 1200, isRated: true, performance: 1200, updatedTs: TS },

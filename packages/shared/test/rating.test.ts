@@ -30,7 +30,7 @@ const row = (
   ...over,
 });
 
-describe('CF 段位：名与边界一律不动（docs/09 §7）', () => {
+describe('CF 段位：名与边界一律不动（docs/contracts/09 §7）', () => {
   it('边界 1200 / 1400 / 1600 / 1900 / 2100 / 2300 / 2400 / 2600 / 3000', () => {
     expect(rankLabelFor(899)).toBe('Newbie');
     expect(rankLabelFor(1199)).toBe('Newbie');
@@ -68,7 +68,7 @@ describe('CF 段位：名与边界一律不动（docs/09 §7）', () => {
   });
 });
 
-describe('AT 段位：只有颜色没有段位名，色名即段位名（docs/09 §5）', () => {
+describe('AT 段位：只有颜色没有段位名，色名即段位名（docs/contracts/09 §5）', () => {
   it('边界 400 / 800 / 1200 / 1600 / 2000 / 2400 / 2800', () => {
     expect(rankLabelFor(1, 'at')).toBe('Gray');
     expect(rankLabelFor(399, 'at')).toBe('Gray');
@@ -170,7 +170,7 @@ describe('rating 折线数据', () => {
     expect(r!.lastDeltaText).toBe('−48');
   });
 
-  it('主曲线只收 isRated 的场：非 rated 场不进线（docs/09 §2）', () => {
+  it('主曲线只收 isRated 的场：非 rated 场不进线（docs/contracts/09 §2）', () => {
     const r = buildRating(
       [
         row('abc300', 'AtCoder Beginner Contest 300', 1200, at(2023, 4, 1)),

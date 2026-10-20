@@ -82,7 +82,7 @@ export const refreshXcpc = (): Promise<XcpcRefreshDto> => request<XcpcRefreshDto
 /** 源显示名：tab 条、顶栏按钮与错误文案共用一份 */
 export const SOURCE_NAME: Record<SourceId, string> = { cf: 'Codeforces', at: 'AtCoder', xcpc: 'XCPC' };
 
-/* ---------- 模拟榜单（docs/16 §2.2）：一切取数走服务端代理，前端不出网 ---------- */
+/* ---------- 模拟榜单（docs/contracts/16 §2.2）：一切取数走服务端代理，前端不出网 ---------- */
 
 export const getArenaCatalog = (refresh = false): Promise<ArenaCatalogDto> =>
   request<ArenaCatalogDto>(`/api/arena/catalog${refresh ? '?refresh=1' : ''}`, undefined, 30_000);

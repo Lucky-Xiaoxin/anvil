@@ -10,7 +10,7 @@
    ANVIL 视觉稿 v3 · 切片 2（多源 + AtCoder）
    底子 = mock-01（切片 1，已冻结）的 tokens 与组件视觉，逐条拷来，未改 mock-01。
    增量 = 源 tab 条 / 源状态点三态 / 平台识别色两档 / 降级提示条 / AT 卡。
-   契约：docs/09-AT规格.md（实现）· docs/10-设计brief-mock02.md（本稿规格）。
+   契约：docs/contracts/09-AT规格.md（实现）· docs/briefs/10-设计brief-mock02.md（本稿规格）。
    ========================================================================== */
 
 /* ---------- 1. Tokens ---------- */
@@ -934,7 +934,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
       <button class="navitem navitem--locked"><svg aria-hidden="true"><use href="#i-vp"/></svg>VP<svg class="lock" aria-hidden="true"><use href="#i-lock"/></svg></button>
       <button class="navitem"><svg aria-hidden="true"><use href="#i-cog"/></svg>设置</button>
     </div>
-    <div class="navfoot">未接入<br>契约 <code>docs/09</code> §9</div>
+    <div class="navfoot">未接入<br>契约 <code>docs/contracts/09</code> §9</div>
   </aside>
 
   <div class="main">
@@ -952,7 +952,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
         <span class="label">Coming soon</span>
         <h3 style="font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:12px">XCPC 还没接进来</h3>
         <p class="dim" style="font-size:13px;line-height:1.75;margin-top:10px">
-          rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/09</code> §9 · 数据源 heimaom 静态导出 · 身份 key <code>姓名@学校</code>），待接入。
+          rating 轨迹 · 逐场记录 · 奖牌墙 —— 契约已冻结（<code>docs/contracts/09</code> §9 · 数据源 heimaom 静态导出 · 身份 key <code>姓名@学校</code>），待接入。
         </p>
         <p class="hint" style="margin-top:10px">本切片无此源的数据，顶栏同步按钮为灰态；tab 项的 rating 一律 <b>—</b>。</p>
         <p class="hint" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft)">
@@ -985,7 +985,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
   <div class="main">
     <div class="topbar">
       <h2>组件与状态</h2>
-      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/09</code> §7 一致</span>
+      <span class="topbar__meta">实现对照表 · 变量名与 <code>docs/contracts/09</code> §7 一致</span>
       <span class="topbar__spacer"></span>
       <div class="demo-tools" style="border:none;padding:0;background:none">
         <button class="btn btn--sm" id="replay"><svg aria-hidden="true"><use href="#i-sync"/></svg>重播动效</button>
@@ -1039,7 +1039,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
               <div class="spec-row">
                 <span class="spec-row__k">未接入<b>XCPC · 本切片不实现</b></span>
                 <div class="srctabs" style="flex:none;border:none;padding:0;height:auto;background:none">
-                  <span class="srctab is-unset" data-tip="XCPC|待接入 · 契约已冻结（docs/09 §9）">
+                  <span class="srctab is-unset" data-tip="XCPC|待接入 · 契约已冻结（docs/contracts/09 §9）">
                     <span class="srctab__name">XCPC</span><span class="srctab__rating">—</span><span class="srctab__pending">待接入</span><i class="dot dot--idle"></i>
                   </span>
                 </div>
@@ -1102,7 +1102,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
 
         <!-- ---------- 未配置空态 ---------- -->
         <section>
-          <h3>Unconfigured <span>AT 没填 handle · tab 内空态（docs/09 §1.3）</span></h3>
+          <h3>Unconfigured <span>AT 没填 handle · tab 内空态（docs/contracts/09 §1.3）</span></h3>
           <div class="card pf-at" style="background:#0E1218;max-width:760px">
             <div class="empty-hero" style="gap:var(--sp-2)">
               <div>
@@ -1235,7 +1235,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
                 <span class="rk__s"><b style="color:var(--rk-at-orange)">Orange</b><u>2400–2799 · 直用</u></span>
                 <span class="rk__s"><b style="color:var(--rk-red)">Red</b><u>2800+ · 直用</u></span>
               </div>
-              <p class="hint" style="margin-top:12px">AT 的 8 档里 <b>Brown / Green / Blue</b> 要提亮，其余 5 档原生直用。档位边界与 <code>docs/08</code> 的实测 class 样本同解（2006→yellow、2708→orange、2958+→red）；低段边界实现时再打一次卡。</p>
+              <p class="hint" style="margin-top:12px">AT 的 8 档里 <b>Brown / Green / Blue</b> 要提亮，其余 5 档原生直用。档位边界与 <code>docs/reports/08</code> 的实测 class 样本同解（2006→yellow、2708→orange、2958+→red）；低段边界实现时再打一次卡。</p>
             </div>
           </div>
         </section>
@@ -1371,7 +1371,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
           <div class="dec">
             <div class="dec__i"><div>
               <div class="dec__t">★ 切换动效档位<span class="must">已定</span></div>
-              <p class="dec__p">用户在调参台上选定并微调：<b>极缓档 = 出 360/51/9「对称」+ 空档 80 + 入 520/40/14「柔和」+ 升起 72px + 缩放 4%</b>，6 卡预览 1530ms、AT 屏 7 卡 ≈1644ms。上一版（纯加速 520ms）被判"太快、没有平滑动效的感觉"，这版把减速交给"对称"起势 + "两头收"落位，再加 4% 缩放补重量。数值已钉回 <code>docs/09</code> §7，调参台默认就是这一组，要再改拖一下即可。<b>唯一风险</b>：1.6s 窗口里连点会被吃掉，实现侧建议改成"当前动画立即落位、直接开播目标档"（见上面口径表最后一行）。</p>
+              <p class="dec__p">用户在调参台上选定并微调：<b>极缓档 = 出 360/51/9「对称」+ 空档 80 + 入 520/40/14「柔和」+ 升起 72px + 缩放 4%</b>，6 卡预览 1530ms、AT 屏 7 卡 ≈1644ms。上一版（纯加速 520ms）被判"太快、没有平滑动效的感觉"，这版把减速交给"对称"起势 + "两头收"落位，再加 4% 缩放补重量。数值已钉回 <code>docs/contracts/09</code> §7，调参台默认就是这一组，要再改拖一下即可。<b>唯一风险</b>：1.6s 窗口里连点会被吃掉，实现侧建议改成"当前动画立即落位、直接开播目标档"（见上面口径表最后一行）。</p>
             </div></div>
             <div class="dec__i dec__i--pf"><div>
               <div class="dec__t">① 平台识别色分档已定<span class="must">复核</span></div>
@@ -1387,7 +1387,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
             </div></div>
             <div class="dec__i dec__i--line"><div>
               <div class="dec__t">④ 顶栏同步按钮多写了源名</div>
-              <p class="dec__p">brief 说 CF tab"顶栏一律不动"，但 <code>docs/09</code> §1.5 要求同步按钮只拉当前选中源 —— 三端并排后光写"同步"不知道点下去动的是哪家。做法是最小偏离：主文案仍是"同步"，右侧挂 11px 灰字 <code>Codeforces / AtCoder</code>，XCPC 时整钮灰态。</p>
+              <p class="dec__p">brief 说 CF tab"顶栏一律不动"，但 <code>docs/contracts/09</code> §1.5 要求同步按钮只拉当前选中源 —— 三端并排后光写"同步"不知道点下去动的是哪家。做法是最小偏离：主文案仍是"同步"，右侧挂 11px 灰字 <code>Codeforces / AtCoder</code>，XCPC 时整钮灰态。</p>
             </div></div>
             <div class="dec__i dec__i--line"><div>
               <div class="dec__t">⑤ 演示时钟推到 2026-10-04，CF 头部数字与 mock-01 逐项相同</div>
@@ -1417,7 +1417,7 @@ body.rm-on *,body.rm-on *::before,body.rm-on *::after{
    画像：中国大学生 ICPC 选手 · CF @chenyu 1683 Expert（头部数字与 mock-01 逐项相同）
         · AT @chenyu 1345 Cyan（2025-04 起 · 18 场参赛，含 2 场非 rated）
    实现 agent 注意：这一段在真实产品里由 GET /api/status + GET /api/dashboard?source= 提供，
-   形状照 docs/09 §4，不要搬进 React。
+   形状照 docs/contracts/09 §4，不要搬进 React。
    ========================================================================== */
 (function(){
 "use strict";
@@ -1516,7 +1516,7 @@ function buildDays(seed,cfg){
   return days;
 }
 
-/* 与 CF 同档：0 / 1–2 / 3–5 / 6–9 / 10+（docs/09 §5 两源共用一把尺；独立档位方案已否） */
+/* 与 CF 同档：0 / 1–2 / 3–5 / 6–9 / 10+（docs/contracts/09 §5 两源共用一把尺；独立档位方案已否） */
 function lvl(v){return v<=0?0 : v<=2?1 : v<=5?2 : v<=9?3 : 4}
 
 /* ==========================================================================
@@ -1584,7 +1584,7 @@ var AT_HISTORY=[
 ];
 
 /* ==========================================================================
-   聚合：两源跑同一段纯函数，输入换成各自提交（docs/09 §5「聚合函数直接复用」）
+   聚合：两源跑同一段纯函数，输入换成各自提交（docs/contracts/09 §5「聚合函数直接复用」）
    ========================================================================== */
 function signed(n){ return (n>0?"+":n<0?"−":"±")+Math.abs(n) }
 
@@ -1729,7 +1729,7 @@ function tabModel(id){
   var meta=SOURCES[id], st=STATUS[id];
   if(!st) return {pf:meta.pf, unset:true, pending:"待接入", dot:DOT.idle, rating:"—", color:"",
     lines:[{c:"tip__d",t:meta.name+" · 未接入"},
-           {c:"tip__v",t:"待接入 · 契约已冻结（docs/09 §9）",color:"var(--text-mute)"},
+           {c:"tip__v",t:"待接入 · 契约已冻结（docs/contracts/09 §9）",color:"var(--text-mute)"},
            {c:"tip__x",t:"本切片不实现同步"}]};
   var R=DASH[id], unset=!st.configured;
   if(unset) return {pf:meta.pf, unset:true, dot:DOT.idle, rating:"—", color:"",
@@ -1867,7 +1867,7 @@ function renderChart(host, ax, R){
   /* 起点以下压暗：那是已经离开的地方 */
   svg.appendChild(svgEl("rect",{x:PL,y:Y(start.newRating),width:W-PL-PR,height:H-PB-Y(start.newRating),fill:"rgba(76,201,240,.035)"}));
 
-  /* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/09 §7） */
+  /* 分段着色：涨 = 数据蓝，跌 = 琥珀（平台识别色不侵染曲线，docs/contracts/09 §7） */
   for(var s=0;s<n;s++){
     var up = P[s+1].newRating >= P[s].newRating;
     svg.appendChild(svgEl("line",{x1:X(s),y1:Y(P[s].newRating),x2:X(s+1),y2:Y(P[s+1].newRating),
@@ -2159,7 +2159,7 @@ renderTicks($("#streakTicks-at"), DASH.at);
 renderDemoGrid($("#agrid-demoA"));
 renderDemoGrid($("#agrid-demoB"));
 
-/* 顶栏同步：只拉当前选中源（docs/09 §1.5）。AT 拉成功后降级条当场消失 */
+/* 顶栏同步：只拉当前选中源（docs/contracts/09 §1.5）。AT 拉成功后降级条当场消失 */
 $$(".syncBtn").forEach(function(btn){
   btn.addEventListener("click",function(){
     if(btn.classList.contains("is-busy")) return;

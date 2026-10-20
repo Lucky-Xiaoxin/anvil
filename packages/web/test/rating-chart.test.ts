@@ -32,7 +32,7 @@ describe('折线横轴取点', () => {
   });
 });
 
-describe('折线 tooltip 的名次行（AT 专有增量，docs/09 §4）', () => {
+describe('折线 tooltip 的名次行（AT 专有增量，docs/contracts/09 §4）', () => {
   it('有名次或 Perf 才出这一行', () => {
     expect(placeLine({ ...pt('2026-09'), place: 198, performance: 1377 })).toBe('第 198 名 · Perf 1377');
   });

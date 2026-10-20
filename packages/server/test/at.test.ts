@@ -152,7 +152,7 @@ describe('kenkoooo 提交明细解析', () => {
   });
 });
 
-describe('官方参赛史解析（docs/09 §2 的坑）', () => {
+describe('官方参赛史解析（docs/contracts/09 §2 的坑）', () => {
   it('ContestScreenName 去掉 .contest.atcoder.jp 后缀当 contest_key', () => {
     expect(atContestKey('agc078.contest.atcoder.jp')).toBe('agc078');
     expect(atContestKey('abc300.contest.atcoder.jp')).toBe('abc300');
@@ -437,7 +437,7 @@ describe('AT 同步作业', () => {
     db.close();
   });
 
-  it('SyncSource 接口形状冻结：id / checkHandle / sync（docs/09 §3.3）', () => {
+  it('SyncSource 接口形状冻结：id / checkHandle / sync（docs/contracts/09 §3.3）', () => {
     const db = mem();
     const source = createAtSource(db, makeAt(subsHandler([])));
     expect(source.id).toBe('at');
