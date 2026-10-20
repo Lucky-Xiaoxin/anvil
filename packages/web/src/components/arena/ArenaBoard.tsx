@@ -14,6 +14,7 @@ import { clockHMS, clockHM, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { useTip } from '../../tip.tsx';
 import {
+  bandRanges,
   buildBoard,
   buildModel,
   capAt,
@@ -535,7 +536,7 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
                       y: r.bottom,
                       below: true,
                       date: '名次 R#',
-                      value: model.bands.length > 0 ? `金银铜 ${model.bands.map((b) => b.upTo).join(' / ')}` : '本场无奖牌规则',
+                      value: model.bands.length > 0 ? `奖牌 = 正式队 ${bandRanges(model.bands)}` : '本场无奖牌规则',
                       zero: model.bands.length === 0,
                       sub: ['全场位置 · 打星队占位不计奖牌', '并列同名次、其后跳号'],
                     });

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FREEZE_MS,
   EMPTY_CELL,
+  bandRanges,
   buildBoard,
   buildModel,
   capAt,
@@ -28,6 +29,7 @@ import {
   unpause,
   type GhostResult,
   type GhostSub,
+  type SrkSeries,
   type SrkDoc,
   type SrkSolution,
 } from '../src/components/arena/engine.ts';
@@ -145,7 +147,7 @@ function fixture(overrides: Partial<SrkDoc> = {}): SrkDoc {
           { title: '银奖', style: 'silver' },
           { title: '铜奖', style: 'bronze' },
         ],
-        rule: { preset: 'ICPC', options: { count: { value: [1, 2, 3] } } },
+        rule: { preset: 'ICPC', options: { count: { value: [1, 1, 1] } } },
       },
       { title: 'R#', rule: { preset: 'Normal' } },
       { title: 'S#', rule: { preset: 'UniqByUserField', options: { field: 'organization', includeOfficialOnly: true } } },
@@ -567,33 +569,57 @@ describe('奖牌带解析', () => {
     { title: '银奖', style: 'silver' },
     { title: '铜奖', style: 'bronze' },
   ];
+  const den = (all: number, submitted = all, scored = all) => ({ all, submitted, scored });
+  const rule = (options: NonNullable<SrkSeries['rule']>['options']) => [{ title: '#', segments: segs, rule: { preset: 'ICPC', options } }];
 
-  it('preset ICPC 的 count.value 是累计上界', () => {
-    const bands = medalBands([{ title: '#', segments: segs, rule: { preset: 'ICPC', options: { count: { value: [30, 60, 90] } } } }], 356, 331);
+  it('count.value 是各段名额数 → upTo 取前缀和（不是累计上界）', () => {
+    const bands = medalBands(rule({ count: { value: [30, 60, 90] } }), den(331, 331, 300));
     expect(bands.map((b) => [b.style, b.upTo])).toEqual([
       ['gold', 30],
-      ['silver', 60],
-      ['bronze', 90],
+      ['silver', 90],
+      ['bronze', 180],
+    ]);
+    // 2026 西安邀请赛实测声明：金 36 / 银 72 / 铜 108 → 铜牌线在正式队 216（不是 108）
+    const xian = medalBands(rule({ count: { value: [36, 72, 108] } }), den(354, 354, 353));
+    expect(xian.map((b) => b.upTo)).toEqual([36, 108, 216]);
+    expect(bandRanges(xian)).toBe('1–36 金 / 37–108 银 / 109–216 铜');
+  });
+
+  it('名额非递增的真实场次照样成立（北京省赛 2026 = 15/7/14）', () => {
+    expect(medalBands(rule({ count: { value: [15, 7, 14] } }), den(89)).map((b) => b.upTo)).toEqual([15, 22, 36]);
+  });
+
+  it('ratio 的分母认 all / submitted / scored，缺省 all 且取整用 ceil（上游默认）', () => {
+    // 山大 pc15 实测：222 行 / 147 正式 / 132 交过发 / 88 得分 —— 分母只数正式队，覆盖率回到 60%
+    const d = den(147, 132, 88);
+    const r = { value: [0.1, 0.2, 0.3] };
+    expect(medalBands(rule({ ratio: r }), d).map((b) => b.upTo)).toEqual([15, 45, 90]);
+    expect(medalBands(rule({ ratio: { ...r, denominator: 'submitted' } }), d).map((b) => b.upTo)).toEqual([14, 41, 81]);
+    expect(medalBands(rule({ ratio: { ...r, denominator: 'scored' } }), d).map((b) => b.upTo)).toEqual([9, 27, 54]);
+    expect(medalBands(rule({ ratio: { ...r, rounding: 'floor' } }), d).map((b) => b.upTo)).toEqual([14, 43, 87]);
+    expect(medalBands(rule({ ratio: { ...r, rounding: 'round' } }), d).map((b) => b.upTo)).toEqual([15, 44, 88]);
+    // 读不懂的分母取值 = 不挂带，不拿 all 蒙
+    expect(medalBands(rule({ ratio: { ...r, denominator: 'submitted-ish' } }), d)).toEqual([]);
+  });
+
+  it('count 与 ratio 同时声明 → 逐段取交集', () => {
+    // ratio 划到 1–15 / 15–45 / 45–90，count 划到 1–10 / 10–40 / 40–90 → 交集 1–10 / 10–40 / 40–90
+    const bands = medalBands(rule({ count: { value: [10, 30, 50] }, ratio: { value: [0.1, 0.2, 0.3] } }), den(147));
+    expect(bands.map((b) => b.upTo)).toEqual([10, 40, 90]);
+  });
+
+  it('名额为 0 的段不挂；全场零名额 = 空带', () => {
+    expect(medalBands(rule({ count: { value: [0, 0, 0] } }), den(100))).toEqual([]);
+    expect(medalBands(rule({ count: { value: [10, 0, 20] } }), den(100)).map((b) => [b.style, b.upTo])).toEqual([
+      ['gold', 10],
+      ['bronze', 30],
     ]);
   });
 
-  it('ratio 与 count 并存 → 逐段取 min(count, ratio×denom)', () => {
-    const withRatio = [{ title: '#', segments: segs, rule: { preset: 'ICPC', options: { count: { value: [100, 200, 300] }, ratio: { value: [0.1, 0.2, 0.3] } } } }];
-    expect(medalBands(withRatio, 356, 331).map((b) => b.upTo)).toEqual([35, 71, 106]);
-    const scored = [
-      {
-        title: '#',
-        segments: segs,
-        rule: { preset: 'ICPC', options: { count: { value: [100, 200, 300] }, ratio: { value: [0.1, 0.2, 0.3] }, denom: 'scored' } },
-      },
-    ];
-    expect(medalBands(scored, 356, 331).map((b) => b.upTo)).toEqual([33, 66, 99]);
-  });
-
   it('没有 series 信息 → 不挂带（不猜）', () => {
-    expect(medalBands(undefined, 10, 10)).toEqual([]);
-    expect(medalBands([{ title: 'R#', rule: { preset: 'Normal' } }], 10, 10)).toEqual([]);
-    expect(medalBands([{ title: '#', segments: segs }], 10, 10)).toEqual([]);
+    expect(medalBands(undefined, den(10))).toEqual([]);
+    expect(medalBands([{ title: 'R#', rule: { preset: 'Normal' } }], den(10))).toEqual([]);
+    expect(medalBands([{ title: '#', segments: segs }], den(10))).toEqual([]);
     const m = buildModel(fixture({ series: [] }));
     expect(m.bands).toEqual([]);
     expect(buildBoard(m, 5 * H, false).rows.every((r) => r.medal === null)).toBe(true);
