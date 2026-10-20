@@ -17,7 +17,8 @@
     "build": "npm run build --workspace @anvil/web",
     "start": "node --disable-warning=ExperimentalWarning packages/server/src/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/server/tsconfig.json --noEmit && tsc -p packages/web/tsconfig.json --noEmit"
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/server/tsconfig.json --noEmit && tsc -p packages/web/tsconfig.json --noEmit",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

@@ -209,9 +209,16 @@ export class AtClient {
       pages++;
       fetched += batch.length;
       onBatch(batch);
-      if (batch.length < SUBMISSIONS_PAGE_SIZE || pages >= MAX_PAGES) return { fetched, pages };
+      if (batch.length < SUBMISSIONS_PAGE_SIZE) return { fetched, pages };
+      if (pages >= MAX_PAGES) {
+        console.warn(`[anvil] AT 翻页触顶：handle=${handle} 已拉 ${fetched} 条，剩余部分未自动续拉`);
+        return { fetched, pages };
+      }
       const max = batch.reduce((m, r) => Math.max(m, r.epoch_second), 0);
-      if (max === lastMax) return { fetched, pages };
+      if (max === lastMax) {
+        console.warn(`[anvil] AT 翻页时间戳停滞：handle=${handle} 已拉 ${fetched} 条，停止继续请求`);
+        return { fetched, pages };
+      }
       lastMax = max;
       from = max;
     }

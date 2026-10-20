@@ -11,6 +11,8 @@ interface Props {
   /** 同步进度由 App 拥有：切走再回来也还对得上 */
   sync: SyncStateDto | null;
   onStatus: (status: StatusDto) => void;
+  onStart: () => void;
+  onSkip: () => void;
   /** 起跑并轮询到落定，返回最后一帧状态；已经在跑则返回 null */
   onRun: () => Promise<SyncStateDto | null>;
   onEnterDashboard: () => void;
@@ -21,12 +23,15 @@ function initialPhase(sync: SyncStateDto | null): Phase {
   return sync && (sync.phase === 'fetching' || sync.phase === 'storing') ? 'syncing' : 'input';
 }
 
-export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Props) {
+export function Wizard({ status, sync, onStatus, onStart, onSkip, onRun, onEnterDashboard }: Props) {
   const [phase, setPhase] = useState<Phase>(() => initialPhase(sync));
   const [handle, setHandle] = useState(status?.handle ?? '');
   const [checkErr, setCheckErr] = useState<{ kind: string; message: string } | null>(null);
   const [syncErr, setSyncErr] = useState<string | null>(null);
   const alive = useRef(true);
+  useEffect(() => {
+    onStart();
+  }, [onStart]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -250,6 +255,10 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
               ) : null}
             </div>
 
+            <div style={{ marginTop: 'var(--sp-2)' }}>
+              <button className="btn btn--ghost" onClick={onSkip}>暂不跑向导，回设置页</button>
+            </div>
+
             <div className="plog" style={{ marginTop: 'var(--sp-3)', minHeight: 'auto', lineHeight: 2.1 }}>
               预计约 8 秒 · 限速 <b>1 请求 / 2 秒</b>
               <br />
@@ -295,6 +304,9 @@ export function Wizard({ status, sync, onStatus, onRun, onEnterDashboard }: Prop
                 {hasData ? '拉取增量' : '开始全量同步'}
               </button>
               {phase === 'syncing' ? <button className="btn btn--ghost" disabled>同步进行中…</button> : null}
+              <button className="btn btn--ghost" disabled={phase === 'syncing'} onClick={onSkip}>
+                先回设置页
+              </button>
             </div>
           </div>
         ) : null}

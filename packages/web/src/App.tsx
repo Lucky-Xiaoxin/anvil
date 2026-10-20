@@ -9,7 +9,7 @@ import type {
   SyncStatesDto,
   XcpcProfileDto,
 } from '@anvil/shared';
-import { getDashboard, getSyncStates, getStatus, getXcpc, refreshXcpc, startSync } from './api.ts';
+import { getDashboard, getSyncStates, getStatus, getXcpc, refreshXcpc, SOURCE_NAME, startSync } from './api.ts';
 import { messageOf, sleep } from './format.ts';
 import { FLY, flyIn, flyNodes, flyOut, flySkipped } from './fly.ts';
 import { AppShell, type View } from './components/AppShell.tsx';
@@ -57,6 +57,41 @@ function Pending({ id, notice, onRetry }: { id: string; notice: Notice | null; o
   );
 }
 
+const PENDING_HANDLES_KEY = 'dashboard:pending-handle';
+
+const emptyPendingHandles = (): Record<SyncSourceId, string | null> => ({ cf: null, at: null });
+
+function loadPendingHandles(): Record<SyncSourceId, string | null> {
+  try {
+    const raw = window.localStorage.getItem(PENDING_HANDLES_KEY);
+    if (raw === null || raw === '') return emptyPendingHandles();
+    const v = JSON.parse(raw) as Partial<Record<SyncSourceId, unknown>>;
+    return {
+      cf: typeof v.cf === 'string' ? v.cf : null,
+      at: typeof v.at === 'string' ? v.at : null,
+    };
+  } catch {
+    return emptyPendingHandles();
+  }
+}
+
+function StaleHandle({ source, onSync }: { source: SyncSourceId; onSync: () => void }) {
+  return (
+    <div className="content" id={`content-${source}`} role="tabpanel">
+      <div className="card rise" style={{ maxWidth: 720, padding: 'var(--sp-3)' }}>
+        <span className="label label--accent">数据待重建</span>
+        <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-.01em', marginTop: 10 }}>已保存新 handle</h3>
+        <p className="dim" style={{ fontSize: 13, marginTop: 8 }}>
+          当前 vault 里的读数仍属于旧 handle。这里先不给旧数据读数，避免把两个人的曲线混在一起；点同步后，本源才会按新 handle 重建。
+        </p>
+        <button className="btn btn--primary" style={{ marginTop: 14 }} onClick={onSync}>
+          立即同步
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [status, setStatus] = useState<StatusDto | null>(null);
   const [dashes, setDashes] = useState<Partial<Record<SyncSourceId, DashboardDto>>>({});
@@ -71,6 +106,10 @@ export function App() {
   const [claiming, setClaiming] = useState(false);
   /** 目录场次：侧栏页脚在 arena 语境下报它；null = 还没拉到（页脚显 —） */
   const [arenaCount, setArenaCount] = useState<number | null>(null);
+  /** handle 已保存、但该源尚未同步重建；刷新页面也不能把旧读数当新 handle 的数据 */
+  const [pendingHandles, setPendingHandles] = useState(loadPendingHandles);
+  /** 首跑向导一旦开始，就活到用户明确完成 / 跳过，不被 Step 2 保存 handle 后直接卸载 */
+  const [wizardActive, setWizardActive] = useState(false);
 
   /** 真的挂在屏上的源；切换过程中它还是旧屏 */
   const [shown, setShown] = useState<SourceId>('cf');
@@ -86,6 +125,14 @@ export function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PENDING_HANDLES_KEY, JSON.stringify(pendingHandles));
+    } catch {
+      /* localStorage 不可用时只丢这个 UI 标记，不阻塞主流程 */
+    }
+  }, [pendingHandles]);
 
   useEffect(
     () => () => {
@@ -141,7 +188,7 @@ export function App() {
       const { player, snapshotAt, fetchedAt, rankTotal } = await refreshXcpc();
       setXcpc({ player, snapshotAt, fetchedAt, rankTotal });
     } catch (err) {
-      next = { kind: 'err', text: `${messageOf(err)} · 本地缓存的档案照旧显示` };
+      next = { kind: 'err', text: `${SOURCE_NAME.xcpc} · ${messageOf(err)} · 本地缓存的档案照旧显示` };
     } finally {
       await refresh();
       setBusy((b) => ({ ...b, xcpc: false }));
@@ -161,6 +208,17 @@ export function App() {
     },
     [refresh],
   );
+
+  const handleSaved = useCallback(
+    (source: SyncSourceId, handle: string): void => {
+      setPendingHandles((p) => ({ ...p, [source]: handle }));
+      setDelta((d) => (d?.source === source ? null : d));
+    },
+    [],
+  );
+
+  const startWizard = useCallback((): void => setWizardActive(true), []);
+  const skipWizard = useCallback((): void => setWizardActive(false), []);
 
   /** 同步按源起跑：谁在跑只锁谁，AT 挂了不碍着 CF */
   const runSync = useCallback(
@@ -191,12 +249,13 @@ export function App() {
         }
         final = snap[source];
         if (final.phase === 'error') {
-          next = { kind: 'err', text: `${final.error ?? '同步失败'} · 本地缓存的数据照旧显示` };
+          next = { kind: 'err', text: `${SOURCE_NAME[source]} · ${final.error ?? '同步失败'} · 本地缓存的数据照旧显示` };
         } else {
+          setPendingHandles((p) => (p[source] === null ? p : { ...p, [source]: null }));
           setDelta({ source, stored: final.stored });
         }
       } catch (err) {
-        next = { kind: 'err', text: `${messageOf(err)} · 本地缓存的数据照旧显示` };
+        next = { kind: 'err', text: `${SOURCE_NAME[source]} · ${messageOf(err)} · 本地缓存的数据照旧显示` };
       } finally {
         await refresh();
         setBusy((b) => ({ ...b, [source]: false }));
@@ -210,6 +269,12 @@ export function App() {
   const navigate = useCallback((next: View) => {
     window.location.hash = `/${next}`;
   }, []);
+
+  const finishWizard = useCallback((): void => {
+    setWizardActive(false);
+    navigate('dashboard');
+    void refresh();
+  }, [navigate, refresh]);
 
   const commit = (to: SourceId): void => {
     shownRef.current = to;
@@ -308,18 +373,17 @@ export function App() {
     /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
     if (view === 'arena') return <Arena onCount={setArenaCount} />;
     if (view === 'settings') {
-      const firstRun = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
-      if (firstRun || status === null) {
+      const configuredNeither = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
+      if (status === null || configuredNeither || wizardActive) {
         return (
           <Wizard
             status={status}
             sync={states?.cf ?? null}
             onStatus={setStatus}
+            onStart={startWizard}
+            onSkip={skipWizard}
             onRun={() => runSync('cf')}
-            onEnterDashboard={() => {
-              navigate('dashboard');
-              void refresh();
-            }}
+            onEnterDashboard={finishWizard}
           />
         );
       }
@@ -330,6 +394,7 @@ export function App() {
           busy={busy}
           xcpc={xcpc}
           onStatus={setStatus}
+          onHandleSaved={handleSaved}
           onRun={async (source) => {
             await runSync(source);
           }}
@@ -379,6 +444,9 @@ export function App() {
     const src = status?.sources[active] ?? null;
     if (src !== null && !src.configured) {
       return <Unconfigured source={active} onGoSettings={() => navigate('settings')} />;
+    }
+    if (src !== null && pendingHandles[active] === src.handle) {
+      return <StaleHandle source={active} onSync={() => void runSync(active)} />;
     }
     const dash = dashes[active];
     if (dash) {

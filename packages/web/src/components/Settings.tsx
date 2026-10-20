@@ -22,6 +22,7 @@ interface Props {
   /** 场数与奖牌只在档案里，status 不带 */
   xcpc: XcpcProfileDto | null;
   onStatus: (status: StatusDto) => void;
+  onHandleSaved: (source: SyncSourceId, handle: string) => void;
   /** 起跑并轮询到落定 */
   onRun: (source: SyncSourceId) => Promise<void>;
   /** XCPC 的「同步」= 拉快照 */
@@ -29,7 +30,7 @@ interface Props {
   onClaimed: (profile: XcpcProfileDto) => void;
 }
 
-function Row({ source, status, states, busy, onStatus, onRun }: Props & { source: SyncSourceId }) {
+function Row({ source, status, states, busy, onStatus, onHandleSaved, onRun }: Props & { source: SyncSourceId }) {
   const src = status.sources[source];
   const [input, setInput] = useState(src.handle ?? '');
   const [err, setErr] = useState<{ kind: string; message: string } | null>(null);
@@ -50,7 +51,9 @@ function Row({ source, status, states, busy, onStatus, onRun }: Props & { source
     setChecking(true);
     setErr(null);
     try {
-      onStatus(await saveHandles({ [KEYS[source]]: name }));
+      const next = await saveHandles({ [KEYS[source]]: name });
+      onStatus(next);
+      onHandleSaved(source, name);
     } catch (e) {
       const api = e instanceof ApiError ? e : new ApiError(messageOf(e));
       setErr({ kind: api.kind, message: api.message });

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify from 'fastify';
 import { ArenaClient } from './arena.ts';
@@ -14,6 +14,24 @@ import { initSnapshot } from './sync/runner.ts';
 import { XcpcClient } from './sync/xcpc.ts';
 
 const lifeFile = join(vaultDir, 'anvil-server.log');
+const pidFile = join(vaultDir, 'server.pid');
+
+function writePid(): void {
+  try {
+    writeFileSync(pidFile, `${process.pid}\n`, 'utf8');
+  } catch {
+    // PID 文件只给 stop.bat 认进程用；写不进不影响服务
+  }
+}
+
+function clearPid(): void {
+  try {
+    const owner = readFileSync(pidFile, 'utf8').trim();
+    if (owner === String(process.pid)) unlinkSync(pidFile);
+  } catch {
+    // 没有 PID 文件或已被覆盖，无需处理
+  }
+}
 
 /**
  * 7788 偶发“自己没了”时，界面只看到端口消失：终端关闭（SIGHUP）、未捕获异常、强杀
@@ -40,6 +58,14 @@ const sources = {
 };
 
 const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
+app.setErrorHandler((err, request, reply) => {
+  const e = err as { message?: unknown; statusCode?: number };
+  life('request-error', `${request.method} ${request.url} ${String(e.message ?? err)}`);
+  console.error('[anvil] request-error:', err);
+  return reply.code(e.statusCode ?? 500).send({
+    error: { kind: 'internal', message: '服务端内部错误，详情见 vault/anvil-server.log' },
+  });
+});
 registerApi(app, {
   db,
   sources,
@@ -62,6 +88,7 @@ if (process.env.ANVIL_SERVE_WEB !== '0') registerStatic(app, webDistDir);
 
 try {
   await app.listen({ host: '127.0.0.1', port });
+  writePid();
   life('listening', `port=${port}`);
 } catch (err) {
   if ((err as { code?: string }).code === 'EADDRINUSE') {
@@ -91,6 +118,7 @@ async function shutdown(signal: string): Promise<void> {
   life('shutdown.begin', `signal=${signal}`);
   await app.close();
   db.close();
+  clearPid();
   life('shutdown.end');
   process.exit(0);
 }
@@ -98,7 +126,10 @@ async function shutdown(signal: string): Promise<void> {
 const signals: NodeJS.Signals[] =
   process.platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
 for (const signal of signals) process.on(signal, () => void shutdown(signal));
-process.on('exit', (code) => life('exit', `code=${code}`));
+process.on('exit', (code) => {
+  clearPid();
+  life('exit', `code=${code}`);
+});
 process.on('uncaughtException', (err) => {
   life('uncaughtException', err.stack ?? err.message);
   console.error('[anvil] uncaughtException:', err);
