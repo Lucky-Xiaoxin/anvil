@@ -61,7 +61,7 @@ export function filterWorkObjects(objects: readonly WorkObjectDto[], taxonomy: W
     if (filter.nodeId !== null && !matchesTag(obj, taxonomy, filter.nodeId)) return false;
     if (filter.label !== null && !obj.labels.includes(filter.label)) return false;
     if (q !== '') {
-      // TODO(切片5a): 词表 aliases 未进 WorkTreeDto，v1 检索先覆盖标题 / labels / 节点名 / 路径
+      // TODO(切片5b): 词表 aliases 未进 WorkTreeDto；5a 检索先覆盖标题 / labels / 节点名 / 路径（契约 §7.1 已回写）
       const tagNames = [obj.tags.primary, ...obj.tags.related]
         .filter((id): id is string => id !== null)
         .map((id) => names.get(id) ?? id)

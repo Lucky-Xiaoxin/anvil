@@ -8,12 +8,13 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import type { WorkArenaGhost, WorkArenaView } from '@anvil/shared';
+import { seedTaxonomy, type WorkArenaGhost, type WorkArenaView } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
 import { codeExeFromWherePath, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
@@ -135,6 +136,33 @@ describe('init / 根状态（契约 §3.2）', () => {
     await expect(service.tree()).rejects.toMatchObject({ kind: 'root-version' });
     await expect(service.init({ path: root })).rejects.toMatchObject({ kind: 'root-version' });
   });
+
+  it('root.json / taxonomy.json 是符号链接：拒绝跟随', async () => {
+    await initRoot();
+    const tax = join(root, '.anvil', 'taxonomy.json');
+    const outsideTax = join(base, 'outside-taxonomy.json');
+    writeFileSync(outsideTax, JSON.stringify({ schema: 1, version: 9, nodes: [], aliases: {} }));
+    unlinkSync(tax);
+    try {
+      symlinkSync(outsideTax, tax, 'file');
+    } catch {
+      return; // Windows 未开启开发者模式时跳过
+    }
+    const tree = await service.tree({ rescan: true });
+    expect(tree.taxonomy).toBeNull();
+    expect(tree.taxonomyError).toContain('普通文件');
+
+    unlinkSync(tax);
+    writeFileSync(tax, JSON.stringify(seedTaxonomy(), null, 2));
+    await service.tree({ rescan: true });
+
+    const rootJson = join(root, '.anvil', 'root.json');
+    const outsideRoot = join(base, 'outside-root.json');
+    writeFileSync(outsideRoot, JSON.stringify({ schema: 1, app: 'anvil' }));
+    unlinkSync(rootJson);
+    symlinkSync(outsideRoot, rootJson, 'file');
+    await expect(service.tree({ rescan: true })).rejects.toMatchObject({ kind: 'root-version' });
+  });
 });
 
 describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
@@ -181,6 +209,14 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
     expect(paths).toContain('test.cpp');
     expect(paths).not.toContain('notes.txt');
     expect(readFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'utf8')).toBe('// template');
+  });
+
+  it('模板主文件本身叫 solution.cpp 时也复制为 solution.cpp', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'DSU2', topId: 'ds' });
+    writeFileSync(join(absOf(template.relPath), 'solution.cpp'), '// sol-only');
+    const problem = await service.create({ kind: 'problem', title: 'Template Use 2', templateId: template.id });
+    expect(readFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'utf8')).toBe('// sol-only');
   });
 
   it('同名冲突按 -2/-3 分配；arenaPath 走白名单', async () => {
@@ -244,6 +280,19 @@ describe('标签、计数、改标题、归档（契约 §6.3 / §6.4 / §6.5 / 
     const child = archived.objects.find((o) => o.id === problem.id);
     expect(child?.archived).toBe(false);
     expect(child?.effectiveArchived).toBe(true);
+  });
+
+  it('归档视图的标签计数按归档对象算，活动视图不含归档', async () => {
+    await initRoot();
+    const active = await service.create({ kind: 'problem', title: 'Active Tagged' });
+    const archived = await service.create({ kind: 'problem', title: 'Archived Tagged' });
+    await service.update({ id: active.id, tags: { primary: 'graph/tree' } });
+    await service.update({ id: archived.id, tags: { primary: 'graph/tree' }, archived: true });
+
+    const activeTree = await service.tree();
+    expect(activeTree.taxonomy?.nodes.find((n) => n.id === 'graph')?.count).toBe(1);
+    const archivedTree = await service.tree({ archived: true });
+    expect(archivedTree.taxonomy?.nodes.find((n) => n.id === 'graph')?.count).toBe(1);
   });
 });
 
@@ -484,5 +533,23 @@ describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
       service.saveArenaRecord({ arenaPath, ghost, view: { ...view, viewMs: -1 } }),
     ).rejects.toMatchObject({ kind: 'invalid' });
     expect((await service.tree()).objects).toHaveLength(0);
+  });
+
+  it('record.json 的 arenaPath 与请求不一致 → conflict', async () => {
+    await initRoot();
+    const other = 'official/icpc/icpc2025/icpc2025beijing.srk.json';
+    const contest = await service.create({ kind: 'contest', title: 'Mismatch', arenaPath });
+    writeFileSync(
+      join(absOf(contest.relPath), 'record.json'),
+      JSON.stringify({
+        schema: 1,
+        arenaPath: other,
+        title: 'Mismatch',
+        savedAt: now.toISOString(),
+        ghost,
+        view,
+      }),
+    );
+    expect(() => service.getArenaRecord(arenaPath)).toThrowError(/不一致/);
   });
 });

@@ -196,7 +196,11 @@ export class WorkService {
       throw new WorkError('root-invalid', '.anvil 必须是受管根内的普通目录');
     }
     const rootJson = join(abs, '.anvil', 'root.json');
-    if (lstatOrNull(rootJson) === null) throw new WorkError('workspace-uninitialized', '受管根还没有初始化');
+    const rootJsonStat = lstatOrNull(rootJson);
+    if (rootJsonStat === null) throw new WorkError('workspace-uninitialized', '受管根还没有初始化');
+    if (rootJsonStat.isSymbolicLink() || !rootJsonStat.isFile()) {
+      throw new WorkError('root-version', '.anvil/root.json 必须是普通文件，不允许符号链接');
+    }
     let data: unknown;
     try {
       data = JSON.parse(readFileSync(rootJson, 'utf8'));
@@ -245,15 +249,22 @@ export class WorkService {
   getArenaRecord(arenaPath: string): WorkArenaRecordDto {
     const obj = this.contestByArenaPath(arenaPath);
     const file = join(obj.absPath, 'record.json');
+    const fileStat = lstatOrNull(file);
+    if (fileStat === null) throw new WorkError('not-found', '这场还没有保存过成绩');
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
+      throw new WorkError('unsafe-path', 'record.json 必须是普通文件，不允许符号链接');
+    }
     let raw: unknown;
     try {
       raw = JSON.parse(readFileSync(file, 'utf8'));
     } catch (err) {
-      if ((err as { code?: string }).code === 'ENOENT') throw new WorkError('not-found', '这场还没有保存过成绩');
       throw new WorkError('internal', `record.json 读不出来：${asError(err).message}`);
     }
     const parsed = parseWorkArenaRecord(raw);
     if (!parsed.ok) throw new WorkError('internal', `record.json 不合法：${parsed.message}`);
+    if (parsed.record.arenaPath !== arenaPath) {
+      throw new WorkError('conflict', 'record.json 的榜单路径与这场不一致，请先清理存档');
+    }
     return parsed.record;
   }
 
@@ -326,6 +337,9 @@ export class WorkService {
     const rootJson = join(abs, '.anvil', 'root.json');
     const rootJsonStat = lstatOrNull(rootJson);
     if (rootJsonStat !== null) {
+      if (rootJsonStat.isSymbolicLink() || !rootJsonStat.isFile()) {
+        throw new WorkError('root-version', '.anvil/root.json 必须是普通文件，不允许符号链接');
+      }
       let data: unknown;
       try {
         data = JSON.parse(readFileSync(rootJson, 'utf8'));
@@ -570,7 +584,7 @@ export class WorkService {
     const explicit = entries.find((name) => name === 'template.cpp');
     const firstCpp = entries.find((name) => name.toLowerCase().endsWith('.cpp'));
     const solution = explicit ?? firstCpp ?? null;
-    if (solution !== null && solution !== 'solution.cpp') {
+    if (solution !== null) {
       copyFileSync(join(sourceAbs, solution), join(targetAbs, 'solution.cpp'));
     }
     if (entries.includes('test.cpp')) copyFileSync(join(sourceAbs, 'test.cpp'), join(targetAbs, 'test.cpp'));
@@ -752,6 +766,11 @@ export class WorkService {
     const trashAbs = idx.trashDirs.get(id);
     if (trashAbs === undefined) throw new WorkError('not-found', '回收站里没有这个对象');
     const manifestPath = join(trashAbs, 'trash.json');
+    const manifestStat = lstatOrNull(manifestPath);
+    if (manifestStat === null) throw new WorkError('not-found', '回收站清单不存在');
+    if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+      throw new WorkError('unsafe-path', 'trash.json 必须是普通文件，不允许符号链接');
+    }
     let manifest: unknown;
     try {
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -809,12 +828,19 @@ export class WorkService {
     let taxonomy: WorkTaxonomyFile | null = null;
     let taxonomyError: string | null = null;
     const taxPath = join(root, '.anvil', 'taxonomy.json');
-    try {
-      const parsed = parseTaxonomy(JSON.parse(readFileSync(taxPath, 'utf8')));
-      if (parsed.ok) taxonomy = parsed.taxonomy;
-      else taxonomyError = parsed.message;
-    } catch (err) {
-      taxonomyError = `词表读取失败：${asError(err).message}`;
+    const taxStat = lstatOrNull(taxPath);
+    if (taxStat === null) {
+      taxonomyError = '词表读取失败：.anvil/taxonomy.json 不存在';
+    } else if (taxStat.isSymbolicLink() || !taxStat.isFile()) {
+      taxonomyError = '词表读取失败：taxonomy.json 必须是普通文件，不允许符号链接';
+    } else {
+      try {
+        const parsed = parseTaxonomy(JSON.parse(readFileSync(taxPath, 'utf8')));
+        if (parsed.ok) taxonomy = parsed.taxonomy;
+        else taxonomyError = parsed.message;
+      } catch (err) {
+        taxonomyError = `词表读取失败：${asError(err).message}`;
+      }
     }
 
     const walk = (absDir: string, relDir: string): void => {
@@ -962,9 +988,15 @@ export class WorkService {
       for (const entry of entries) {
         if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
         const dirAbs = join(trashRoot, entry.name);
+        const manifestPath = join(dirAbs, 'trash.json');
+        const manifestStat = lstatOrNull(manifestPath);
+        if (manifestStat === null || manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+          errors.push({ relPath: toPosix(`.anvil/trash/${entry.name}`), kind: 'meta-invalid', message: 'trash.json 必须是普通文件' });
+          continue;
+        }
         let manifest: unknown;
         try {
-          manifest = JSON.parse(readFileSync(join(dirAbs, 'trash.json'), 'utf8'));
+          manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
         } catch {
           errors.push({ relPath: toPosix(`.anvil/trash/${entry.name}`), kind: 'meta-invalid', message: 'trash.json 读不出来' });
           continue;
@@ -1054,7 +1086,7 @@ export class WorkService {
       objects: idx.objects.filter((obj) => obj.effectiveArchived === archived).map((obj) => this.dtoOf(obj)),
       unregistered: idx.unregistered,
       errors: idx.errors,
-      taxonomy: this.taxonomyDto(idx),
+      taxonomy: this.taxonomyDto(idx, archived),
       taxonomyError: idx.taxonomyError,
       trash: idx.trash,
     };
@@ -1083,14 +1115,14 @@ export class WorkService {
     return { ...this.dtoOf(obj), files: [...obj.files], filesTruncated: obj.filesTruncated };
   }
 
-  private taxonomyDto(idx: WorkIndex): WorkTaxonomyDto | null {
+  private taxonomyDto(idx: WorkIndex, archived = false): WorkTaxonomyDto | null {
     if (idx.taxonomy === null) return null;
     const flat = flattenTaxonomy(idx.taxonomy.nodes);
     const parentOf = new Map(flat.map((n) => [n.id, n.parentId]));
     const valid = new Set(flat.map((n) => n.id));
     const counts = new Map<string, number>();
     for (const obj of idx.objects) {
-      if (obj.effectiveArchived) continue;
+      if (obj.effectiveArchived !== archived) continue;
       const primary = obj.record.meta.tags.primary;
       if (primary === null || !valid.has(primary)) continue;
       counts.set(primary, (counts.get(primary) ?? 0) + 1);

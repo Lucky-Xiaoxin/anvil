@@ -512,8 +512,10 @@ export function Workbench() {
           onDone={(title, id) => {
             setDialog(null);
             setTrashView(false);
+            // 在「看归档」里新建 / 登记出来的是未归档对象，先切回活动视图再拉树，否则会“保存成功但看不见”
+            setArchived(false);
             void (async () => {
-              await load(archived, false, id);
+              await load(false, false, id);
               setNotice({ kind: 'ok', text: `已保存「${title}」` });
             })();
           }}

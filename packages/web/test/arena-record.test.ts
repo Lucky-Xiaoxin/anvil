@@ -51,6 +51,18 @@ describe('VP 成绩存档映射', () => {
       durationMs: 14400000,
     });
     expect(viewOfRow(store, row, null)).toEqual({ mode: 'review', viewMs: 180000, paused: false, frozenView: false });
+
+    // 回顾停在 0:00 是合法位置，不能拿终榜时长顶替
+    saveSession(store, row.path, {
+      started: 1000,
+      hold: true,
+      paused: false,
+      ended: true,
+      scrubMs: 0,
+      at: 0,
+      durationMs: 14400000,
+    });
+    expect(viewOfRow(store, row, null)).toEqual({ mode: 'review', viewMs: 0, paused: false, frozenView: false });
     expect(viewOfRow(memoryStore(), row, null)).toEqual({ mode: 'review', viewMs: 0, paused: false, frozenView: false });
   });
 });
