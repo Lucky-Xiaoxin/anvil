@@ -88,6 +88,13 @@ export function saveXcpcPlayerKey(key: string): VaultConfig {
   return cfg;
 }
 
+/** 工坊受管根：只改这一个键，不碰 handle / port / 认领态（docs/contracts/23 §9.3） */
+export function saveWorkspaceRoot(root: string): VaultConfig {
+  const cfg = { ...loadConfig(), workspaceRoot: root };
+  writeConfig(cfg);
+  return cfg;
+}
+
 export function portOf(cfg: VaultConfig): number {
   const fromEnv = Number(process.env.ANVIL_PORT);
   return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : cfg.port;

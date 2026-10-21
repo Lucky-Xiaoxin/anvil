@@ -8,7 +8,11 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { vaultDir } from './config.ts';
 import { writeFileAtomic } from './atomic.ts';
+import { CONTEST_PATH_RE, contestPathOk } from '@anvil/shared';
 import type { ArenaCatalogDto, ArenaContestDto, ArenaCatalogNode } from '@anvil/shared';
+
+// 纯判据在 shared：工坊的 links.arenaPath 与这里共用同一份（docs/contracts/23 §4.2）
+export { CONTEST_PATH_RE, contestPathOk };
 
 /**
  * 上游镜像顺序。契约（§2.1）只钉了 jsDelivr 一条，实测不够用：
@@ -34,8 +38,7 @@ export const CONTEST_TIMEOUT_MS = 90_000;
 export const MAX_RETRIES = 3;
 export const DEFAULT_BACKOFF_MS = [500, 1_500, 4_000];
 
-/** 路径白名单：只允许 official 下的逐段小写名 + 结尾 .srk.json（§2.1，拒 `..` / 编码绕过 / 外部域） */
-export const CONTEST_PATH_RE = /^official\/[a-z0-9_\-]+(\/[a-z0-9_\-]+)*\.srk\.json$/;
+/** 路径白名单的说明见 shared/arena-path.ts（docs/contracts/16 §2.1） */
 
 const USER_AGENT = 'ANVIL/1.0 (personal ICPC training dashboard)';
 
@@ -52,11 +55,6 @@ export class ArenaError extends Error {
 }
 
 export const arenaDir = join(vaultDir, 'arena');
-
-export function contestPathOk(path: string): boolean {
-  // JS 的 `$` 会放过结尾那枚换行，`%0a` 这类绕过要靠这条显式挡掉
-  return CONTEST_PATH_RE.test(path) && !/[\r\n]/.test(path);
-}
 
 function reasonOf(err: unknown): string {
   if (err instanceof Error) return err.name === 'TimeoutError' ? '请求超时' : err.message;

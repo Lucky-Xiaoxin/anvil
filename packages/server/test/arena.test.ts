@@ -12,6 +12,7 @@ import { registerApi } from '../src/api.ts';
 import { ARENA_HOSTS, ArenaClient, ArenaError, CATALOG_PATH, MAX_RETRIES, contestPathOk, parseCatalogYaml } from '../src/arena.ts';
 import { initSchema } from '../src/db.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
+import { WorkService } from '../src/work/store.ts';
 
 /* ---------- 自造目录夹具：形状照 2026-10-09 实测的真实 config.yaml（每节点一段 path、format 认叶子） ---------- */
 
@@ -525,6 +526,7 @@ async function makeApp(routes: Record<string, () => Promise<Response>>) {
     setHandles: () => {},
     xcpc: { db, getKey: () => '', setKey: () => {}, client: new XcpcClient({ fetchImpl }) },
     arena: mkClient({ fetchImpl, dir }),
+    work: new WorkService({ db, getRoot: () => '', setRoot: () => {} }),
   });
   await app.ready();
   return { app, hits, close: async () => { await app.close(); db.close(); } };

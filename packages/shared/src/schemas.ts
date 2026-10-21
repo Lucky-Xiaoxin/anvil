@@ -37,6 +37,8 @@ export const vaultConfigSchema = z.object({
   port: z.number().int().positive().default(7788),
   /** 认领的 XCPC 档案 key；'' = 未认领 */
   xcpcPlayerKey: z.string().default(''),
+  /** 工坊受管根（绝对路径）；'' = 未配置（docs/contracts/23 §3.1） */
+  workspaceRoot: z.string().default(''),
 });
 
 /** CF 官方接口信封：非 OK 时 comment 里是可读原因 */

@@ -17,6 +17,7 @@ import {
 } from '../src/db.ts';
 import type { CheckResult, SyncSource } from '../src/sync/source.ts';
 import { XcpcClient } from '../src/sync/xcpc.ts';
+import { WorkService } from '../src/work/store.ts';
 import { initSnapshot } from '../src/sync/runner.ts';
 
 // 这几条断言走 /api/status（buildStatus 默认 now = 真实时钟）：种子数据的「上次同步」必须跟着
@@ -115,6 +116,7 @@ async function boot(opts: {
     },
     // arena 只在这几条路由测试里才真的取数；其余用例注入离网客户端，永不触网
     arena: new ArenaClient({ fetchImpl: offlineFetch, dir: join(tmpdir(), 'anvil-arena-api-test') }),
+    work: new WorkService({ db, getRoot: () => '', setRoot: () => {} }),
   });
   // 与 index.ts 一样：进程起来先把两源快照对齐到库里的读数
   initSnapshot(db);
