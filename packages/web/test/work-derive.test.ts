@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
-import { allLabels, fileSize, filterWorkObjects, flatNodes, kindCounts, matchesTag, primaryName } from '../src/components/work/derive.ts';
+import {
+  allLabels,
+  fileSize,
+  filterWorkObjects,
+  flatNodes,
+  groupWorkObjects,
+  kindCounts,
+  matchesTag,
+  pathBreadcrumb,
+  primaryName,
+} from '../src/components/work/derive.ts';
 
 const taxonomy: WorkTaxonomyDto = {
   version: 1,
@@ -70,5 +80,56 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     expect(fileSize(512)).toBe('512 B');
     expect(fileSize(2048)).toBe('2.0 KB');
     expect(fileSize(2 * 1024 * 1024)).toBe('2.0 MB');
+  });
+});
+
+describe('中间列表分组（切片 5a.1）', () => {
+  const contest = (id: string, title: string, relPath: string): WorkObjectDto =>
+    obj({ id, kind: 'contest', title, relPath, parentId: null, links: {} });
+  const problem = (id: string, title: string, relPath: string, parentId: string | null): WorkObjectDto =>
+    obj({ id, title, relPath, parentId });
+
+  it('比赛题按父比赛分组；比赛本身命中筛选时组头可进详情', () => {
+    const c1 = contest('obj_0000000010', 'Shanghai', 'contests/2026-10-21_shanghai');
+    const c2 = contest('obj_0000000011', 'Nanjing', 'contests/2026-10-22_nanjing');
+    const p1 = problem('obj_0000000012', 'A', 'contests/2026-10-21_shanghai/a', c1.id);
+    const p2 = problem('obj_0000000013', 'B', 'contests/2026-10-21_shanghai/b', c1.id);
+    const p3 = problem('obj_0000000014', 'C', 'contests/2026-10-22_nanjing/c', c2.id);
+    const all = [c1, c2, p1, p2, p3];
+
+    const model = groupWorkObjects(all, all);
+    expect(model.groups.map((g) => g.contest.id)).toEqual([c1.id, c2.id]);
+    expect(model.groups[0]?.problems.map((p) => p.id)).toEqual([p1.id, p2.id]);
+    expect(model.groups[0]?.included).toBe(true);
+    expect(model.standalone).toEqual([]);
+  });
+
+  it('kind=题目 时父比赛不在筛选结果里，仍按比赛分组且组头不可点', () => {
+    const c1 = contest('obj_0000000010', 'Shanghai', 'contests/2026-10-21_shanghai');
+    const p1 = problem('obj_0000000012', 'A', 'contests/2026-10-21_shanghai/a', c1.id);
+    const model = groupWorkObjects([p1], [c1, p1]);
+    expect(model.groups).toHaveLength(1);
+    expect(model.groups[0]?.included).toBe(false);
+    expect(model.groups[0]?.problems.map((p) => p.id)).toEqual([p1.id]);
+  });
+
+  it('未挂比赛的题目进单题区；模板 / 笔记各自成区；父对象缺失兜底', () => {
+    const c1 = contest('obj_0000000010', 'Shanghai', 'contests/2026-10-21_shanghai');
+    const single = problem('obj_0000000012', 'Single', 'practice/2026-10/single', null);
+    const orphan = problem('obj_0000000013', 'Orphan', 'practice/2026-10/orphan', 'obj_0000000099');
+    const template = obj({ id: 'obj_0000000014', kind: 'template', title: 'DSU', relPath: 'templates/ds/dsu' });
+    const note = obj({ id: 'obj_0000000015', kind: 'note', title: 'Week', relPath: 'notes/2026/10/x' });
+    const model = groupWorkObjects([single, orphan, template, note, c1], [c1, single, orphan, template, note]);
+    expect(model.standalone.map((p) => p.id)).toEqual([single.id]);
+    expect(model.orphans.map((p) => p.id)).toEqual([orphan.id]);
+    expect(model.templates.map((p) => p.id)).toEqual([template.id]);
+    expect(model.notes.map((p) => p.id)).toEqual([note.id]);
+    expect(model.groups[0]?.problems).toEqual([]);
+  });
+
+  it('单题目录面包屑去掉对象文件夹本身', () => {
+    expect(pathBreadcrumb('practice/2026-10/cherry-tree')).toEqual(['practice', '2026-10']);
+    expect(pathBreadcrumb('manual/problem')).toEqual(['manual']);
+    expect(pathBreadcrumb('cherry-tree')).toEqual([]);
   });
 });

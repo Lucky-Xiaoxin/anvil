@@ -73,6 +73,81 @@ export function filterWorkObjects(objects: readonly WorkObjectDto[], taxonomy: W
   });
 }
 
+export interface WorkContestGroup {
+  contest: WorkObjectDto;
+  /** 比赛本身命中筛选时，组头可点开比赛详情 */
+  included: boolean;
+  problems: WorkObjectDto[];
+}
+
+export interface WorkListModel {
+  groups: WorkContestGroup[];
+  standalone: WorkObjectDto[];
+  templates: WorkObjectDto[];
+  notes: WorkObjectDto[];
+  /** parentId 指向不存在的对象：扫描层已报错，这里兜底照常列出 */
+  orphans: WorkObjectDto[];
+}
+
+const byRelPath = (a: WorkObjectDto, b: WorkObjectDto): number => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0);
+
+/**
+ * 中间列表分组（切片 5a.1）：比赛题按父比赛折叠成组，未挂比赛的题目进独立「单题」区。
+ * `filtered` 是当前筛选结果，`all` 用来补出被 kind 筛选挡掉的父比赛标题。
+ */
+export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readonly WorkObjectDto[]): WorkListModel {
+  const byId = new Map(all.map((obj) => [obj.id, obj]));
+  const groups = new Map<string, WorkContestGroup>();
+  const standalone: WorkObjectDto[] = [];
+  const templates: WorkObjectDto[] = [];
+  const notes: WorkObjectDto[] = [];
+  const orphans: WorkObjectDto[] = [];
+
+  const groupOf = (contest: WorkObjectDto): WorkContestGroup => {
+    let group = groups.get(contest.id);
+    if (group === undefined) {
+      group = { contest, included: false, problems: [] };
+      groups.set(contest.id, group);
+    }
+    return group;
+  };
+
+  for (const obj of filtered) {
+    if (obj.kind === 'contest') {
+      groupOf(obj).included = true;
+    } else if (obj.kind === 'problem') {
+      if (obj.parentId === null) {
+        standalone.push(obj);
+        continue;
+      }
+      const parent = byId.get(obj.parentId);
+      if (parent !== undefined && parent.kind === 'contest') groupOf(parent).problems.push(obj);
+      else orphans.push(obj);
+    } else if (obj.kind === 'template') {
+      templates.push(obj);
+    } else {
+      notes.push(obj);
+    }
+  }
+
+  const sortedGroups = [...groups.values()]
+    .map((group) => ({ ...group, problems: [...group.problems].sort(byRelPath) }))
+    .sort((a, b) => byRelPath(a.contest, b.contest));
+  return {
+    groups: sortedGroups,
+    standalone: standalone.sort(byRelPath),
+    templates: templates.sort(byRelPath),
+    notes: notes.sort(byRelPath),
+    orphans: orphans.sort(byRelPath),
+  };
+}
+
+/** 单题目录面包屑：`practice/2026-10/cherry-tree` → `['practice', '2026-10']` */
+export function pathBreadcrumb(relPath: string): string[] {
+  const parts = relPath.split('/').filter((part) => part !== '');
+  return parts.slice(0, -1);
+}
+
 export function allLabels(objects: readonly WorkObjectDto[]): string[] {
   const out = new Set<string>();
   for (const obj of objects) for (const label of obj.labels) out.add(label);

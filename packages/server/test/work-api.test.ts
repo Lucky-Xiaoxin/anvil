@@ -225,6 +225,34 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().error.kind).toBe('unsafe-path');
   });
 
+  it('template：读空文件 / 保存 / 冲突 / 非模板拒绝 / 新建题目自动复制默认模板', async () => {
+    await boot();
+    await initApi();
+    const template = await create('template', 'DSU', { topId: 'ds' });
+
+    let res = await app.inject({ method: 'GET', url: `/api/work/template?id=${template.id}` });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ path: 'template.cpp', exists: false, content: '', revision: null });
+
+    res = await post('/api/work/template', { id: template.id, content: 'int main() {}\n', baseRevision: null });
+    expect(res.statusCode, res.body).toBe(200);
+    const saved = res.json();
+    expect(saved).toMatchObject({ path: 'template.cpp', exists: true, content: 'int main() {}\n' });
+    expect(saved.revision).toMatch(/^[0-9a-f]{64}$/);
+
+    res = await post('/api/work/template', { id: template.id, content: 'stale\n', baseRevision: null });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+
+    const problem = await create('problem', 'Auto Template');
+    res = await app.inject({ method: 'GET', url: `/api/work/object?id=${problem.id}` });
+    expect(res.json().files.some((f: { path: string }) => f.path === 'solution.cpp')).toBe(true);
+
+    res = await app.inject({ method: 'GET', url: `/api/work/template?id=${problem.id}` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('invalid');
+  });
+
   it('arena-record：保存 / 读回 / 自动建 contest / 未知场次 404', async () => {
     await boot();
     await initApi();

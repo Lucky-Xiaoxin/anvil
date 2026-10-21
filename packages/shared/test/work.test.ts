@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWorkRelPath,
   cleanLabels,
+  defaultTemplateOf,
   flattenTaxonomy,
   localDateParts,
   parseTaxonomy,
@@ -211,6 +212,31 @@ describe('taxonomy（契约 §7）', () => {
     const parsed = parseTaxonomy({ schema: 1, version: 1, nodes: [{ id: 'graph', name: '图论' }], aliases: {} });
     expect(parsed.ok).toBe(true);
     expect(parseTaxonomy({ schema: 2, version: 1, nodes: [] }).ok).toBe(false);
+  });
+});
+
+describe('默认模板（切片 5a.1）', () => {
+  const template = (patch: Record<string, unknown> = {}) => ({
+    kind: 'template' as const,
+    effectiveArchived: false,
+    updatedAt: '2026-10-21T02:00:00.000Z',
+    relPath: 'templates/ds/dsu',
+    ...patch,
+  });
+
+  it('取非归档模板里 updatedAt 最新的一件；同刻按 relPath', () => {
+    const older = template({ updatedAt: '2026-10-20T00:00:00.000Z', relPath: 'templates/ds/older' });
+    const newer = template({ updatedAt: '2026-10-21T00:00:00.000Z', relPath: 'templates/graph/newer' });
+    const tieB = template({ updatedAt: '2026-10-21T00:00:00.000Z', relPath: 'templates/b/b' });
+    const tieA = template({ updatedAt: '2026-10-21T00:00:00.000Z', relPath: 'templates/a/a' });
+    expect(defaultTemplateOf([older, newer, tieB, tieA])?.relPath).toBe('templates/a/a');
+  });
+
+  it('忽略非模板与归档模板；全空返回 null', () => {
+    const archived = template({ effectiveArchived: true, updatedAt: '2026-10-22T00:00:00.000Z' });
+    const problem = template({ kind: 'problem' as const, updatedAt: '2026-10-23T00:00:00.000Z' });
+    expect(defaultTemplateOf([archived, problem])).toBeNull();
+    expect(defaultTemplateOf([archived, template()])?.relPath).toBe('templates/ds/dsu');
   });
 });
 

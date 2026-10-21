@@ -1420,6 +1420,43 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-row--mini{padding-top:6px;padding-bottom:6px}
 .wk-row--mini .wk-row__title code{font-size:11px;color:var(--text-dim)}
 .wk-row--trash:hover{background:transparent}
+/* 比赛折叠组 / 单题面包屑（切片 5a.1） */
+.wk-group{min-width:0;border-radius:var(--r-s)}
+.wk-group.is-on > .wk-group__head{background:rgba(245,165,36,.10)}
+.wk-group__head{display:flex;align-items:flex-start;gap:3px;padding:7px 5px 6px;border-radius:var(--r-s)}
+.wk-group__head:hover{background:rgba(255,255,255,.03)}
+.wk-group__toggle{
+  flex:0 0 auto;width:20px;height:20px;display:grid;place-items:center;margin-top:1px;
+  color:var(--text-mute);border-radius:3px;
+}
+.wk-group__toggle svg{width:12px;height:12px;transition:transform var(--dur) var(--ease)}
+.wk-group__toggle.is-open svg{transform:rotate(90deg)}
+.wk-group__toggle:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.wk-group__main{flex:1 1 auto;min-width:0}
+.wk-group__titlerow{display:flex;align-items:center;gap:7px;min-width:0}
+.wk-group__title{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:13px;font-weight:500;color:var(--text);line-height:1.4;text-align:left;
+}
+.wk-group__title:hover{color:var(--accent)}
+.wk-group__title--static{cursor:default;color:var(--text-dim)}
+.wk-group__title--static:hover{color:var(--text-dim)}
+.wk-group__count{
+  flex:0 0 auto;padding:0 6px;border:1px solid var(--line-soft);border-radius:999px;
+  font-family:var(--font-num);font-size:9.5px;color:var(--text-mute);line-height:1.6;
+}
+.wk-group__meta{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px;
+  font-family:var(--font-num);font-size:10px;color:var(--text-mute);
+}
+.wk-row--child{padding-left:28px;position:relative}
+.wk-row--child::before{content:'';position:absolute;left:14px;top:9px;bottom:9px;border-left:1px solid var(--line-soft)}
+.wk-empty--child{padding-left:28px}
+.wk-row__crumb{
+  display:flex;align-items:center;gap:2px;margin-top:2px;min-width:0;
+  font-size:10px;color:var(--text-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.wk-row__crumbsep{margin:0 3px;color:var(--text-mute);opacity:.65}
 .wk-kind{
   font-size:10px;letter-spacing:.04em;color:var(--text-mute);
   border:1px solid var(--line);border-radius:3px;padding:1px 5px;
@@ -1492,6 +1529,21 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-kv b{font-weight:500;color:var(--text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis}
 .wk-kv code{font-size:10.5px;color:var(--text-dim);overflow-wrap:anywhere}
 .wk-sec--files{margin-top:2px}
+/* 模板详情内联编辑（切片 5a.1） */
+.wk-editor{display:flex;flex-direction:column;gap:6px}
+.wk-editor__area{
+  width:100%;min-height:220px;max-height:420px;resize:vertical;
+  padding:8px 10px;background:#0B0E13;border:1px solid var(--line);border-radius:var(--r-s);
+  color:var(--text);font-family:var(--font-num);font-size:11.5px;line-height:1.55;
+  tab-size:2;white-space:pre;overflow:auto;
+}
+.wk-editor__area::placeholder{color:var(--text-mute)}
+.wk-editor__area:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,165,36,.14)}
+.wk-editor__area:disabled{opacity:.6}
+.wk-editor__bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.wk-editor__bar .btn{height:27px;font-size:11.5px}
+.wk-editor__state{font-size:10.5px;color:var(--text-mute)}
+.wk-editor__state.is-bad{color:var(--bad)}
 .wk-files{display:flex;flex-direction:column;gap:1px}
 .wk-file{
   display:grid;grid-template-columns:14px minmax(0,1fr) 56px 94px;align-items:center;gap:7px;

@@ -13,6 +13,7 @@ import type {
   WorkKind,
   WorkObjectDetailDto,
   WorkTags,
+  WorkTemplateFileDto,
   WorkTreeDto,
   XcpcProfileDto,
   XcpcRefreshDto,
@@ -137,7 +138,8 @@ export const createWork = (body: {
   problemKey?: string;
   arenaPath?: string;
   topId?: string;
-  templateId?: string;
+  /** 省略 = 默认模板；null / '' = 不复制 */
+  templateId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/create', post(body), 30_000);
 
 export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string }): Promise<WorkObjectDetailDto> =>
@@ -162,6 +164,13 @@ export const openWork = async (id: string, relPath?: string): Promise<void> => {
 };
 
 export const rescanWork = (): Promise<WorkRescanSummaryDto> => request<WorkRescanSummaryDto>('/api/work/rescan', post({}), 45_000);
+
+/** 模板详情内联编辑：只读写一个主文件（切片 5a.1） */
+export const getWorkTemplate = (id: string): Promise<WorkTemplateFileDto> =>
+  request<WorkTemplateFileDto>(`/api/work/template?id=${encodeURIComponent(id)}`);
+
+export const saveWorkTemplate = (id: string, content: string, baseRevision: string | null): Promise<WorkTemplateFileDto> =>
+  request<WorkTemplateFileDto>('/api/work/template', post({ id, content, baseRevision }), 30_000);
 
 /** VP 成绩存档：按榜单路径找工坊 contest 对象，读/写对象文件夹里的 record.json */
 export const getWorkArenaRecord = (path: string): Promise<WorkArenaRecordDto> =>

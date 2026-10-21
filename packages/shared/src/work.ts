@@ -91,6 +91,50 @@ export interface WorkTreeDto {
   trash: WorkTrashDto[];
 }
 
+/* ---------- 模板文件（切片 5a.1：详情内联编辑） ---------- */
+
+/** 模板详情只暴露一个主文件：显式 `template.cpp`，没有就取首个 `.cpp`，再没有就用 `template.cpp`（保存时新建） */
+export interface WorkTemplateFileDto {
+  /** 对象内相对路径（POSIX），例如 `template.cpp` */
+  path: string;
+  exists: boolean;
+  content: string;
+  /** 内容的 SHA-256；文件不存在时 null。保存时用它做冲突检测 */
+  revision: string | null;
+}
+
+export interface WorkTemplateSaveInput {
+  id: string;
+  content: string;
+  /** 客户端读取时的 revision；null 表示当时文件不存在 */
+  baseRevision: string | null;
+}
+
+/** 与全局 64KB 请求体区分：模板正文按 UTF-8 字节计 */
+export const WORK_TEMPLATE_CONTENT_MAX = 64 * 1024;
+
+export interface WorkTemplateCandidate {
+  kind: WorkKind;
+  effectiveArchived: boolean;
+  updatedAt: string;
+  relPath: string;
+}
+
+/**
+ * 新建题目时的默认模板：非归档模板里 updatedAt 最新的一件。
+ * 服务端与创建对话框共用这一条判据，避免两边各挑各的。
+ */
+export function defaultTemplateOf<T extends WorkTemplateCandidate>(objects: readonly T[]): T | null {
+  let best: T | null = null;
+  for (const obj of objects) {
+    if (obj.kind !== 'template' || obj.effectiveArchived) continue;
+    if (best === null || obj.updatedAt > best.updatedAt || (obj.updatedAt === best.updatedAt && obj.relPath < best.relPath)) {
+      best = obj;
+    }
+  }
+  return best;
+}
+
 /* ---------- VP 成绩存档（docs/contracts/23 §15.3 的先行实现） ---------- */
 
 export type WorkArenaGhostResult = 'AC' | 'WA' | 'TLE' | 'RE' | 'CE';

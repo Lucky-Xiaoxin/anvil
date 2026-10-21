@@ -2,7 +2,7 @@
  * 工坊服务（docs/contracts/23）：`.anvil.json` 是权威，内存索引只是缓存。
  * 所有写操作走单 Promise 队列；所有元数据写入走 writeFileAtomic；不新增 SQLite 表。
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, type Dirent } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -10,6 +10,7 @@ import {
   buildWorkRelPath,
   cleanLabels,
   contestPathOk,
+  defaultTemplateOf,
   flattenTaxonomy,
   isWorkKind,
   parseTaxonomy,
@@ -21,6 +22,7 @@ import {
   unregisteredKindHint,
   workIdOk,
   workMetaToJson,
+  WORK_TEMPLATE_CONTENT_MAX,
   type WorkArenaGhost,
   type WorkArenaRecordDto,
   type WorkArenaSaveResult,
@@ -34,6 +36,8 @@ import {
   type WorkScanErrorDto,
   type WorkTaxonomyDto,
   type WorkTaxonomyFile,
+  type WorkTemplateFileDto,
+  type WorkTemplateSaveInput,
   type WorkTreeDto,
   type WorkTrashDto,
   type WorkUnregisteredDto,
@@ -72,7 +76,8 @@ export interface WorkCreateInput {
   problemKey?: string;
   arenaPath?: string;
   topId?: string;
-  templateId?: string;
+  /** 省略 = 用默认模板；null / '' = 明确不复制模板；字符串 = 指定模板 */
+  templateId?: string | null;
 }
 
 export interface WorkAdoptInput {
@@ -142,6 +147,18 @@ interface CollectedObject {
   files: WorkFileDto[];
   fileCount: number;
   filesTruncated: boolean;
+}
+
+interface TemplateFileState {
+  path: string;
+  absPath: string;
+  exists: boolean;
+  content: string;
+  revision: string | null;
+}
+
+function hashText(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 const asError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
@@ -243,6 +260,20 @@ export class WorkService {
 
   rescan(): Promise<WorkRescanSummary> {
     return this.enqueue(() => this.rescanNow(true));
+  }
+
+  /** 模板详情的内联编辑只读写一个主文件（切片 5a.1） */
+  getTemplate(id: string): WorkTemplateFileDto {
+    const idx = this.ensureIndex();
+    const obj = idx.byId.get(id);
+    if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
+    if (obj.record.meta.kind !== 'template') throw new WorkError('invalid', '只有模板对象有可编辑的模板文件');
+    const state = this.templateStateOf(idx.root, obj);
+    return { path: state.path, exists: state.exists, content: state.content, revision: state.revision };
+  }
+
+  saveTemplate(input: WorkTemplateSaveInput): Promise<WorkTemplateFileDto> {
+    return this.enqueue(() => this.saveTemplateNow(input));
   }
 
   /** 回放页 / 目录行读回存档：按 `links.arenaPath` 找唯一的 contest 对象 */
@@ -479,10 +510,14 @@ export class WorkService {
     }
 
     let templateSource: IndexedObject | null = null;
-    if (input.templateId !== undefined && input.templateId !== '') {
-      templateSource = idx.byId.get(input.templateId) ?? null;
+    const explicitTemplate = typeof input.templateId === 'string' ? input.templateId.trim() : '';
+    if (explicitTemplate !== '') {
+      templateSource = idx.byId.get(explicitTemplate) ?? null;
       if (templateSource === null) throw new WorkError('not-found', '来源模板不存在');
       if (templateSource.record.meta.kind !== 'template') throw new WorkError('invalid', 'templateId 必须指向模板对象');
+    } else if (kind === 'problem' && input.templateId === undefined) {
+      // 未选模板 = 用默认模板（非归档里 updatedAt 最新的那件），与创建对话框同一判据
+      templateSource = this.defaultTemplateOf(idx);
     }
 
     const date = this.nowDate();
@@ -564,6 +599,19 @@ export class WorkService {
     }
   }
 
+  private defaultTemplateOf(idx: WorkIndex): IndexedObject | null {
+    const picked = defaultTemplateOf(
+      idx.objects.map((obj) => ({
+        kind: obj.record.meta.kind,
+        effectiveArchived: obj.effectiveArchived,
+        updatedAt: obj.record.meta.updatedAt,
+        relPath: obj.relPath,
+        obj,
+      })),
+    );
+    return picked?.obj ?? null;
+  }
+
   private lookupProblemName(problemKey: string): string | null {
     try {
       const row = this.deps.db
@@ -574,6 +622,84 @@ export class WorkService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 模板主文件解析：显式 `template.cpp` → 首个 `.cpp` → 缺省的 `template.cpp`（保存时新建）。
+   * 与 copyTemplate 保持同一优先级，编辑的和复制到 solution.cpp 的始终是同一份。
+   */
+  private templateFileOf(obj: IndexedObject): { path: string; absPath: string } {
+    const explicit = join(obj.absPath, 'template.cpp');
+    const explicitStat = lstatOrNull(explicit);
+    if (explicitStat !== null) {
+      if (explicitStat.isSymbolicLink() || !explicitStat.isFile()) {
+        throw new WorkError('unsafe-path', 'template.cpp 必须是普通文件，不允许符号链接');
+      }
+      return { path: 'template.cpp', absPath: explicit };
+    }
+    const names = readdirSync(obj.absPath, { withFileTypes: true })
+      .filter((e) => e.isFile() && !e.isSymbolicLink() && !isIgnoredName(e.name, false))
+      .map((e) => e.name)
+      .sort(comparePosix);
+    const firstCpp = names.find((name) => name.toLowerCase().endsWith('.cpp'));
+    if (firstCpp !== undefined) return { path: firstCpp, absPath: join(obj.absPath, firstCpp) };
+    return { path: 'template.cpp', absPath: explicit };
+  }
+
+  private templateStateOf(root: string, obj: IndexedObject): TemplateFileState {
+    const dirStat = lstatOrNull(obj.absPath);
+    if (dirStat === null) throw new WorkError('not-found', '模板文件夹已不存在，请重新扫描');
+    if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
+      throw new WorkError('unsafe-path', '模板文件夹必须是普通目录');
+    }
+    const file = this.templateFileOf(obj);
+    assertNoSymlinkComponents(root, file.absPath);
+    const st = lstatOrNull(file.absPath);
+    if (st === null) return { ...file, exists: false, content: '', revision: null };
+    if (st.isSymbolicLink() || !st.isFile()) {
+      throw new WorkError('unsafe-path', '模板文件必须是普通文件，不允许符号链接');
+    }
+    if (st.size > WORK_TEMPLATE_CONTENT_MAX) {
+      throw new WorkError('invalid', `模板文件超过 ${WORK_TEMPLATE_CONTENT_MAX / 1024}KB，不在工作台内编辑`);
+    }
+    let content: string;
+    try {
+      content = readFileSync(file.absPath, 'utf8');
+    } catch (err) {
+      throw new WorkError('internal', `模板文件读不出来：${asError(err).message}`);
+    }
+    return { ...file, exists: true, content, revision: hashText(content) };
+  }
+
+  private saveTemplateNow(input: WorkTemplateSaveInput): WorkTemplateFileDto {
+    const idx = this.ensureIndex();
+    const obj = idx.byId.get(input.id);
+    if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
+    if (obj.record.meta.kind !== 'template') throw new WorkError('invalid', '只有模板对象有可编辑的模板文件');
+    if (typeof input.content !== 'string') throw new WorkError('invalid', '模板内容必须是字符串');
+    const bytes = Buffer.byteLength(input.content, 'utf8');
+    if (bytes > WORK_TEMPLATE_CONTENT_MAX) {
+      throw new WorkError('invalid', `模板内容超过 ${WORK_TEMPLATE_CONTENT_MAX / 1024}KB`);
+    }
+    if (input.content.includes('\0')) throw new WorkError('invalid', '模板内容含 NUL，不能按文本保存');
+
+    const current = this.templateStateOf(idx.root, obj);
+    if (current.revision !== input.baseRevision) {
+      throw new WorkError('conflict', '模板文件在别处改过了，重新载入后再保存');
+    }
+    if (current.exists && current.content === input.content) {
+      return { path: current.path, exists: true, content: current.content, revision: current.revision };
+    }
+    try {
+      writeFileAtomic(current.absPath, input.content);
+    } catch (err) {
+      throw new WorkError('internal', `模板文件写入失败：${asError(err).message}`);
+    }
+    const fresh = this.refreshIndex();
+    const updated = fresh.byId.get(input.id);
+    if (updated === undefined) throw new WorkError('internal', '模板文件写入后对象没有进入索引');
+    const state = this.templateStateOf(fresh.root, updated);
+    return { path: state.path, exists: state.exists, content: state.content, revision: state.revision };
   }
 
   private copyTemplate(sourceAbs: string, targetAbs: string): void {

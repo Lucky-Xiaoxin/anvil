@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { WorkKind, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
+import { defaultTemplateOf, type WorkKind, type WorkTreeDto, type WorkUnregisteredDto } from '@anvil/shared';
 import { ApiError, createWork, adoptWork } from '../../api.ts';
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
@@ -24,7 +24,8 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
   const [parentId, setParentId] = useState('');
   const [problemKey, setProblemKey] = useState('');
   const [topId, setTopId] = useState('');
-  const [templateId, setTemplateId] = useState('');
+  /** '' = 默认模板（没有默认时等于不复制）；__none__ = 明确不复制；其余 = 模板 id */
+  const [templateChoice, setTemplateChoice] = useState('');
   const [arenaPath, setArenaPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
     () => tree.objects.filter((o) => o.kind === 'template' && !o.effectiveArchived),
     [tree.objects],
   );
+  const defaultTemplate = useMemo(() => defaultTemplateOf(tree.objects), [tree.objects]);
   const topNodes = tree.taxonomy?.nodes ?? [];
 
   const canSubmit = adopting || title.trim() !== '' || (kind === 'problem' && problemKey.trim() !== '');
@@ -57,7 +59,13 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
           ...(kind === 'problem' && parentId !== '' ? { parentId } : {}),
           ...(kind === 'problem' && problemKey.trim() !== '' ? { problemKey: problemKey.trim() } : {}),
           ...(kind === 'template' && topId !== '' ? { topId } : {}),
-          ...(kind === 'problem' && templateId !== '' ? { templateId } : {}),
+          ...(kind === 'problem'
+            ? templateChoice === '__none__'
+              ? { templateId: null }
+              : templateChoice !== ''
+                ? { templateId: templateChoice }
+                : {}
+            : {}),
           ...(kind === 'contest' && arenaPath.trim() !== '' ? { arenaPath: arenaPath.trim() } : {}),
         });
         onDone(made.title, made.id);
@@ -131,9 +139,14 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
               </label>
               {templates.length > 0 ? (
                 <label className="wk-field">
-                  <span className="wk-label">来源模板（可选）</span>
-                  <select className="wk-select" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-                    <option value="">不复制模板</option>
+                  <span className="wk-label">模板</span>
+                  <select className="wk-select" value={templateChoice} onChange={(e) => setTemplateChoice(e.target.value)}>
+                    {defaultTemplate === null ? (
+                      <option value="">不复制模板</option>
+                    ) : (
+                      <option value="">默认模板 · {defaultTemplate.title}</option>
+                    )}
+                    {defaultTemplate !== null ? <option value="__none__">不复制模板</option> : null}
                     {templates.map((t) => (
                       <option value={t.id} key={t.id}>
                         {t.title}
