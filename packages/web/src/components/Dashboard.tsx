@@ -12,11 +12,16 @@ export interface Notice {
 
 const NAME: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
 
-export function NoticeBar(notice: Notice) {
+export function NoticeBar({ kind, text, onClose }: Notice & { onClose?: () => void }) {
   return (
-    <div className={`alert alert--${notice.kind}`} role="status">
-      <Icon id={notice.kind === 'err' ? 'i-x' : 'i-check'} />
-      <div>{notice.text}</div>
+    <div className={`alert alert--${kind}`} role="status">
+      <Icon id={kind === 'err' ? 'i-x' : 'i-check'} />
+      <div>{text}</div>
+      {onClose === undefined ? null : (
+        <button className="alert__x" onClick={onClose} title="关闭提示">
+          知道了
+        </button>
+      )}
     </div>
   );
 }

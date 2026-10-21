@@ -302,7 +302,7 @@ export function Workbench() {
 
   return (
     <div className="content wk-page">
-      {notice !== null ? <NoticeBar {...notice} /> : null}
+      {notice !== null ? <NoticeBar {...notice} onClose={() => setNotice(null)} /> : null}
       <div className="wk-top">
         <div className="wk-top__root" title={tree.root}>
           <span className="wk-label">受管根</span>
