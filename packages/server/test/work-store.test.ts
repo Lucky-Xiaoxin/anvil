@@ -230,6 +230,142 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
   });
 });
 
+describe('模板文件读写（切片 5a.1）', () => {
+  it('读取主文件并带 SHA-256；revision 命中时原子保存并刷新文件列表', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const file = join(absOf(template.relPath), 'template.cpp');
+    writeFileSync(file, 'int main() {}\n');
+
+    const read = service.getTemplate(template.id);
+    expect(read).toMatchObject({ path: 'template.cpp', exists: true, content: 'int main() {}\n' });
+    expect(read.revision).toMatch(/^[0-9a-f]{64}$/);
+
+    const metaBefore = JSON.parse(readFileSync(join(absOf(template.relPath), '.anvil.json'), 'utf8'));
+    const saved = await service.saveTemplate({ id: template.id, content: 'int main() { return 0; }\n', baseRevision: read.revision });
+    expect(saved.content).toBe('int main() { return 0; }\n');
+    expect(saved.revision).not.toBe(read.revision);
+    expect(readFileSync(file, 'utf8')).toBe('int main() { return 0; }\n');
+    expect(service.object(template.id).files.some((f) => f.path === 'template.cpp')).toBe(true);
+    // 只写模板文件：meta 不因编辑而改动
+    expect(JSON.parse(readFileSync(join(absOf(template.relPath), '.anvil.json'), 'utf8'))).toEqual(metaBefore);
+  });
+
+  it('revision 过期 → conflict，文件不被覆盖', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const file = join(absOf(template.relPath), 'template.cpp');
+    writeFileSync(file, 'one\n');
+    const read = service.getTemplate(template.id);
+    writeFileSync(file, 'external\n');
+
+    await expect(service.saveTemplate({ id: template.id, content: 'editor\n', baseRevision: read.revision })).rejects.toMatchObject({
+      kind: 'conflict',
+    });
+    expect(readFileSync(file, 'utf8')).toBe('external\n');
+  });
+
+  it('文件不存在时 revision 为 null；保存创建 template.cpp；之后再用 null 保存 → conflict', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'Empty', topId: 'ds' });
+    const read = service.getTemplate(template.id);
+    expect(read).toMatchObject({ path: 'template.cpp', exists: false, content: '', revision: null });
+
+    const saved = await service.saveTemplate({ id: template.id, content: '// fresh\n', baseRevision: null });
+    expect(saved).toMatchObject({ path: 'template.cpp', exists: true, content: '// fresh\n' });
+    expect(readFileSync(join(absOf(template.relPath), 'template.cpp'), 'utf8')).toBe('// fresh\n');
+    await expect(service.saveTemplate({ id: template.id, content: '// again\n', baseRevision: null })).rejects.toMatchObject({
+      kind: 'conflict',
+    });
+  });
+
+  it('没有 template.cpp 时编辑首个 .cpp；非模板对象拒绝', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'Alt', topId: 'ds' });
+    writeFileSync(join(absOf(template.relPath), 'a.cpp'), '// a\n');
+    writeFileSync(join(absOf(template.relPath), 'b.cpp'), '// b\n');
+    const read = service.getTemplate(template.id);
+    expect(read.path).toBe('a.cpp');
+    const saved = await service.saveTemplate({ id: template.id, content: '// a2\n', baseRevision: read.revision });
+    expect(saved.path).toBe('a.cpp');
+    expect(readFileSync(join(absOf(template.relPath), 'a.cpp'), 'utf8')).toBe('// a2\n');
+
+    const problem = await service.create({ kind: 'problem', title: 'Nope' });
+    expect(() => service.getTemplate(problem.id)).toThrowError(/模板/);
+    await expect(service.saveTemplate({ id: problem.id, content: 'x', baseRevision: null })).rejects.toMatchObject({ kind: 'invalid' });
+  });
+
+  it('主文件是符号链接或内容超限 → 拒绝', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'Link', topId: 'ds' });
+    const outside = join(base, 'outside.cpp');
+    writeFileSync(outside, '// outside\n');
+    try {
+      symlinkSync(outside, join(absOf(template.relPath), 'template.cpp'), 'file');
+    } catch {
+      return; // Windows 未开启开发者模式时跳过
+    }
+    await expect(service.saveTemplate({ id: template.id, content: 'x', baseRevision: null })).rejects.toMatchObject({ kind: 'unsafe-path' });
+    expect(readFileSync(outside, 'utf8')).toBe('// outside\n');
+  });
+
+  it('模板文件夹被外部移走 → not-found，不重建原目录', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'Moved', topId: 'ds' });
+    renameSync(absOf(template.relPath), join(root, 'templates', 'ds', 'moved-away'));
+    await expect(service.saveTemplate({ id: template.id, content: 'x', baseRevision: null })).rejects.toMatchObject({
+      kind: 'not-found',
+    });
+    expect(existsSync(absOf(template.relPath))).toBe(false);
+  });
+
+  it('内容超过 64KB / 含 NUL → invalid', async () => {
+    await initRoot();
+    const template = await service.create({ kind: 'template', title: 'Big', topId: 'ds' });
+    await expect(
+      service.saveTemplate({ id: template.id, content: 'a'.repeat(64 * 1024 + 1), baseRevision: null }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.saveTemplate({ id: template.id, content: 'a\0b', baseRevision: null })).rejects.toMatchObject({
+      kind: 'invalid',
+    });
+  });
+});
+
+describe('新建题目默认模板（切片 5a.1）', () => {
+  it('未指定模板时用 updatedAt 最新的非归档模板放入 solution.cpp', async () => {
+    await initRoot();
+    const older = await service.create({ kind: 'template', title: 'Older', topId: 'ds' });
+    writeFileSync(join(absOf(older.relPath), 'template.cpp'), '// older\n');
+    now = new Date(2026, 9, 21, 12, 5, 0);
+    const newer = await service.create({ kind: 'template', title: 'Newer', topId: 'ds' });
+    writeFileSync(join(absOf(newer.relPath), 'template.cpp'), '// newer\n');
+
+    const auto = await service.create({ kind: 'problem', title: 'Auto Template' });
+    expect(readFileSync(join(absOf(auto.relPath), 'solution.cpp'), 'utf8')).toBe('// newer\n');
+  });
+
+  it('显式模板优先；null / 空串表示不复制；归档模板不参与默认', async () => {
+    await initRoot();
+    const a = await service.create({ kind: 'template', title: 'Alpha', topId: 'ds' });
+    writeFileSync(join(absOf(a.relPath), 'template.cpp'), '// alpha\n');
+    now = new Date(2026, 9, 21, 12, 5, 0);
+    const b = await service.create({ kind: 'template', title: 'Beta', topId: 'ds' });
+    writeFileSync(join(absOf(b.relPath), 'template.cpp'), '// beta\n');
+
+    const chosen = await service.create({ kind: 'problem', title: 'Chosen', templateId: a.id });
+    expect(readFileSync(join(absOf(chosen.relPath), 'solution.cpp'), 'utf8')).toBe('// alpha\n');
+
+    const none = await service.create({ kind: 'problem', title: 'No Template', templateId: null });
+    expect(service.object(none.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
+    const empty = await service.create({ kind: 'problem', title: 'Empty Choice', templateId: '' });
+    expect(service.object(empty.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
+
+    await service.update({ id: b.id, archived: true });
+    const fallback = await service.create({ kind: 'problem', title: 'Fallback' });
+    expect(readFileSync(join(absOf(fallback.relPath), 'solution.cpp'), 'utf8')).toBe('// alpha\n');
+  });
+});
+
 describe('标签、计数、改标题、归档（契约 §6.3 / §6.4 / §6.5 / §7）', () => {
   it('primary 进树与一级父计数，related / labels 不计数', async () => {
     await initRoot();

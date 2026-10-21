@@ -148,6 +148,17 @@ export function Workbench() {
     }
   }, []);
 
+  /** 模板保存后刷新详情 / 文件列表，但不走整块 loading，避免编辑器卸载重挂、丢掉「已保存」 */
+  const refreshDetailQuietly = useCallback(async (id: string): Promise<void> => {
+    try {
+      const next = await getWorkObject(id);
+      setDetail((prev) => (prev?.id === id ? next : prev));
+    } catch (error) {
+      const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
+      setNotice({ kind: 'err', text: api.message });
+    }
+  }, []);
+
   const load = useCallback(
     async (archivedNext: boolean, rescan: boolean, selectId?: string | null): Promise<WorkTreeDto | null> => {
       setLoading(true);
@@ -413,6 +424,7 @@ export function Workbench() {
           <div className="wk-col__body">
             <WorkList
               objects={filtered}
+              allObjects={tree.objects}
               taxonomy={tree.taxonomy}
               selectedId={selectedId}
               onSelect={selectObject}
@@ -421,6 +433,7 @@ export function Workbench() {
               trash={tree.trash}
               trashView={trashView}
               busyId={busy}
+              filterKey={`${kindFilter}|${nodeFilter ?? ''}|${labelFilter ?? ''}|${query}`}
               onAdopt={(target) => setDialog({ mode: 'adopt', target })}
               onRestore={(id) => {
                 setTrashView(false);
@@ -497,6 +510,10 @@ export function Workbench() {
                   setTrashView(false);
                 }}
                 onFilterLabel={(label) => setLabelFilter(label)}
+                onTemplateSaved={() => {
+                  if (detail !== null) void refreshDetailQuietly(detail.id);
+                  void load(archived, false);
+                }}
               />
             ) : (
               <div className="wk-empty">从中间选一个对象，标签、文件与打开入口都在这儿。</div>

@@ -19,7 +19,7 @@ const createBody = z.object({
   problemKey: z.string().max(80).optional(),
   arenaPath: z.string().max(300).optional(),
   topId: z.string().max(80).optional(),
-  templateId: z.string().max(40).optional(),
+  templateId: z.union([z.string().max(40), z.null()]).optional(),
 });
 
 const adoptBody = z.object({
@@ -51,6 +51,14 @@ const treeQuery = z.object({
 });
 
 const objectQuery = z.object({ id: z.string().max(40) });
+
+const templateQuery = z.object({ id: z.string().max(40) });
+
+const templateSaveBody = z.object({
+  id: z.string().max(40),
+  content: z.string(),
+  baseRevision: z.union([z.string().max(64), z.null()]),
+});
 
 const arenaRecordQuery = z.object({ path: z.string().max(300) });
 
@@ -116,6 +124,27 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     if (!parsed.success) return invalid(reply, '缺少对象 id');
     try {
       return work.object(parsed.data.id);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.get('/api/work/template', async (request, reply) => {
+    const parsed = templateQuery.safeParse(request.query ?? {});
+    if (!parsed.success) return invalid(reply, '缺少对象 id');
+    try {
+      return work.getTemplate(parsed.data.id);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  // 模板正文单独放宽请求体上限；全局 64KB 留给其余接口（共享常量仍限制正文 64KB）
+  app.post('/api/work/template', { bodyLimit: 256 * 1024 }, async (request, reply) => {
+    const parsed = templateSaveBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, '模板保存参数不合法');
+    try {
+      return await work.saveTemplate(parsed.data);
     } catch (err) {
       return sendWorkError(reply, err);
     }

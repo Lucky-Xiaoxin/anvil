@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { WorkObjectDetailDto, WorkTaxonomyDto } from '@anvil/shared';
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
+import { TemplateEditor } from './TemplateEditor.tsx';
 import { fileSize, flatNodes, isoDate, nodeNameMap } from './derive.ts';
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
   onOpenArena: (arenaPath: string) => void;
   onSelectTag: (id: string) => void;
   onFilterLabel: (label: string) => void;
+  onTemplateSaved: () => void;
 }
 
 export function WorkDetail(props: Props) {
@@ -162,6 +164,10 @@ export function WorkDetail(props: Props) {
           {confirmTrash ? '再点一次确认' : '移入回收站'}
         </button>
       </div>
+
+      {detail.kind === 'template' ? (
+        <TemplateEditor objectId={detail.id} busy={props.busy !== null} onSaved={props.onTemplateSaved} />
+      ) : null}
 
       <section className="wk-sec">
         <div className="wk-sec__title">
