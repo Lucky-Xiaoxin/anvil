@@ -46,6 +46,16 @@ describe('受管根校验（契约 §3.1 / §10）', () => {
     expect(validateRootPath(join(base, 'not-created'), o)).toBe(join(base, 'not-created'));
   });
 
+  it('接受反斜杠与「复制为路径」的引号（Windows 默认复制形状）', () => {
+    const base = tempBase();
+    const o = opts(base);
+    const root = join(base, 'root');
+    mkdirSync(root);
+    const winPath = root.replace(/\//g, '\\');
+    expect(validateRootPath(`  "${winPath}"  `, o)).toBe(root);
+    expect(validateRootPath(`'${winPath}'`, o)).toBe(root);
+  });
+
   it('拒绝相对路径、盘符根、已存在的文件', () => {
     const base = tempBase();
     const o = opts(base);
@@ -88,6 +98,8 @@ describe('根内相对路径（契约 §10.1 / §10.2）', () => {
     const root = join(base, 'root');
     mkdirSync(join(root, 'contests', 'x'), { recursive: true });
     expect(resolveInside(root, 'contests/x')).toBe(join(root, 'contests', 'x'));
+    expect(resolveInside(root, 'contests\\x')).toBe(join(root, 'contests', 'x'));
+    expect(resolveInside(root, '"contests\\x"')).toBe(join(root, 'contests', 'x'));
     for (const bad of ['..', '../x', 'contests/../../x', join(base, 'x'), 'C:\\Windows', '\\\\server\\share', '/etc/passwd']) {
       expect(errorKind(() => resolveInside(root, bad)), bad).toBe('unsafe-path');
     }

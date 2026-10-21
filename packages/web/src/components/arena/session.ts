@@ -23,6 +23,7 @@ export interface Store {
 }
 
 const PREFIX = 'arena:session:';
+const GHOST_PREFIX = 'arena:ghost:';
 
 /**
  * 目录要给进行中的场次挂「回放中 · 时刻」，所以得知道有哪些会话活着。
@@ -34,6 +35,17 @@ export function listSessionPaths(store: Store): string[] {
   for (let i = 0; i < store.length; i++) {
     const k = store.key(i);
     if (k !== null && k.startsWith(PREFIX)) out.push(k.slice(PREFIX.length));
+  }
+  return out;
+}
+
+/** 目录行要标「有我的成绩 / 可保存」：同一套枚举，不另造索引 */
+export function listGhostPaths(store: Store): string[] {
+  if (typeof store.key !== 'function' || typeof store.length !== 'number') return [];
+  const out: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (k !== null && k.startsWith(GHOST_PREFIX)) out.push(k.slice(GHOST_PREFIX.length));
   }
   return out;
 }

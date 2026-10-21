@@ -16,6 +16,7 @@ interface Props {
   onArchive: (archived: boolean) => void;
   onTrash: () => void;
   onOpen: (relPath?: string) => void;
+  onOpenArena: (arenaPath: string) => void;
   onSelectTag: (id: string) => void;
   onFilterLabel: (label: string) => void;
 }
@@ -146,6 +147,12 @@ export function WorkDetail(props: Props) {
           <Icon id="i-folder" />
           打开文件夹
         </button>
+        {detail.links.arenaPath !== undefined ? (
+          <button className="btn btn--sm" onClick={() => props.onOpenArena(detail.links.arenaPath!)}>
+            <Icon id="i-play" />
+            回到回放
+          </button>
+        ) : null}
         <button className="btn btn--sm" onClick={() => props.onArchive(!detail.archived)}>
           <Icon id="i-archive" />
           {detail.archived ? '取消归档' : '归档'}

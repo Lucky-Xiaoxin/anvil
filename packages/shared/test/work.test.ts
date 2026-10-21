@@ -5,6 +5,7 @@ import {
   flattenTaxonomy,
   localDateParts,
   parseTaxonomy,
+  parseWorkArenaRecord,
   parseWorkMeta,
   seedTaxonomy,
   slugForAttempt,
@@ -210,5 +211,42 @@ describe('taxonomy（契约 §7）', () => {
     const parsed = parseTaxonomy({ schema: 1, version: 1, nodes: [{ id: 'graph', name: '图论' }], aliases: {} });
     expect(parsed.ok).toBe(true);
     expect(parseTaxonomy({ schema: 2, version: 1, nodes: [] }).ok).toBe(false);
+  });
+});
+
+describe('record.json（VP 成绩存档）', () => {
+  const record = (patch: Record<string, unknown> = {}) => ({
+    schema: 1,
+    arenaPath: 'official/icpc/icpc2025/icpc2025shanghai.srk.json',
+    title: '上海站',
+    savedAt: '2026-10-21T02:00:00.000Z',
+    ghost: {
+      show: true,
+      subs: [
+        { p: 1, t: 45, r: 'AC' },
+        { p: 0, t: 20, r: 'WA' },
+      ],
+    },
+    view: { mode: 'review', viewMs: 123000, paused: false, frozenView: true },
+    ...patch,
+  });
+
+  it('合法 record：逐发按题序 / 时刻排序', () => {
+    const parsed = parseWorkArenaRecord(record());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.record.ghost.subs.map((s) => [s.p, s.t])).toEqual([
+      [0, 20],
+      [1, 45],
+    ]);
+    expect(parsed.record.view.mode).toBe('review');
+  });
+
+  it('坏 schema / arenaPath / 判名 / view 全部拒绝', () => {
+    expect(parseWorkArenaRecord(record({ schema: 2 })).ok).toBe(false);
+    expect(parseWorkArenaRecord(record({ arenaPath: '../x.srk.json' })).ok).toBe(false);
+    expect(parseWorkArenaRecord(record({ ghost: { show: true, subs: [{ p: 0, t: 1, r: 'FB' }] } })).ok).toBe(false);
+    expect(parseWorkArenaRecord(record({ view: { mode: 'x', viewMs: 1, paused: false, frozenView: false } })).ok).toBe(false);
+    expect(parseWorkArenaRecord(record({ view: { mode: 'live', viewMs: -1, paused: false, frozenView: false } })).ok).toBe(false);
   });
 });

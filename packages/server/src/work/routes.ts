@@ -52,6 +52,25 @@ const treeQuery = z.object({
 
 const objectQuery = z.object({ id: z.string().max(40) });
 
+const arenaRecordQuery = z.object({ path: z.string().max(300) });
+
+const arenaRecordBody = z.object({
+  arenaPath: z.string().max(300),
+  title: z.string().max(200).optional(),
+  ghost: z.object({
+    show: z.boolean(),
+    subs: z
+      .array(z.object({ p: z.number().int().nonnegative(), t: z.number().int().nonnegative(), r: z.enum(['AC', 'WA', 'TLE', 'RE', 'CE']) }))
+      .max(5000),
+  }),
+  view: z.object({
+    mode: z.enum(['live', 'review']),
+    viewMs: z.number().nonnegative(),
+    paused: z.boolean(),
+    frozenView: z.boolean(),
+  }),
+});
+
 const invalid = (reply: FastifyReply, message: string): FastifyReply =>
   reply.code(400).send({ error: { kind: 'invalid', message } });
 
@@ -102,8 +121,27 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     }
   });
 
-  app.post('/api/work/create', async (request, reply) => {
-    const parsed = createBody.safeParse(request.body ?? {});
+  app.get('/api/work/arena-record', async (request, reply) => {
+    const parsed = arenaRecordQuery.safeParse(request.query ?? {});
+    if (!parsed.success) return invalid(reply, '缺少 arenaPath');
+    try {
+      return work.getArenaRecord(parsed.data.path);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/arena-record', async (request, reply) => {
+    const parsed = arenaRecordBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '成绩存档不合法');
+    try {
+      return await work.saveArenaRecord(parsed.data);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/create', async (request, reply) => {    const parsed = createBody.safeParse(request.body ?? {});
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '创建参数不合法');
     try {
       return await work.create(parsed.data);

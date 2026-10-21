@@ -9,7 +9,8 @@
  * （`GhostPanel.tsx`）+ 引擎侧占名额注入；幽灵签名拼进 `minuteKey`，改了数字才重建得到。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, getArenaContest } from '../../api.ts';
+import type { WorkArenaRecordDto } from '@anvil/shared';
+import { ApiError, getArenaContest, saveWorkArenaRecord } from '../../api.ts';
 import { clockHMS, clockHM, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { useTip } from '../../tip.tsx';
@@ -42,6 +43,7 @@ import {
 import type { LeafRow } from './catalog.ts';
 import { GhostPanel } from './GhostPanel.tsx';
 import { Popover, PopShell, resClass, type Anchor } from './pops.tsx';
+import { arenaTitleOf, ghostToRecord, recordToGhost } from './record.ts';
 import { clearGhost, clearSession, loadGhost, loadSession, saveGhost, saveSession, type GhostData, type Store } from './session.ts';
 
 interface Props {
@@ -50,6 +52,8 @@ interface Props {
   live: boolean;
   store: Store;
   onBack: () => void;
+  /** 从工坊「回到回放」带进来的 record.json：幽灵、回顾位置与封榜视角以它为准 */
+  initialRecord?: WorkArenaRecordDto | null;
 }
 
 type Load = { kind: 'loading' } | { kind: 'error'; text: string; missing: boolean } | { kind: 'ready'; model: ContestModel };
@@ -68,19 +72,23 @@ const ghostSig = (g: GhostData | null): string =>
     ? 'none'
     : `${g.show ? 1 : 0}|${g.subs.map((s) => `${s.p}:${s.t}:${s.r}`).join(',')}`;
 
-export function ArenaBoard({ row, live, store, onBack }: Props) {
+export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   /** 手动重试计数：CDN 暂时取不到时，界面上那一脚重试比回目录再进来快 */
   const [tryNo, setTryNo] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [review, setReview] = useState(!live);
+  const [review, setReview] = useState(initialRecord === null ? !live : initialRecord.view.mode === 'review');
   const [onlyFormal, setOnlyFormal] = useState(false);
   /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
-  const [frozenView, setFrozenView] = useState(false);
+  const [frozenView, setFrozenView] = useState(initialRecord?.view.frozenView ?? false);
   const [resumed, setResumed] = useState(false);
-  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条，进榜先读回来 */
-  const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path));
+  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条；从工坊带 record 时以 record 为准 */
+  const initialGhost = initialRecord === null ? null : recordToGhost(initialRecord.ghost);
+  const [ghost, setGhost] = useState<GhostData | null>(initialGhost ?? loadGhost(store, row.path));
+  const restoredRef = useRef(initialRecord !== null);
+  const [saveState, setSaveState] = useState<'idle' | 'busy' | 'saved' | 'error'>('idle');
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   /** 榜体滚动容器：顶栏读数「跳到自己」用它定位那一行 */
   const boardBox = useRef<HTMLDivElement | null>(null);
@@ -115,6 +123,42 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   useEffect(() => {
     if (load.kind !== 'ready') return;
     const duration = load.model.duration;
+    if (restoredRef.current) {
+      restoredRef.current = false;
+      if (initialRecord !== null) {
+        const viewMs = Math.max(0, Math.min(duration, initialRecord.view.viewMs));
+        if (initialRecord.view.mode === 'review') {
+          // 存档是回顾：停在保存位置，不落 localStorage 会话（避免目录误挂「回放中」）
+          setSession({
+            ...startSession(Date.now()),
+            durationMs: duration,
+            hold: true,
+            paused: false,
+            ended: true,
+            scrubMs: viewMs,
+            at: viewMs,
+          });
+          setReview(true);
+          setElapsed(viewMs);
+          return;
+        }
+        const paused = initialRecord.view.paused;
+        const restored: Session = {
+          started: Date.now() - viewMs,
+          hold: paused,
+          paused,
+          ended: false,
+          scrubMs: viewMs,
+          at: viewMs,
+          durationMs: duration,
+        };
+        setSession(restored);
+        setReview(false);
+        setElapsed(viewMs);
+        saveSession(store, row.path, restored);
+        return;
+      }
+    }
     const prev = loadSession(store, row.path);
     if (prev === null) {
       const s = { ...startSession(Date.now()), durationMs: duration };
@@ -138,7 +182,13 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     setReview(prev.hold && prev.ended ? true : !live);
     saveSession(store, row.path, withDur);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load.kind === 'ready' ? load.model.duration : 0, row.path]);
+  }, [load.kind === 'ready' ? load.model.duration : 0, row.path, initialRecord]);
+
+  /* 从工坊带进来的幽灵写回 localStorage：目录行与面板此后按同一份数据走 */
+  useEffect(() => {
+    if (initialRecord !== null) saveGhost(store, row.path, recordToGhost(initialRecord.ghost));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------- 走钟：每秒一次，分钟才重建 ---------- */
   useEffect(() => {
@@ -257,6 +307,8 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
     (next: GhostData): void => {
       setGhost(next);
       saveGhost(store, row.path, next);
+      setSaveState('idle');
+      setSaveErr(null);
     },
     [row.path, store],
   );
@@ -264,7 +316,33 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
   const onGhostClear = useCallback((): void => {
     clearGhost(store, row.path);
     setGhost({ show: true, subs: [] });
+    setSaveState('idle');
+    setSaveErr(null);
   }, [row.path, store]);
+
+  /** 把这份「我的成绩 + 当前回放位置」写进工坊：服务端按 arenaPath 找/建 contest，再写 record.json */
+  const saveRecord = useCallback(async (): Promise<void> => {
+    if (ghost === null || ghost.subs.length === 0 || session === null) return;
+    setSaveState('busy');
+    setSaveErr(null);
+    try {
+      await saveWorkArenaRecord({
+        arenaPath: row.path,
+        title: arenaTitleOf(row),
+        ghost: ghostToRecord(ghost),
+        view: {
+          mode: review ? 'review' : 'live',
+          viewMs: review ? viewMs : elapsed,
+          paused: session.paused,
+          frozenView,
+        },
+      });
+      setSaveState('saved');
+    } catch (err) {
+      setSaveState('error');
+      setSaveErr(messageOf(err));
+    }
+  }, [ghost, session, row, review, viewMs, elapsed, frozenView]);
 
   const openGhostPop = (ev: React.MouseEvent): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
@@ -413,6 +491,22 @@ export function ArenaBoard({ row, live, store, onBack }: Props) {
         <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置" onClick={openGhostPop}>
           <Icon id="i-user" />
         </button>
+        {ghost !== null && ghost.subs.length > 0 ? (
+          <button
+            className="btn btn--sm"
+            disabled={saveState === 'busy'}
+            title="保存到工坊 · 写入比赛对象的 record.json（逐发成绩 + 当前回放位置）"
+            onClick={() => void saveRecord()}
+          >
+            <Icon id="i-save" />
+            {saveState === 'busy' ? '保存中…' : saveState === 'saved' ? '已保存' : '保存'}
+          </button>
+        ) : null}
+        {saveErr !== null ? (
+          <span className="tb-err" title={saveErr}>
+            {saveErr}
+          </span>
+        ) : null}
         {model.approx ? (
           <span
             className="pill"

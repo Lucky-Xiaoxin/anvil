@@ -13,6 +13,7 @@ import {
   flattenTaxonomy,
   isWorkKind,
   parseTaxonomy,
+  parseWorkArenaRecord,
   parseWorkMeta,
   seedTaxonomy,
   slugForAttempt,
@@ -20,6 +21,10 @@ import {
   unregisteredKindHint,
   workIdOk,
   workMetaToJson,
+  type WorkArenaGhost,
+  type WorkArenaRecordDto,
+  type WorkArenaSaveResult,
+  type WorkArenaView,
   type WorkFileDto,
   type WorkKind,
   type WorkMeta,
@@ -87,6 +92,14 @@ export interface WorkUpdateInput {
 export interface WorkInitInput {
   path: string;
   confirmExisting?: boolean;
+}
+
+export interface WorkArenaSaveInput {
+  arenaPath: string;
+  /** 目录行给的标题；没有同 arenaPath 的对象时用来建 contest */
+  title?: string;
+  ghost: WorkArenaGhost;
+  view: WorkArenaView;
 }
 
 export interface WorkRescanSummary {
@@ -226,6 +239,77 @@ export class WorkService {
 
   rescan(): Promise<WorkRescanSummary> {
     return this.enqueue(() => this.rescanNow(true));
+  }
+
+  /** 回放页 / 目录行读回存档：按 `links.arenaPath` 找唯一的 contest 对象 */
+  getArenaRecord(arenaPath: string): WorkArenaRecordDto {
+    const obj = this.contestByArenaPath(arenaPath);
+    const file = join(obj.absPath, 'record.json');
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOENT') throw new WorkError('not-found', '这场还没有保存过成绩');
+      throw new WorkError('internal', `record.json 读不出来：${asError(err).message}`);
+    }
+    const parsed = parseWorkArenaRecord(raw);
+    if (!parsed.ok) throw new WorkError('internal', `record.json 不合法：${parsed.message}`);
+    return parsed.record;
+  }
+
+  /** 保存 VP 成绩：同 arenaPath 的 contest 已存在就更新，没有就建一场，然后把 record.json 写进对象文件夹 */
+  saveArenaRecord(input: WorkArenaSaveInput): Promise<WorkArenaSaveResult> {
+    return this.enqueue(() => this.saveArenaRecordNow(input));
+  }
+
+  private contestByArenaPath(arenaPath: string): IndexedObject {
+    if (!contestPathOk(arenaPath)) throw new WorkError('invalid', 'arenaPath 不在榜单路径白名单内');
+    const idx = this.ensureIndex();
+    const matches = idx.objects.filter(
+      (obj) => obj.record.meta.kind === 'contest' && obj.record.meta.links.arenaPath === arenaPath,
+    );
+    if (matches.length === 0) throw new WorkError('not-found', '工坊里还没有这场比赛的 contest 对象');
+    if (matches.length > 1) throw new WorkError('conflict', `有 ${matches.length} 个 contest 指向同一场，先清理重复对象`);
+    return matches[0]!;
+  }
+
+  private saveArenaRecordNow(input: WorkArenaSaveInput): WorkArenaSaveResult {
+    if (!contestPathOk(input.arenaPath)) throw new WorkError('invalid', 'arenaPath 不在榜单路径白名单内');
+    const stem = input.arenaPath.split('/').pop()?.replace(/\.srk\.json$/, '') ?? input.arenaPath;
+    const preTitle = (input.title ?? '').trim() || stem;
+    const savedAt = this.nowDate().toISOString();
+    const pre = parseWorkArenaRecord({
+      schema: 1,
+      arenaPath: input.arenaPath,
+      title: preTitle,
+      savedAt,
+      ghost: input.ghost,
+      view: input.view,
+    });
+    if (!pre.ok) throw new WorkError('invalid', pre.message);
+
+    const idx = this.ensureIndex();
+    const matches = idx.objects.filter(
+      (obj) => obj.record.meta.kind === 'contest' && obj.record.meta.links.arenaPath === input.arenaPath,
+    );
+    if (matches.length > 1) throw new WorkError('conflict', `有 ${matches.length} 个 contest 指向同一场，先清理重复对象`);
+
+    let obj: IndexedObject;
+    if (matches.length === 1) {
+      obj = matches[0]!;
+    } else {
+      const made = this.createNow({ kind: 'contest', title: preTitle, arenaPath: input.arenaPath });
+      const created = this.ensureIndex().byId.get(made.id);
+      if (created === undefined) throw new WorkError('internal', '保存成绩时创建的比赛对象没有进入索引');
+      obj = created;
+    }
+
+    const record: WorkArenaRecordDto = { ...pre.record, title: obj.record.meta.title, savedAt };
+    writeFileAtomic(join(obj.absPath, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
+    const fresh = this.refreshIndex();
+    const updated = fresh.byId.get(obj.record.meta.id);
+    if (updated === undefined) throw new WorkError('internal', '保存成绩后对象没有进入索引');
+    return { record, object: this.dtoOf(updated) };
   }
 
   /* ------------------------------------------------------------------ */

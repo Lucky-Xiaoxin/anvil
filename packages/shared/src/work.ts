@@ -91,6 +91,102 @@ export interface WorkTreeDto {
   trash: WorkTrashDto[];
 }
 
+/* ---------- VP 成绩存档（docs/contracts/23 §15.3 的先行实现） ---------- */
+
+export type WorkArenaGhostResult = 'AC' | 'WA' | 'TLE' | 'RE' | 'CE';
+
+export const WORK_ARENA_GHOST_RESULTS: readonly WorkArenaGhostResult[] = ['AC', 'WA', 'TLE', 'RE', 'CE'];
+
+export interface WorkArenaGhostSub {
+  p: number;
+  t: number;
+  r: WorkArenaGhostResult;
+}
+
+export interface WorkArenaGhost {
+  show: boolean;
+  subs: WorkArenaGhostSub[];
+}
+
+/** 保存时的回放位置：live 续播 / review 定格；viewMs 是比赛内毫秒 */
+export interface WorkArenaView {
+  mode: 'live' | 'review';
+  viewMs: number;
+  paused: boolean;
+  frozenView: boolean;
+}
+
+export interface WorkArenaRecordDto {
+  schema: 1;
+  arenaPath: string;
+  title: string;
+  savedAt: string;
+  ghost: WorkArenaGhost;
+  view: WorkArenaView;
+}
+
+export interface WorkArenaSaveResult {
+  record: WorkArenaRecordDto;
+  object: WorkObjectDto;
+}
+
+export type WorkArenaRecordParseResult =
+  | { ok: true; record: WorkArenaRecordDto }
+  | { ok: false; message: string };
+
+/** record.json 校验：savedAt / view / 逐发都在服务端收口一次，坏文件不静默喂给回放 */
+export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult {
+  if (!isRecord(input)) return { ok: false, message: 'record 不是对象' };
+  if (input.schema !== 1) return { ok: false, message: `不支持的 record schema：${String(input.schema)}` };
+  if (typeof input.arenaPath !== 'string' || !contestPathOk(input.arenaPath)) {
+    return { ok: false, message: 'record.arenaPath 不合法' };
+  }
+  if (typeof input.title !== 'string') return { ok: false, message: 'record.title 必须是字符串' };
+  const title = input.title.trim();
+  if (title.length < 1 || title.length > 120) return { ok: false, message: 'record.title 长度必须在 1–120 之间' };
+  if (!isIsoTime(input.savedAt)) return { ok: false, message: 'record.savedAt 不是合法时间' };
+
+  if (!isRecord(input.ghost)) return { ok: false, message: 'record.ghost 必须是对象' };
+  if (typeof input.ghost.show !== 'boolean') return { ok: false, message: 'record.ghost.show 必须是布尔值' };
+  if (!Array.isArray(input.ghost.subs)) return { ok: false, message: 'record.ghost.subs 必须是数组' };
+  if (input.ghost.subs.length > 5000) return { ok: false, message: 'record.ghost.subs 太多' };
+  const subs: WorkArenaGhostSub[] = [];
+  for (const raw of input.ghost.subs) {
+    if (!isRecord(raw)) return { ok: false, message: 'record.ghost.subs 含非法项' };
+    const p = raw.p;
+    const t = raw.t;
+    const r = raw.r;
+    if (typeof p !== 'number' || !Number.isInteger(p) || p < 0) return { ok: false, message: 'record 题序不合法' };
+    if (typeof t !== 'number' || !Number.isInteger(t) || t < 0) return { ok: false, message: 'record 提交时刻不合法' };
+    if (typeof r !== 'string' || !(WORK_ARENA_GHOST_RESULTS as readonly string[]).includes(r)) {
+      return { ok: false, message: 'record 判名不合法' };
+    }
+    subs.push({ p, t, r: r as WorkArenaGhostResult });
+  }
+  subs.sort((a, b) => a.p - b.p || a.t - b.t);
+
+  if (!isRecord(input.view)) return { ok: false, message: 'record.view 必须是对象' };
+  const mode = input.view.mode;
+  if (mode !== 'live' && mode !== 'review') return { ok: false, message: 'record.view.mode 不合法' };
+  const viewMs = input.view.viewMs;
+  if (typeof viewMs !== 'number' || !Number.isFinite(viewMs) || viewMs < 0) return { ok: false, message: 'record.view.viewMs 不合法' };
+  if (typeof input.view.paused !== 'boolean') return { ok: false, message: 'record.view.paused 必须是布尔值' };
+  if (typeof input.view.frozenView !== 'boolean') return { ok: false, message: 'record.view.frozenView 必须是布尔值' };
+
+  return {
+    ok: true,
+    record: {
+      schema: 1,
+      arenaPath: input.arenaPath,
+      title,
+      savedAt: input.savedAt,
+      ghost: { show: input.ghost.show, subs },
+      view: { mode, viewMs: Math.floor(viewMs), paused: input.view.paused, frozenView: input.view.frozenView },
+    },
+  };
+}
+
+
 /* ------------------------------------------------------------------ */
 /* 身份与字段判据                                                       */
 /* ------------------------------------------------------------------ */

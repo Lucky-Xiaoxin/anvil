@@ -1471,6 +1471,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-detail__actions .btn{height:27px;font-size:11.5px}
 .btn--danger{background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.4);color:#FFC9C5}
 .btn--danger:hover{background:rgba(248,81,73,.2);border-color:rgba(248,81,73,.6)}
+.tb-err{max-width:210px;font-size:10.5px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wk-field{display:flex;flex-direction:column;gap:6px;margin-bottom:9px;min-width:0}
 .wk-select{
   height:32px;padding:0 8px;min-width:0;max-width:100%;

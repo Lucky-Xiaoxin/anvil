@@ -6,16 +6,19 @@
  * （社区快照）· 回放的是已打完的比赛」。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ArenaCatalogDto } from '@anvil/shared';
-import { getArenaCatalog, getArenaContest } from '../../api.ts';
+import type { ArenaCatalogDto, WorkArenaRecordDto } from '@anvil/shared';
+import { ApiError, getArenaCatalog, getArenaContest, getWorkArenaRecord, saveWorkArenaRecord } from '../../api.ts';
 import { clockHMS, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNode, type LeafRow } from './catalog.ts';
 import { elapsedOf } from './engine.ts';
+import { arenaTitleOf, ghostToRecord, viewOfRow } from './record.ts';
 import {
+  loadGhost,
   loadOpenGroups,
   loadScrollTop,
   loadSession,
+  listGhostPaths,
   listSessionPaths,
   saveOpenGroups,
   saveScrollTop,
@@ -25,11 +28,14 @@ import {
 interface Props {
   store: Store;
   /** 刷新目录后由父层重取；这里只报「进哪一场、什么模式」 */
-  onEnter: (row: LeafRow, live: boolean) => void;
+  onEnter: (row: LeafRow, live: boolean, record?: WorkArenaRecordDto | null) => void;
   /** 会话表版本号：从回放屏退回目录时 +1，让「回放中」标记立刻更新 */
   sessionEpoch: number;
   /** 目录总场次报给壳层（侧栏页脚）；拉失败不上报，页脚保持上一次的数 */
   onCount: (n: number) => void;
+  /** 工坊「回到回放」带进来的场次路径；目录就绪后自动进入 */
+  restorePath: string | null;
+  onRestoreConsumed: () => void;
 }
 
 /**
@@ -43,10 +49,18 @@ interface PrefetchState {
   onPrefetch: (path: string) => void;
 }
 
+interface SaveState {
+  ghostPaths: Set<string>;
+  savingPath: string | null;
+  savedNow: Set<string>;
+  saveErr: { path: string; text: string } | null;
+  onSaveGhost: (row: LeafRow, live: { elapsed: number; paused: boolean } | null) => void;
+}
+
 const subLabel = (node: GroupNode): string =>
   node.kids.length > 0 ? (node.name === '省赛' ? '按省分组' : node.name === '校赛' ? '按学校' : '按年份') : '按场次';
 
-export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
+export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePath, onRestoreConsumed }: Props) {
   const [dto, setDto] = useState<ArenaCatalogDto | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -60,6 +74,11 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const [prefetchErr, setPrefetchErr] = useState<{ path: string; text: string } | null>(null);
   const scrollBox = useRef<HTMLDivElement | null>(null);
   const timer = useRef(0);
+  const [savingPath, setSavingPath] = useState<string | null>(null);
+  const [savedNow, setSavedNow] = useState<Set<string>>(() => new Set());
+  const [saveErr, setSaveErr] = useState<{ path: string; text: string } | null>(null);
+  const [restoreErr, setRestoreErr] = useState<string | null>(null);
+  const restoredRef = useRef(false);
 
   const fetchCatalog = useCallback(async (refresh: boolean): Promise<void> => {
     if (refresh) setBusy(true);
@@ -104,6 +123,84 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
   const leaves = useMemo(() => (dto === null ? [] : flattenLeaves(dto.tree)), [dto]);
   const hits = useMemo(() => (q.trim() === '' ? [] : searchLeaves(leaves, q)), [leaves, q]);
   const total = dto?.total ?? 0;
+
+  /* 有「我的成绩」逐发的场次：目录行给保存入口（本地键枚举，不另造索引） */
+  const ghostPaths = useMemo(() => {
+    const out = new Set<string>();
+    for (const path of listGhostPaths(store)) {
+      const ghost = loadGhost(store, path);
+      if (ghost !== null && ghost.subs.length > 0) out.add(path);
+    }
+    return out;
+  }, [store, sessionEpoch]);
+
+  useEffect(() => {
+    setSavedNow(new Set());
+  }, [sessionEpoch]);
+
+  const saveGhost = useCallback(
+    async (row: LeafRow, live: { elapsed: number; paused: boolean } | null): Promise<void> => {
+      const ghost = loadGhost(store, row.path);
+      if (ghost === null || ghost.subs.length === 0) return;
+      setSavingPath(row.path);
+      setSaveErr(null);
+      try {
+        await saveWorkArenaRecord({
+          arenaPath: row.path,
+          title: arenaTitleOf(row),
+          ghost: ghostToRecord(ghost),
+          view: viewOfRow(store, row, live),
+        });
+        setSavedNow((prev) => new Set(prev).add(row.path));
+      } catch (err) {
+        setSaveErr({ path: row.path, text: messageOf(err) });
+      } finally {
+        setSavingPath(null);
+      }
+    },
+    [store],
+  );
+
+  const save = useMemo<SaveState>(
+    () => ({
+      ghostPaths,
+      savingPath,
+      savedNow,
+      saveErr,
+      onSaveGhost: (row, live) => {
+        void saveGhost(row, live);
+      },
+    }),
+    [ghostPaths, savingPath, savedNow, saveErr, saveGhost],
+  );
+
+  /* 工坊「回到回放」：目录就绪后按路径找行，读 record.json，再进回放 */
+  useEffect(() => {
+    restoredRef.current = false;
+    setRestoreErr(null);
+  }, [restorePath]);
+
+  useEffect(() => {
+    if (restorePath === null || state !== 'ready' || restoredRef.current) return;
+    const row = leaves.find((r) => r.path === restorePath);
+    if (row === undefined) {
+      restoredRef.current = true;
+      setRestoreErr(`目录里找不到这场：${restorePath}`);
+      onRestoreConsumed();
+      return;
+    }
+    restoredRef.current = true;
+    void (async () => {
+      let record: WorkArenaRecordDto | null = null;
+      try {
+        record = await getWorkArenaRecord(restorePath);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.kind === 'not-found')) setRestoreErr(`读取工坊存档失败：${messageOf(err)}`);
+      }
+      onEnter(row, false, record);
+      onRestoreConsumed();
+    })();
+  }, [restorePath, state, leaves, onEnter, onRestoreConsumed]);
 
   /*
    * 预拉取（docs/contracts/20 §1）：不新开接口，直接走进回放同一条 `GET /api/arena/contest?path=`
@@ -187,6 +284,12 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
 
       <div className="content" ref={scrollBox} onScroll={onScroll}>
         <div className="catwrap">
+          {restoreErr !== null ? (
+            <div className="alert alert--warn" role="status" style={{ marginBottom: 12 }}>
+              <Icon id="i-warn" />
+              <div>{restoreErr}</div>
+            </div>
+          ) : null}
           <div className="srchline">
             <div className="search">
               <Icon id="i-search" />
@@ -217,7 +320,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
           <div className="cat">
             {state === 'loading' ? <Loading /> : null}
             {state === 'error' ? <Failed text={error} onRetry={() => void fetchCatalog(false)} /> : null}
-            {state === 'ready' && q.trim() !== '' ? <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} pf={pf} /> : null}
+            {state === 'ready' && q.trim() !== '' ? <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} pf={pf} save={save} /> : null}
             {state === 'ready' && q.trim() === '' ? (
               <>
                 {(dto?.tree ?? []).map((n) => (
@@ -230,6 +333,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount }: Props) {
                     sessions={sessions}
                     onEnter={onEnter}
                     pf={pf}
+                    save={save}
                     top
                   />
                 ))}
@@ -301,7 +405,7 @@ const prefetchOf = (r: LeafRow, pf: PrefetchState): { cached: boolean; busy: boo
   err: pf.prefetchErr?.path === r.path ? pf.prefetchErr.text : '',
 });
 
-function Found({ hits, q, sessions, onEnter, pf }: { hits: LeafRow[]; q: string; sessions: Map<string, { elapsed: number; paused: boolean }>; onEnter: Props['onEnter']; pf: PrefetchState }) {
+function Found({ hits, q, sessions, onEnter, pf, save }: { hits: LeafRow[]; q: string; sessions: Map<string, { elapsed: number; paused: boolean }>; onEnter: Props['onEnter']; pf: PrefetchState; save: SaveState }) {
   return (
     <>
       <div className="cyear cyear--flat">
@@ -327,6 +431,7 @@ function Found({ hits, q, sessions, onEnter, pf }: { hits: LeafRow[]; q: string;
             path={r.group.join(' / ')}
             live={sessions.get(r.path) ?? null}
             onEnter={onEnter}
+            save={save}
             {...prefetchOf(r, pf)}
             onPrefetch={pf.onPrefetch}
           />
@@ -344,12 +449,13 @@ interface GroupProps {
   sessions: Map<string, { elapsed: number; paused: boolean }>;
   onEnter: Props['onEnter'];
   pf: PrefetchState;
+  save: SaveState;
   top?: boolean;
   chain?: string;
 }
 
 /** 分组行：顶层是 `.cgrp`，下层是 `.cyear`；展开态按「类目名 → 组名」这条链记，不写进存储 */
-const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, pf, top = false, chain = '' }: GroupProps) {
+const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, pf, save, top = false, chain = '' }: GroupProps) {
   const key = chain === '' ? node.name : `${chain} / ${node.name}`;
   // 一律折起（含顶层五类）：394 行全摊开等于没有目录；展开过的那一层由 arena:tree 记着
   const open = openState.has(key);
@@ -386,10 +492,10 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
       {head}
       <div className="cbody" style={{ ['--d' as string]: depth + 1 }}>
         {node.kids.map((k) => (
-          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} pf={pf} chain={key} />
+          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} pf={pf} save={save} chain={key} />
         ))}
         {node.leaves.map((r, i) => (
-          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
+          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} save={save} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
         ))}
       </div>
     </>
@@ -406,6 +512,7 @@ interface RowProps {
   alt?: boolean;
   path?: string;
   onEnter: Props['onEnter'];
+  save: SaveState;
   /** 预拉取三态（docs/contracts/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
   cached: boolean;
   busy: boolean;
@@ -413,7 +520,11 @@ interface RowProps {
   onPrefetch: (path: string) => void;
 }
 
-const Row = memo(function Row({ row, live, alt = false, path, onEnter, cached, busy, err, onPrefetch }: RowProps) {
+const Row = memo(function Row({ row, live, alt = false, path, onEnter, save, cached, busy, err, onPrefetch }: RowProps) {
+  const hasGhost = save.ghostPaths.has(row.path);
+  const saving = save.savingPath === row.path;
+  const saved = save.savedNow.has(row.path);
+  const errText = err !== '' ? err : save.saveErr?.path === row.path ? save.saveErr.text : '';
   return (
     <div className={`crow${alt ? ' is-alt' : ''}${live ? ' is-live' : ''}`}>
       <span className="crow__d">{row.date}</span>
@@ -463,10 +574,21 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter, cached, b
             )}
           </>
         )}
+        {hasGhost ? (
+          <button
+            className="btn btn--xs"
+            disabled={saving}
+            title="把「我的成绩」与当前回放位置存到工坊的比赛对象（record.json）"
+            onClick={() => save.onSaveGhost(row, live)}
+          >
+            <Icon id="i-save" />
+            {saving ? '保存中…' : saved ? '已保存' : '保存'}
+          </button>
+        ) : null}
       </span>
-      {err === '' ? null : (
-        <span className="crow__err" title={err}>
-          {err}
+      {errText === '' ? null : (
+        <span className="crow__err" title={errText}>
+          {errText}
         </span>
       )}
     </div>

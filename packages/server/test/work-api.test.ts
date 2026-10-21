@@ -219,4 +219,34 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.kind).toBe('unsafe-path');
   });
+
+  it('arena-record：保存 / 读回 / 自动建 contest / 未知场次 404', async () => {
+    await boot();
+    await initApi();
+    const arenaPath = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
+    let res = await post('/api/work/arena-record', {
+      arenaPath,
+      title: '上海站',
+      ghost: { show: true, subs: [{ p: 0, t: 30, r: 'AC' }] },
+      view: { mode: 'review', viewMs: 180000, paused: false, frozenView: true },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const saved = res.json();
+    expect(saved.object.links.arenaPath).toBe(arenaPath);
+    expect(saved.record.view.frozenView).toBe(true);
+
+    res = await app.inject({ method: 'GET', url: `/api/work/arena-record?path=${encodeURIComponent(arenaPath)}` });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().ghost.subs).toHaveLength(1);
+
+    res = await app.inject({ method: 'GET', url: `/api/work/arena-record?path=${encodeURIComponent('official/icpc/x/none.srk.json')}` });
+    expect(res.statusCode).toBe(404);
+
+    res = await post('/api/work/arena-record', {
+      arenaPath: '../bad.srk.json',
+      ghost: { show: true, subs: [] },
+      view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });

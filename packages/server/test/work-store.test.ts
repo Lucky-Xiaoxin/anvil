@@ -13,6 +13,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import type { WorkArenaGhost, WorkArenaView } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
 import type { SpawnFn, SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
@@ -407,5 +408,61 @@ describe('切换根（契约 §3.2）', () => {
     await service.init({ path: root });
     expect((await service.tree()).objects.some((o) => o.relPath === oldRel)).toBe(true);
     expect(existsSync(join(second, oldRel))).toBe(false);
+  });
+});
+
+describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
+  const arenaPath = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
+  const ghost: WorkArenaGhost = { show: true, subs: [{ p: 1, t: 45, r: 'AC' }, { p: 0, t: 20, r: 'WA' }] };
+  const view: WorkArenaView = { mode: 'review', viewMs: 123000, paused: false, frozenView: true };
+
+  it('无对象时自动建 contest 并写 record.json；再存只更新同一场', async () => {
+    await initRoot();
+    const saved = await service.saveArenaRecord({ arenaPath, title: '上海站', ghost, view });
+    expect(saved.object.kind).toBe('contest');
+    expect(saved.object.links.arenaPath).toBe(arenaPath);
+    expect(saved.record.ghost.subs.map((s) => [s.p, s.t])).toEqual([
+      [0, 20],
+      [1, 45],
+    ]);
+    expect(existsSync(join(absOf(saved.object.relPath), 'record.json'))).toBe(true);
+    expect(service.object(saved.object.id).files.map((f) => f.path)).toContain('record.json');
+
+    const again = await service.saveArenaRecord({
+      arenaPath,
+      ghost: { ...ghost, show: false },
+      view: { ...view, mode: 'live', viewMs: 60000, paused: true },
+    });
+    expect(again.object.id).toBe(saved.object.id);
+    expect(again.record.ghost.show).toBe(false);
+    expect(again.record.view).toEqual({ mode: 'live', viewMs: 60000, paused: true, frozenView: true });
+    expect(service.getArenaRecord(arenaPath).view.mode).toBe('live');
+    const contests = (await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath);
+    expect(contests).toHaveLength(1);
+  });
+
+  it('已有同 arenaPath 的 contest 直接复用；重复指向同一场则 conflict', async () => {
+    await initRoot();
+    const existing = await service.create({ kind: 'contest', title: '上海站', arenaPath });
+    const saved = await service.saveArenaRecord({ arenaPath, ghost, view });
+    expect(saved.object.id).toBe(existing.id);
+
+    await service.create({ kind: 'contest', title: '上海站副本', arenaPath });
+    await expect(service.saveArenaRecord({ arenaPath, ghost, view })).rejects.toMatchObject({ kind: 'conflict' });
+    expect(() => service.getArenaRecord(arenaPath)).toThrowError(/2 个 contest/);
+  });
+
+  it('非法 arenaPath / 判名 / view 拒绝写入', async () => {
+    await initRoot();
+    await expect(
+      service.saveArenaRecord({ arenaPath: '../x.srk.json', ghost, view }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(
+      service.saveArenaRecord({ arenaPath, ghost: { show: true, subs: [{ p: 0, t: 1, r: 'FB' as never }] }, view }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(
+      service.saveArenaRecord({ arenaPath, ghost, view: { ...view, viewMs: -1 } }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    expect((await service.tree()).objects).toHaveLength(0);
   });
 });

@@ -6,6 +6,10 @@ import type {
   StatusDto,
   SyncSourceId,
   SyncStatesDto,
+  WorkArenaGhost,
+  WorkArenaRecordDto,
+  WorkArenaSaveResult,
+  WorkArenaView,
   WorkKind,
   WorkObjectDetailDto,
   WorkTags,
@@ -158,3 +162,14 @@ export const openWork = async (id: string, relPath?: string): Promise<void> => {
 };
 
 export const rescanWork = (): Promise<WorkRescanSummaryDto> => request<WorkRescanSummaryDto>('/api/work/rescan', post({}), 45_000);
+
+/** VP 成绩存档：按榜单路径找工坊 contest 对象，读/写对象文件夹里的 record.json */
+export const getWorkArenaRecord = (path: string): Promise<WorkArenaRecordDto> =>
+  request<WorkArenaRecordDto>(`/api/work/arena-record?path=${encodeURIComponent(path)}`, undefined, 30_000);
+
+export const saveWorkArenaRecord = (body: {
+  arenaPath: string;
+  title?: string;
+  ghost: WorkArenaGhost;
+  view: WorkArenaView;
+}): Promise<WorkArenaSaveResult> => request<WorkArenaSaveResult>('/api/work/arena-record', post(body), 30_000);

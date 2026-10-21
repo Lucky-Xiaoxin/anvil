@@ -69,6 +69,18 @@ export interface RootValidationOptions {
   vaultDir?: string;
 }
 
+/** Windows 资源管理器「复制为路径」会带引号；/ 与 \ 都当分隔符 */
+export function normalizeInputPath(input: unknown): string {
+  if (typeof input !== 'string') return '';
+  let text = input.trim();
+  if (text.length >= 2) {
+    const first = text[0];
+    const last = text[text.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
 function forbiddenWindowsDir(abs: string): boolean {
   if (process.platform !== 'win32') return false;
   const bases = [resolve('C:\\Windows'), resolve('C:\\Program Files'), resolve('C:\\Program Files (x86)')];
@@ -80,7 +92,7 @@ function forbiddenWindowsDir(abs: string): boolean {
  * 不在这里创建目录。
  */
 export function validateRootPath(input: string, opts: RootValidationOptions = {}): string {
-  const raw = typeof input === 'string' ? input.trim() : '';
+  const raw = normalizeInputPath(input);
   if (raw === '') throw new WorkError('root-invalid', '受管根不能为空');
   if (!isAbsolute(raw)) throw new WorkError('root-invalid', '受管根必须是绝对路径');
   const abs = resolve(raw);
@@ -149,7 +161,7 @@ export interface ResolveInsideOptions {
  */
 export function resolveInside(root: string, relPath: string, opts: ResolveInsideOptions = {}): string {
   if (typeof relPath !== 'string') throw new WorkError('unsafe-path', '路径必须是字符串');
-  const rel = relPath.trim();
+  const rel = normalizeInputPath(relPath);
   if (rel === '') throw new WorkError('unsafe-path', '路径不能为空');
   if (rel.includes('\0')) throw new WorkError('unsafe-path', '路径含非法字符');
   if (isAbsolute(rel) || /^[a-zA-Z]:/.test(rel) || rel.startsWith('\\\\') || rel.startsWith('//')) {

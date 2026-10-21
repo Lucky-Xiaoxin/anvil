@@ -70,15 +70,20 @@ function RootSetup({ setup, onReady }: { setup: SetupState; onReady: (tree: Work
             value={path}
             placeholder="E:/ANVIL-Work"
             spellCheck={false}
+            title="支持 / 与 \；可直接粘贴资源管理器「复制为路径」的带引号路径"
             onChange={(e) => {
               setPath(e.target.value);
               setConfirm(null);
               setErr(null);
             }}
+            onBlur={() => {
+              setPath((p) => p.trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/'));
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void run(false);
             }}
           />
+          <span className="wk-hint">/ 与 \ 都行；资源管理器「复制为路径」的引号会自动去掉。</span>
         </label>
         <ul className="wk-setup__rules">
           <li>只创建 <code>.anvil/</code> 与 contests / practice / templates / notes 四个顶层目录。</li>
@@ -483,6 +488,9 @@ export function Workbench() {
                     const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
                     setNotice({ kind: 'err', text: api.message });
                   });
+                }}
+                onOpenArena={(arenaPath) => {
+                  window.location.hash = `/arena?path=${encodeURIComponent(arenaPath)}`;
                 }}
                 onSelectTag={(id) => {
                   setNodeFilter(id);
