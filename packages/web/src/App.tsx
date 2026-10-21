@@ -16,7 +16,6 @@ import { AppShell, type View } from './components/AppShell.tsx';
 import {
   ColdStart,
   Dashboard,
-  LockedMaster,
   NoticeBar,
   Unconfigured,
   type Notice,
@@ -25,6 +24,7 @@ import { Settings } from './components/Settings.tsx';
 import { SourceTabs } from './components/SourceTabs.tsx';
 import { Wizard } from './components/Wizard.tsx';
 import { Arena } from './components/arena/Arena.tsx';
+import { Workbench } from './components/work/Workbench.tsx';
 import { XcpcClaim } from './components/xcpc/XcpcClaim.tsx';
 import { XcpcDossier } from './components/xcpc/XcpcDossier.tsx';
 import { decideSwitch } from './switcher.ts';
@@ -362,14 +362,7 @@ export function App() {
   const tabs = view === 'dashboard' ? <SourceTabs current={shown} status={status} onSelect={select} tabRefs={tabRefs} /> : null;
 
   const screen = () => {
-    if (view === 'master') {
-      return (
-        <div className="content">
-          {notice ? <NoticeBar {...notice} /> : null}
-          <LockedMaster wide />
-        </div>
-      );
-    }
+    if (view === 'master') return <Workbench />;
     /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
     if (view === 'arena') return <Arena onCount={setArenaCount} />;
     if (view === 'settings') {

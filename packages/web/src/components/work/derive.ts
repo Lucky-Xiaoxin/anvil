@@ -1,0 +1,102 @@
+/** 工坊前端的纯派生：树展开、筛选、搜索、名字查找（可单测，不碰 DOM） */
+import type { WorkKind, WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
+
+export const KIND_NAME: Record<WorkKind, string> = {
+  contest: '比赛',
+  problem: '题目',
+  template: '模板',
+  note: '笔记',
+};
+
+export const KIND_ORDER: readonly WorkKind[] = ['contest', 'problem', 'template', 'note'];
+
+export interface FlatNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  count: number;
+}
+
+export function flatNodes(taxonomy: WorkTaxonomyDto | null): FlatNode[] {
+  if (taxonomy === null) return [];
+  const out: FlatNode[] = [];
+  for (const node of taxonomy.nodes) {
+    out.push({ id: node.id, name: node.name, parentId: null, count: node.count });
+    for (const child of node.children ?? []) out.push({ id: child.id, name: child.name, parentId: node.id, count: child.count });
+  }
+  return out;
+}
+
+export function nodeNameMap(taxonomy: WorkTaxonomyDto | null): Map<string, string> {
+  return new Map(flatNodes(taxonomy).map((n) => [n.id, n.name]));
+}
+
+/** 一级节点筛选时把直属二级也算进来（词表最多两级） */
+export function tagTargetIds(taxonomy: WorkTaxonomyDto | null, nodeId: string): Set<string> {
+  const targets = new Set<string>([nodeId]);
+  for (const node of flatNodes(taxonomy)) {
+    if (node.parentId === nodeId) targets.add(node.id);
+  }
+  return targets;
+}
+
+export function matchesTag(obj: WorkObjectDto, taxonomy: WorkTaxonomyDto | null, nodeId: string): boolean {
+  const targets = tagTargetIds(taxonomy, nodeId);
+  if (obj.tags.primary !== null && targets.has(obj.tags.primary)) return true;
+  return obj.tags.related.some((id) => targets.has(id));
+}
+
+export interface WorkFilter {
+  kind: WorkKind | 'all';
+  nodeId: string | null;
+  label: string | null;
+  query: string;
+}
+
+export function filterWorkObjects(objects: readonly WorkObjectDto[], taxonomy: WorkTaxonomyDto | null, filter: WorkFilter): WorkObjectDto[] {
+  const names = nodeNameMap(taxonomy);
+  const q = filter.query.trim().toLowerCase();
+  return objects.filter((obj) => {
+    if (filter.kind !== 'all' && obj.kind !== filter.kind) return false;
+    if (filter.nodeId !== null && !matchesTag(obj, taxonomy, filter.nodeId)) return false;
+    if (filter.label !== null && !obj.labels.includes(filter.label)) return false;
+    if (q !== '') {
+      // TODO(切片5a): 词表 aliases 未进 WorkTreeDto，v1 检索先覆盖标题 / labels / 节点名 / 路径
+      const tagNames = [obj.tags.primary, ...obj.tags.related]
+        .filter((id): id is string => id !== null)
+        .map((id) => names.get(id) ?? id)
+        .join(' ');
+      const hay = `${obj.title} ${obj.labels.join(' ')} ${tagNames} ${obj.relPath}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+export function allLabels(objects: readonly WorkObjectDto[]): string[] {
+  const out = new Set<string>();
+  for (const obj of objects) for (const label of obj.labels) out.add(label);
+  return [...out].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+export function primaryName(obj: WorkObjectDto, taxonomy: WorkTaxonomyDto | null): string | null {
+  if (obj.tags.primary === null) return null;
+  return nodeNameMap(taxonomy).get(obj.tags.primary) ?? obj.tags.primary;
+}
+
+export function kindCounts(objects: readonly WorkObjectDto[]): Record<WorkKind | 'all', number> {
+  const counts: Record<WorkKind | 'all', number> = { all: objects.length, contest: 0, problem: 0, template: 0, note: 0 };
+  for (const obj of objects) counts[obj.kind] += 1;
+  return counts;
+}
+
+/** ISO → 2026-10-21；只用于列表的日期列 */
+export function isoDate(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+export function fileSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}

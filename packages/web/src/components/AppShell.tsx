@@ -76,14 +76,10 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
               <small>CF · AT · XCPC 三源</small>
             </span>
           </button>
-          <button className="navitem navitem--locked" aria-current={view === 'master' ? 'page' : undefined} onClick={() => onNavigate('master')}>
+          <button className="navitem" aria-current={view === 'master' ? 'page' : undefined} onClick={() => onNavigate('master')}>
             <Icon id="i-map" />
             <span className="navtxt">工坊</span>
-            <Icon id="i-lock" className="lock" />
-            <span className="navlabel">
-              工坊
-              <small>切片 5 · 未解锁</small>
-            </span>
+            <span className="navlabel">工坊</span>
           </button>
           <button className="navitem" aria-current={view === 'arena' ? 'page' : undefined} onClick={() => onNavigate('arena')}>
             <Icon id="i-board" />
@@ -193,7 +189,7 @@ export function AppShell({ view, onNavigate, status, source, xcpc, busy, delta, 
         {bare ? null : (
           <div className="topbar">
           <h2>{TITLES[view]}</h2>
-          {isXcpc ? (
+          {view === 'master' ? null : isXcpc ? (
             claimed ? (
               <span
                 className="chip"

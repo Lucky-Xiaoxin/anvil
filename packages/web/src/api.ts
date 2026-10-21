@@ -6,6 +6,10 @@ import type {
   StatusDto,
   SyncSourceId,
   SyncStatesDto,
+  WorkKind,
+  WorkObjectDetailDto,
+  WorkTags,
+  WorkTreeDto,
   XcpcProfileDto,
   XcpcRefreshDto,
   XcpcSearchRow,
@@ -13,10 +17,13 @@ import type {
 
 export class ApiError extends Error {
   readonly kind: string;
-  constructor(message: string, kind = 'unknown') {
+  /** root-not-empty 时服务端带回的已有项数 */
+  readonly entries?: number;
+  constructor(message: string, kind = 'unknown', entries?: number) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
+    this.entries = entries;
   }
 }
 
@@ -41,8 +48,8 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   const text = await res.text();
   const body = text === '' ? null : readJson(text);
   if (!res.ok) {
-    const detail = (body as { error?: { kind?: string; message?: string } } | null)?.error;
-    throw new ApiError(detail?.message ?? `接口 ${path} 返回 HTTP ${res.status}`, detail?.kind ?? 'http');
+    const detail = (body as { error?: { kind?: string; message?: string; entries?: number } } | null)?.error;
+    throw new ApiError(detail?.message ?? `接口 ${path} 返回 HTTP ${res.status}`, detail?.kind ?? 'http', detail?.entries);
   }
   return body as T;
 }
@@ -94,3 +101,60 @@ export const getArenaContest = (path: string, refresh = false): Promise<ArenaCon
     undefined,
     120_000,
   );
+
+/* ---------- 工坊（docs/contracts/23 §9.2）：受管工作区 / 对象 / 标签 ---------- */
+
+export interface WorkRescanSummaryDto {
+  scannedAt: number;
+  objects: number;
+  added: number;
+  removed: number;
+  unregistered: number;
+  errors: number;
+}
+
+export const getWorkTree = (opts: { archived?: boolean; rescan?: boolean } = {}): Promise<WorkTreeDto> =>
+  request<WorkTreeDto>(
+    `/api/work/tree?archived=${opts.archived === true ? '1' : '0'}&rescan=${opts.rescan === true ? '1' : '0'}`,
+    undefined,
+    45_000,
+  );
+
+export const initWork = (path: string, confirmExisting = false): Promise<WorkTreeDto> =>
+  request<WorkTreeDto>('/api/work/init', post({ path, confirmExisting }), 45_000);
+
+export const getWorkObject = (id: string): Promise<WorkObjectDetailDto> =>
+  request<WorkObjectDetailDto>(`/api/work/object?id=${encodeURIComponent(id)}`);
+
+export const createWork = (body: {
+  kind: WorkKind;
+  title?: string;
+  parentId?: string;
+  problemKey?: string;
+  arenaPath?: string;
+  topId?: string;
+  templateId?: string;
+}): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/create', post(body), 30_000);
+
+export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string }): Promise<WorkObjectDetailDto> =>
+  request<WorkObjectDetailDto>('/api/work/adopt', post(body), 30_000);
+
+export const updateWork = (body: {
+  id: string;
+  title?: string;
+  tags?: { primary?: string | null; related?: string[] };
+  labels?: string[];
+  archived?: boolean;
+}): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/update', post(body), 30_000);
+
+export const trashWork = (id: string): Promise<{ id: string; trashName: string }> =>
+  request<{ id: string; trashName: string }>('/api/work/trash', post({ id }), 30_000);
+
+export const restoreWork = (id: string): Promise<WorkObjectDetailDto> =>
+  request<WorkObjectDetailDto>('/api/work/restore', post({ id }), 30_000);
+
+export const openWork = async (id: string, relPath?: string): Promise<void> => {
+  await request<null>('/api/work/open', post({ id, ...(relPath === undefined ? {} : { relPath }) }), 30_000);
+};
+
+export const rescanWork = (): Promise<WorkRescanSummaryDto> => request<WorkRescanSummaryDto>('/api/work/rescan', post({}), 45_000);
