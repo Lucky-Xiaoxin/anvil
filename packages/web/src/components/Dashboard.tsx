@@ -12,34 +12,16 @@ export interface Notice {
 
 const NAME: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
 
-export function LockedMaster({ wide = false }: { wide?: boolean }) {
+export function NoticeBar({ kind, text, onClose }: Notice & { onClose?: () => void }) {
   return (
-    <div className="locked rise" style={wide ? { padding: 'var(--sp-3)' } : undefined}>
-      <Icon id={wide ? 'i-lock' : 'i-map'} style={wide ? { width: 24, height: 24 } : undefined} />
-      <div>
-        <div className="locked__t" style={wide ? { fontSize: 15 } : undefined}>
-          工坊 <span className="tag">{wide ? '切片 5' : '未解锁'}</span>
-        </div>
-        <p className="locked__p">
-          {wide ? (
-            <>
-              把你做过的题铺成一张<em>技能图</em>：颜色 = 你在这个节点上<b>稳定做得出来</b>的难度，不是玄学总分。
-            </>
-          ) : (
-            <>把你做过的题铺成一张<em>技能图</em>。</>
-          )}
-        </p>
-        {wide ? null : <div className="locked__go">切片 5</div>}
-      </div>
-    </div>
-  );
-}
-
-export function NoticeBar(notice: Notice) {
-  return (
-    <div className={`alert alert--${notice.kind}`} role="status">
-      <Icon id={notice.kind === 'err' ? 'i-x' : 'i-check'} />
-      <div>{notice.text}</div>
+    <div className={`alert alert--${kind}`} role="status">
+      <Icon id={kind === 'err' ? 'i-x' : 'i-check'} />
+      <div>{text}</div>
+      {onClose === undefined ? null : (
+        <button className="alert__x" onClick={onClose} title="关闭提示">
+          知道了
+        </button>
+      )}
     </div>
   );
 }
@@ -317,11 +299,6 @@ export function ColdStart({ source, dash, status, today, notice, onGoSettings }:
             </div>
           </div>
         </div>
-      </div>
-
-      {/* 切片 4 已交付模拟榜单，这里只剩工坊一块未解锁 */}
-      <div className="grid-4" style={{ gridTemplateColumns: 'minmax(0,1fr)' }}>
-        <LockedMaster wide />
       </div>
     </div>
   );

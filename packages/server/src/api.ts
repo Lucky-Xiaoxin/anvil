@@ -25,6 +25,8 @@ import { buildDashboard } from './dashboard.ts';
 import { isRunning, startSync, syncSnapshot } from './sync/runner.ts';
 import type { SyncSource } from './sync/source.ts';
 import { XcpcError, claimXcpc, refreshXcpc, xcpcProfile, xcpcStatus, type XcpcClient, type XcpcStore } from './sync/xcpc.ts';
+import { registerWorkRoutes } from './work/routes.ts';
+import type { WorkService } from './work/store.ts';
 
 export interface ApiContext {
   db: DatabaseSync;
@@ -36,6 +38,8 @@ export interface ApiContext {
   xcpc: XcpcStore & { client: XcpcClient };
   /** 模拟榜单只走文件缓存、不进 anvil.db（docs/contracts/16 §3），客户端同样可注入 */
   arena: ArenaClient;
+  /** 工坊（docs/contracts/23）：受管工作区 / 对象 / 标签，索引在内存、元数据在磁盘 */
+  work: WorkService;
 }
 
 const LABEL: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
@@ -111,6 +115,8 @@ function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
 }
 
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
+  registerWorkRoutes(app, ctx.work);
+
   app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles(), ctx.xcpc, Date.now(), configWarningOf()));
 
   app.post('/api/config', async (request, reply) => {

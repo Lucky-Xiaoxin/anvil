@@ -12,6 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { countSubmissions, getSyncState, initSchema, loadXcpcPlayer, replaceXcpcPlayer, setSyncState, syncKey, upsertRatingHistory } from '../src/db.ts';
 import { registerApi } from '../src/api.ts';
 import { ArenaClient } from '../src/arena.ts';
+import { WorkService } from '../src/work/store.ts';
 import {
   MISSING_IN_SNAPSHOT,
   XCPC_STALE_AFTER_DAYS,
@@ -641,6 +642,7 @@ describe('XCPC 路由（docs/contracts/14 §4）', () => {
       setHandles: () => {},
       xcpc: { db, getKey: s.getKey, setKey: s.setKey, client: m.client },
       arena: new ArenaClient({ fetchImpl: async () => { throw new Error('本文件不测 arena'); }, dir: join(tmpdir(), 'anvil-arena-xcpc-test') }),
+      work: new WorkService({ db, getRoot: () => '', setRoot: () => {} }),
     });
     await app.ready();
     // 认领态必须真的落一行：只写 config 标记不建行，状态判定会退回未认领

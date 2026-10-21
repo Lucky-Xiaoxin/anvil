@@ -16,7 +16,6 @@ import { AppShell, type View } from './components/AppShell.tsx';
 import {
   ColdStart,
   Dashboard,
-  LockedMaster,
   NoticeBar,
   Unconfigured,
   type Notice,
@@ -25,13 +24,21 @@ import { Settings } from './components/Settings.tsx';
 import { SourceTabs } from './components/SourceTabs.tsx';
 import { Wizard } from './components/Wizard.tsx';
 import { Arena } from './components/arena/Arena.tsx';
+import { Workbench } from './components/work/Workbench.tsx';
 import { XcpcClaim } from './components/xcpc/XcpcClaim.tsx';
 import { XcpcDossier } from './components/xcpc/XcpcDossier.tsx';
 import { decideSwitch } from './switcher.ts';
 
-function viewFromHash(): View {
+function routeFromHash(): { view: View; arenaPath: string | null } {
   const h = window.location.hash.replace(/^#\/?/, '');
-  return h === 'settings' || h === 'master' || h === 'arena' ? h : 'dashboard';
+  const [path, query = ''] = h.split('?');
+  const view: View = path === 'settings' || path === 'master' || path === 'arena' ? path : 'dashboard';
+  let arenaPath: string | null = null;
+  if (view === 'arena' && query !== '') {
+    const p = new URLSearchParams(query).get('path');
+    if (p !== null && p !== '') arenaPath = p;
+  }
+  return { view, arenaPath };
 }
 
 /** 服务端把任务丢了（进程重启）时，别把进度条永远挂在那儿 */
@@ -98,7 +105,8 @@ export function App() {
   const [xcpc, setXcpc] = useState<XcpcProfileDto | null>(null);
   const [states, setStates] = useState<SyncStatesDto | null>(null);
   const [today, setToday] = useState(() => new Date());
-  const [view, setView] = useState<View>(viewFromHash);
+  const [view, setView] = useState<View>(() => routeFromHash().view);
+  const [arenaEntry, setArenaEntry] = useState<string | null>(() => routeFromHash().arenaPath);
   const [busy, setBusy] = useState<Record<SourceId, boolean>>({ cf: false, at: false, xcpc: false });
   const [delta, setDelta] = useState<{ source: SyncSourceId; stored: number } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -121,7 +129,11 @@ export function App() {
   const tabRefs = useRef<Partial<Record<SourceId, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash());
+    const onHash = () => {
+      const route = routeFromHash();
+      setView(route.view);
+      setArenaEntry(route.arenaPath);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -270,6 +282,11 @@ export function App() {
     window.location.hash = `/${next}`;
   }, []);
 
+  const consumeArenaEntry = useCallback((): void => {
+    window.history.replaceState(null, '', '#/arena');
+    setArenaEntry(null);
+  }, []);
+
   const finishWizard = useCallback((): void => {
     setWizardActive(false);
     navigate('dashboard');
@@ -362,16 +379,9 @@ export function App() {
   const tabs = view === 'dashboard' ? <SourceTabs current={shown} status={status} onSelect={select} tabRefs={tabRefs} /> : null;
 
   const screen = () => {
-    if (view === 'master') {
-      return (
-        <div className="content">
-          {notice ? <NoticeBar {...notice} /> : null}
-          <LockedMaster wide />
-        </div>
-      );
-    }
+    if (view === 'master') return <Workbench />;
     /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
-    if (view === 'arena') return <Arena onCount={setArenaCount} />;
+    if (view === 'arena') return <Arena onCount={setArenaCount} entryPath={arenaEntry} onEntryConsumed={consumeArenaEntry} />;
     if (view === 'settings') {
       const configuredNeither = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
       if (status === null || configuredNeither || wizardActive) {

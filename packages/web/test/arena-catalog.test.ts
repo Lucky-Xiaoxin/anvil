@@ -13,6 +13,7 @@ import {
   loadRail,
   loadScrollTop,
   loadSession,
+  listGhostPaths,
   listSessionPaths,
   saveGhost,
   saveOpenGroups,
@@ -202,6 +203,7 @@ describe('「我的成绩」幽灵行存储（docs/contracts/20 §2.1 · v8 逐�
     saveGhost(s, PATH, { show: true, subs: [{ p: 0, t: 113, r: 'AC' }] });
     // 目录那行「回放中」只认 arena:session: 前缀，幽灵键不该被当成一场活着的回放
     expect(listSessionPaths(s)).toEqual([]);
+    expect(listGhostPaths(s)).toEqual([PATH]);
   });
 
   it('subs 先按题、再按时刻升序落盘（乱序录入也存成榜上的读法）', () => {
