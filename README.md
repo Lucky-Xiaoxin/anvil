@@ -35,7 +35,7 @@
 ## 文档
 
 - `docs/README.md` —— **文档总索引**：现行契约、历史提示词、交付报告、归档各在哪。
-- `docs/contracts/23-工坊-代码管辖契约.md` —— 切片 5a 契约（受管工作区 / 四类对象 / 两级标签；已实现待合并）。
+- `docs/contracts/23-工坊-代码管辖契约.md` —— 切片 5a 契约（受管工作区 / 四类对象 / 两级标签；已交付 main）。
 - `docs/contracts/20-榜单增强规格.md` —— 最新已交付契约（榜单增强 v8：预拉取 + 「我的成绩」逐发录入）。
 - `docs/contracts/16-模拟榜单规格.md` —— 切片 4「模拟榜单」基础契约，从它读起；srk 数据源与许可证纪律仍以它 §2 为准。
 - `docs/contracts/04` / `docs/contracts/09` / `docs/contracts/14` —— 切片 1–3 契约（骨架 / AT / XCPC）。
