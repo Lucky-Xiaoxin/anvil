@@ -191,7 +191,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().error.kind).toBe('root-version');
   });
 
-  it('open：204 / code 失败回退 explorer / 都失败 502 / 越界 400', async () => {
+  it('open：文件夹 explorer / 文件 code / 互相回退 / 都失败 502 / 越界 400', async () => {
     await boot();
     await initApi();
     const problem = await create('problem', 'Cherry Tree');
@@ -200,8 +200,13 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
 
     let res = await post('/api/work/open', { id });
     expect(res.statusCode, res.body).toBe(204);
-    expect(spawnCalls.at(-1)?.cmd).toBe('C:\\Code.exe');
+    expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
+    expect(spawnCalls.at(-1)?.args).toEqual([join(root, problem.relPath)]);
     expect(spawnCalls.at(-1)?.shell).toBe(false);
+
+    res = await post('/api/work/open', { id, relPath: 'solution.cpp' });
+    expect(res.statusCode, res.body).toBe(204);
+    expect(spawnCalls.at(-1)?.cmd).toBe('C:\\Code.exe');
 
     failingCmds.add('C:\\Code.exe');
     res = await post('/api/work/open', { id, relPath: 'solution.cpp' });

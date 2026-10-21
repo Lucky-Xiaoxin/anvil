@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkArenaGhost, WorkArenaView } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
-import type { SpawnFn, SpawnLike } from '../src/work/open.ts';
+import { codeExeFromWherePath, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
 
 let base: string;
@@ -356,6 +356,18 @@ describe('回收站（契约 §6.6）', () => {
 });
 
 describe('adopt（契约 §6.2）与打开（§6.7）', () => {
+  it('where code 的无扩展首行 / code.cmd 都能解析到 Code.exe', () => {
+    const vs = join(base, 'vscode');
+    mkdirSync(join(vs, 'bin'), { recursive: true });
+    const exe = join(vs, 'Code.exe');
+    writeFileSync(exe, '');
+    writeFileSync(join(vs, 'bin', 'code'), '');
+    writeFileSync(join(vs, 'bin', 'code.cmd'), '');
+    expect(codeExeFromWherePath(join(vs, 'bin', 'code'))).toBe(exe);
+    expect(codeExeFromWherePath(join(vs, 'bin', 'code.cmd'))).toBe(exe);
+    expect(codeExeFromWherePath(exe)).toBe(exe);
+  });
+
   it('adopt 只写 meta；child 保持独立；祖先组合不合法则拒绝', async () => {
     await initRoot();
     mkdirSync(join(root, 'contests', 'manual'), { recursive: true });
@@ -369,19 +381,26 @@ describe('adopt（契约 §6.2）与打开（§6.7）', () => {
     await expect(service.adopt({ relPath: 'contests/manual/p1', kind: 'problem' })).rejects.toMatchObject({ kind: 'conflict' });
   });
 
-  it('open：code 成功 / code 失败回退 explorer / 都失败 502 / 越界拒绝', async () => {
+  it('open：文件夹走 explorer / 文件走 code / 互相回退 / 都失败 502 / 越界拒绝', async () => {
     await initRoot();
     const problem = await service.create({ kind: 'problem', title: 'Cherry Tree' });
     writeFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'x');
 
     await service.open(problem.id);
-    expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
+    expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
     expect(spawnCalls.at(-1)?.args).toEqual([absOf(problem.relPath)]);
     expect(spawnCalls.at(-1)?.shell).toBe(false);
 
     await service.open(problem.id, 'solution.cpp');
+    expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
     expect(spawnCalls.at(-1)?.args).toEqual(['--goto', join(absOf(problem.relPath), 'solution.cpp')]);
 
+    failingCmds.add('explorer.exe');
+    await service.open(problem.id);
+    expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
+    expect(spawnCalls.at(-1)?.args).toEqual([absOf(problem.relPath)]);
+
+    failingCmds.clear();
     failingCmds.add(codePath!);
     await service.open(problem.id, 'solution.cpp');
     expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
@@ -390,6 +409,7 @@ describe('adopt（契约 §6.2）与打开（§6.7）', () => {
     failingCmds.add('explorer.exe');
     await expect(service.open(problem.id)).rejects.toMatchObject({ kind: 'editor-unavailable' });
 
+    failingCmds.clear();
     await expect(service.open(problem.id, '../x')).rejects.toMatchObject({ kind: 'unsafe-path' });
   });
 });
