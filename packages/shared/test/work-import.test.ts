@@ -7,6 +7,7 @@ import {
   planImportUnits,
   problemShapeOf,
   resolveImportSelection,
+  singleDirectoryImportCandidate,
   type ImportCandidatePlan,
   type ImportSelectableCandidate,
   type ImportTree,
@@ -193,6 +194,35 @@ describe('候选识别（契约 §5.3 / §5.4 / §5.5 / §5.7）', () => {
       twice.map((x) => [x.itemId, x.unitId, x.parentItemId, x.files.map((f) => f.sourcePath)]),
     );
     expect(once.some((x) => x.sourceRelPath === 'empty')).toBe(false);
+  });
+});
+
+describe('单目录题组候选（2026-10-22 新语义）', () => {
+  it('整目录 = 一个题组：文件原样归档，不产生子题', () => {
+    const candidate = singleDirectoryImportCandidate(
+      tree(
+        [
+          ['A.cpp', 'a'],
+          ['data/1.in', '1'],
+          ['README.md', 'r'],
+        ],
+        ['data'],
+      ),
+      '旧代码',
+    );
+    expect(candidate).not.toBeNull();
+    expect(candidate!.role).toBe('contest');
+    expect(candidate!.shape).toBe('contest-group');
+    expect(candidate!.suggestedTitle).toBe('旧代码');
+    expect(candidate!.childItemIds).toEqual([]);
+    expect(candidate!.files.map((f) => f.targetPath)).toEqual(['A.cpp', 'README.md', 'data/1.in']);
+    expect(candidate!.files.every((f) => f.sourcePath === f.targetPath)).toBe(true);
+    expect(candidate!.reasons.join(' ')).toContain('整目录导入：3 个文件');
+    expect(candidate!.reasons.join(' ')).toContain('主源码 1 个');
+  });
+
+  it('空目录不产生候选', () => {
+    expect(singleDirectoryImportCandidate(tree([], []), 'empty')).toBeNull();
   });
 });
 

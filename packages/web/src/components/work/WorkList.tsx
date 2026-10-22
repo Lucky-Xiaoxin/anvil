@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import type { WorkObjectDto, WorkScanErrorDto, WorkTaxonomyDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
 import { fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
-import { KIND_NAME, WORK_SECTION, groupWorkObjects, isoDate, pathBreadcrumb, primaryName, type WorkContestGroup } from './derive.ts';
+import {
+  KIND_NAME,
+  WORK_SECTION,
+  contestBadgeOf,
+  contestCountLabel,
+  groupWorkObjects,
+  isoDate,
+  pathBreadcrumb,
+  primaryName,
+  type WorkContestGroup,
+} from './derive.ts';
 
 interface Props {
   objects: WorkObjectDto[];
@@ -50,6 +60,9 @@ function ObjectRow(props: {
       <div className="wk-row__main">
         <div className="wk-row__title">
           {obj.kind === 'problem' ? <span className="wk-kindbadge">{WORK_SECTION.problemBadge}</span> : null}
+          {obj.kind === 'contest' && obj.sourceCount > 0 ? (
+            <span className="wk-kindbadge">{WORK_SECTION.contestBadge}</span>
+          ) : null}
           <span className="wk-row__titletext">{obj.title}</span>
           {obj.effectiveArchived ? <span className="wk-badge">归档</span> : null}
         </div>
@@ -111,6 +124,18 @@ function ContestGroups(props: {
         const contest = group.contest;
         const folded = collapsed.has(contest.id);
         const primary = primaryName(contest, taxonomy);
+        const badge = contestBadgeOf(contest, group.problems.length);
+        if (group.problems.length === 0) {
+          return (
+            <ObjectRow
+              key={contest.id}
+              obj={contest}
+              taxonomy={taxonomy}
+              selected={selectedId === contest.id}
+              onSelect={props.onSelect}
+            />
+          );
+        }
         return (
           <div className={`wk-group${selectedId === contest.id ? ' is-on' : ''}`} key={contest.id}>
             <div className="wk-group__head">
@@ -131,9 +156,9 @@ function ContestGroups(props: {
                   ) : (
                     <span className="wk-group__title wk-group__title--static">{contest.title}</span>
                   )}
-                  <span className="wk-badge wk-badge--contest">{WORK_SECTION.contestBadge}</span>
+                  {badge !== null ? <span className="wk-badge wk-badge--contest">{badge}</span> : null}
                   {contest.effectiveArchived ? <span className="wk-badge">归档</span> : null}
-                  <span className="wk-group__count">{group.problems.length} 题</span>
+                  <span className="wk-group__count">{contestCountLabel(contest, group.problems.length)}</span>
                 </div>
                 <div className="wk-group__meta">
                   <span>{isoDate(contest.createdAt)}</span>
@@ -324,7 +349,7 @@ export function WorkList(props: Props) {
                   <code>{item.relPath}</code>
                 </div>
                 <div className="wk-row__meta">
-                  <span>推断：{item.kindHint === null ? '未定' : KIND_NAME[item.kindHint]}</span>
+                  <span>推断：{item.kindHint === null ? '未定' : item.kindHint === 'problem' ? '题组' : KIND_NAME[item.kindHint]}</span>
                 </div>
               </div>
               <button className="btn btn--xs" disabled={props.busyId !== null} onClick={() => props.onAdopt(item)}>

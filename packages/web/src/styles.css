@@ -1627,6 +1627,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-import__grouphead{display:flex;align-items:flex-start;gap:4px;padding:8px 8px 8px 4px;background:rgba(255,255,255,.018)}
 .wk-import__grouphead.is-on{background:rgba(245,165,36,.055)}
 .wk-import__children{border-top:1px solid var(--line-soft);padding:2px 0 6px}
+.wk-import__chevspace{flex:0 0 auto;width:20px;height:20px}
 .wk-import__row{display:flex;align-items:flex-start;gap:9px;padding:9px 10px 9px 12px;border-radius:var(--r-s);min-width:0}
 .wk-import__row:hover{background:rgba(255,255,255,.03)}
 .wk-import__row.is-on{background:rgba(245,165,36,.07)}

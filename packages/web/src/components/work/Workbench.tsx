@@ -382,7 +382,7 @@ export function Workbench() {
                 <span>全部</span>
                 <b className="num">{counts.all}</b>
               </button>
-              {KIND_ORDER.map((kind) => (
+              {KIND_ORDER.filter((kind) => kind !== 'problem' || counts.problem > 0).map((kind) => (
                 <button
                   key={kind}
                   className={`wk-kindrow${kindFilter === kind ? ' is-on' : ''}`}

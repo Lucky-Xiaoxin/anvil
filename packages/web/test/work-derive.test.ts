@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
 import {
   allLabels,
+  contestBadgeOf,
+  contestCountLabel,
   fileSize,
   filterWorkObjects,
   folderActionsOf,
@@ -43,6 +45,7 @@ const obj = (patch: Partial<WorkObjectDto> = {}): WorkObjectDto => ({
   createdAt: '2026-10-21T02:00:00.000Z',
   updatedAt: '2026-10-21T02:10:00.000Z',
   fileCount: 3,
+  sourceCount: 0,
   ...patch,
 });
 
@@ -85,6 +88,17 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     for (const kind of ['contest', 'template', 'note'] as const) {
       expect(folderActionsOf(kind)).toEqual([{ app: 'auto', label: '打开文件夹' }]);
     }
+  });
+
+  it('比赛只有挂了题组才显示题组徽章；计数区分源码 / 旧子题', () => {
+    const emptyContest = obj({ id: 'obj_0000000020', kind: 'contest', title: 'Empty', relPath: 'contests/x', sourceCount: 0, parentId: null });
+    expect(contestBadgeOf(emptyContest, 0)).toBeNull();
+    expect(contestCountLabel(emptyContest, 0)).toBe('无题组');
+    const groupContest = obj({ ...emptyContest, sourceCount: 3 });
+    expect(contestBadgeOf(groupContest, 0)).toBe('题组');
+    expect(contestCountLabel(groupContest, 0)).toBe('3 个源码');
+    expect(contestBadgeOf(emptyContest, 2)).toBe('题组');
+    expect(contestCountLabel(emptyContest, 2)).toBe('2 题');
   });
 
   it('文件大小与日期', () => {

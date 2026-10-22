@@ -65,7 +65,7 @@ function Badges({ item }: { item: WorkImportCandidateDto }) {
 
 function FilePreview({ item }: { item: WorkImportCandidateDto }) {
   if (item.files === 0) return null;
-  const label = item.role === 'contest' ? '共享文件' : '文件';
+  const label = item.role === 'contest' ? '题组文件' : '文件';
   return (
     <details className="wk-import__files">
       <summary>
@@ -299,7 +299,7 @@ export function WorkImport({ onClose, onImported }: Props) {
           <ul className="wk-import__rules">
             <li>扫描只读：不创建锁文件、缓存或标记文件。</li>
             <li>执行时先复制到 `.anvil/import-staging/`，校验后再原子发布；绝不覆盖已有目录。</li>
-            <li>比赛目录生成比赛题组，其中每道题仍是独立的一等题目对象。</li>
+            <li>整个目录生成一个题组；题目就是其中的 .cpp / .py 等源码文件，不单独建对象。</li>
           </ul>
           {error !== null ? (
             <div className="alert alert--err" role="status">
@@ -355,7 +355,7 @@ export function WorkImport({ onClose, onImported }: Props) {
           ) : null}
 
           {plan.items.length === 0 ? (
-            <div className="wk-empty">没有可预览的候选。换一个来源，或把判不准的目录手动确认成题目后再试。</div>
+            <div className="wk-empty">没有可预览的文件。换一个来源再试。</div>
           ) : (
             <div className="wk-import__tree">
               {preview.contests.map(({ contest, children }) => {
@@ -365,14 +365,18 @@ export function WorkImport({ onClose, onImported }: Props) {
                 return (
                   <div className="wk-import__group" key={contest.itemId}>
                     <div className={`wk-import__grouphead${contestState.selected ? ' is-on' : ''}`}>
-                      <button
-                        className={`wk-group__toggle${folded ? '' : ' is-open'}`}
-                        aria-expanded={!folded}
-                        aria-label={folded ? `展开 ${contest.suggestedTitle}` : `收起 ${contest.suggestedTitle}`}
-                        onClick={() => toggleGroup(contest.itemId)}
-                      >
-                        <Icon id="i-chev" />
-                      </button>
+                      {children.length > 0 ? (
+                        <button
+                          className={`wk-group__toggle${folded ? '' : ' is-open'}`}
+                          aria-expanded={!folded}
+                          aria-label={folded ? `展开 ${contest.suggestedTitle}` : `收起 ${contest.suggestedTitle}`}
+                          onClick={() => toggleGroup(contest.itemId)}
+                        >
+                          <Icon id="i-chev" />
+                        </button>
+                      ) : (
+                        <span className="wk-import__chevspace" aria-hidden="true" />
+                      )}
                       <input
                         type="checkbox"
                         className="wk-import__check"
@@ -387,19 +391,19 @@ export function WorkImport({ onClose, onImported }: Props) {
                             className="input wk-import__titleinput"
                             value={contestState.title}
                             maxLength={120}
-                            aria-label="比赛题组标题"
+                            aria-label="题组标题"
                             onChange={(e) => setState((prev) => setImportTitle(prev, contest.itemId, e.target.value))}
                           />
-                          <span className="wk-badge wk-badge--contest">比赛题组</span>
+                          <span className="wk-badge wk-badge--contest">题组</span>
                           <Badges item={contest} />
-                          <span className="wk-group__count">{children.length} 题</span>
+                          <span className="wk-group__count">{fmtInt(contest.files)} 个文件</span>
                         </div>
                         <div className="wk-import__meta">
                           <span title={contest.sourceRelPath || '（源根）'}>
                             {middleEllipsis(contest.sourceRelPath || '（源根）')}
                           </span>
                           <span className="wk-dot" />
-                          <span>{fmtInt(contest.files)} 个共享文件</span>
+                          <span>{fmtInt(contest.files)} 个文件</span>
                           <span className="wk-dot" />
                           <span>{fileSize(contest.bytes)}</span>
                         </div>
@@ -407,6 +411,9 @@ export function WorkImport({ onClose, onImported }: Props) {
                           {contest.reasons.join('；')}
                         </div>
                         <FilePreview item={contest} />
+                        {children.length === 0 ? (
+                          <div className="wk-import__hintline">整个目录作为一个题组导入；题目就是其中的源码文件。</div>
+                        ) : null}
                         {contest.duplicate?.kind === 'same-content' && contestState.selected ? (
                           <label className="wk-import__dup">
                             <input
@@ -421,12 +428,9 @@ export function WorkImport({ onClose, onImported }: Props) {
                         ) : null}
                       </div>
                     </div>
-                    {folded ? null : (
+                    {children.length > 0 && !folded ? (
                       <div className="wk-import__children">
-                        {children.length === 0 ? (
-                          <div className="wk-empty wk-empty--small wk-empty--child">这个目录里没有可识别的子题。</div>
-                        ) : (
-                          children.map((child) => {
+                        {children.map((child) => {
                             const childState = state[child.itemId];
                             if (childState === undefined) return null;
                             return (
@@ -442,10 +446,9 @@ export function WorkImport({ onClose, onImported }: Props) {
                                 onKeepDuplicate={(keep) => setState((prev) => setImportKeepDuplicate(prev, child.itemId, keep))}
                               />
                             );
-                          })
-                        )}
+                          })}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
@@ -482,7 +485,8 @@ export function WorkImport({ onClose, onImported }: Props) {
             <div className="wk-import__summary">
               <b className="num">{summary.objects}</b> 个对象
               <span className="wk-dot" />
-              比赛题组 {summary.contests} · 题目 {summary.problems}
+              题组 {summary.contests}
+              {summary.problems > 0 ? ` · 题目 ${summary.problems}` : ''}
               {summary.autoSkipped > 0 ? (
                 <>
                   <span className="wk-dot" />
@@ -580,7 +584,7 @@ function ResultView(props: {
       {created.length > 0 ? (
         <section className="wk-import__resultsec">
           <div className="wk-sec__title">
-            <span>新建的比赛题组与题目</span>
+            <span>新建的题组</span>
             <b className="num">{created.length}</b>
           </div>
           <div className="wk-import__created">
@@ -595,7 +599,7 @@ function ResultView(props: {
                   onClick={() => props.onSelectObject(object.objectId)}
                 >
                   <span className={isContest ? 'wk-badge wk-badge--contest' : 'wk-kindbadge'}>
-                    {isContest ? '比赛题组' : '题目'}
+                    {isContest ? '题组' : '题目'}
                   </span>
                   <span className="wk-import__createdtitle">{titleOf(object.itemId)}</span>
                   <code title={object.relPath}>{middleEllipsis(object.relPath, 72)}</code>

@@ -20,12 +20,11 @@ import {
 import { basename, dirname, join } from 'node:path';
 import {
   buildWorkRelPath,
-  classifyImportTree,
   importFingerprintInput,
   isImportAttachmentName,
   isImportSourceName,
-  problemShapeOf,
   resolveImportSelection,
+  singleDirectoryImportCandidate,
   slugForAttempt,
   slugWithRandomSuffix,
   stemOf,
@@ -270,7 +269,9 @@ export class WorkImportService {
       files: scanned.files.map((file) => ({ path: file.sourcePath, size: file.size, sha256: file.sha256 })),
       dirs: scanned.dirs,
     };
-    const candidates = classifyImportTree(tree, basename(source.abs));
+    // 新语义：一个源目录 = 一个题组；整目录文件归入一个 contest，不再拆 problem 对象
+    const single = singleDirectoryImportCandidate(tree, basename(source.abs));
+    const candidates = single === null ? [] : [single];
     if (candidates.length > this.limits.maxCandidates) {
       throw new WorkError('import-limit', `候选对象超过上限（${candidates.length} > ${this.limits.maxCandidates}）`);
     }

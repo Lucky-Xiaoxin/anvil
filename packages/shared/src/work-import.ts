@@ -521,6 +521,35 @@ export function classifyImportTree(tree: ImportTree, rootName: string): ImportCa
   return out;
 }
 
+/**
+ * 新模型（2026-10-22 用户确认）：一个源目录 = 一个题组。
+ * 整个目录的非忽略文件原样归入题组；题目就是其中的源码文件，不再拆 problem 对象。
+ */
+export function singleDirectoryImportCandidate(tree: ImportTree, rootName: string): ImportCandidatePlan | null {
+  if (tree.files.length === 0) return null;
+  const files = [...tree.files]
+    .sort((a, b) => byPosix(a.path, b.path))
+    .map((file) => ({ sourcePath: file.path, targetPath: file.path }));
+  const sourceCount = files.filter((file) => isImportSourceName(baseNameOf(file.sourcePath))).length;
+  return {
+    itemId: 'item_1',
+    unitId: 'unit_1',
+    sourceRelPath: '',
+    shape: 'contest-group',
+    role: 'contest',
+    parentItemId: null,
+    confidence: 'high',
+    suggestedTitle: rootName.trim().slice(0, 120),
+    reasons: [
+      `整目录导入：${files.length} 个文件`,
+      `主源码 ${sourceCount} 个；题目就是题组里的源码文件，不单独建对象`,
+    ],
+    files,
+    childItemIds: [],
+    scope: { kind: 'dir', path: '' },
+  };
+}
+
 /* ---------- 指纹组合（契约 §7.2） ---------- */
 
 export interface ImportFingerprintEntry {

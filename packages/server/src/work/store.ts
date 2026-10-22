@@ -12,6 +12,7 @@ import {
   contestPathOk,
   defaultTemplateOf,
   flattenTaxonomy,
+  isImportSourceName,
   isWorkKind,
   parseTaxonomy,
   parseWorkArenaRecord,
@@ -130,6 +131,7 @@ interface IndexedObject {
   absPath: string;
   files: WorkFileDto[];
   fileCount: number;
+  sourceCount: number;
   filesTruncated: boolean;
   effectiveArchived: boolean;
 }
@@ -154,6 +156,7 @@ interface CollectedObject {
   absPath: string;
   files: WorkFileDto[];
   fileCount: number;
+  sourceCount: number;
   filesTruncated: boolean;
 }
 
@@ -1033,6 +1036,7 @@ export class WorkService {
                 absPath: absDir,
                 files: files.files,
                 fileCount: files.total,
+                sourceCount: files.sourceTotal,
                 filesTruncated: files.truncated,
               });
             }
@@ -1090,6 +1094,7 @@ export class WorkService {
         absPath: item.absPath,
         files: item.files,
         fileCount: item.fileCount,
+        sourceCount: item.sourceCount,
         filesTruncated: item.filesTruncated,
         effectiveArchived: item.record.meta.archived,
       };
@@ -1198,9 +1203,14 @@ export class WorkService {
     };
   }
 
-  private collectFiles(objAbs: string, objRel: string, errors: WorkScanErrorDto[]): { files: WorkFileDto[]; total: number; truncated: boolean } {
+  private collectFiles(
+    objAbs: string,
+    objRel: string,
+    errors: WorkScanErrorDto[],
+  ): { files: WorkFileDto[]; total: number; sourceTotal: number; truncated: boolean } {
     const files: WorkFileDto[] = [];
     let total = 0;
+    let sourceTotal = 0;
     const walk = (absDir: string, relDir: string): void => {
       let entries;
       try {
@@ -1222,6 +1232,7 @@ export class WorkService {
         if (!entry.isFile()) continue;
         if (entry.name === '.anvil.json') continue;
         total += 1;
+        if (isImportSourceName(entry.name)) sourceTotal += 1;
         if (files.length >= 500) continue;
         const st = lstatOrNull(join(absDir, entry.name));
         if (st === null) continue;
@@ -1235,7 +1246,7 @@ export class WorkService {
     };
     walk(objAbs, '');
     files.sort((a, b) => comparePosix(a.path, b.path));
-    return { files, total, truncated: total > files.length };
+    return { files, total, sourceTotal, truncated: total > files.length };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1271,6 +1282,7 @@ export class WorkService {
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
       fileCount: obj.fileCount,
+      sourceCount: obj.sourceCount,
     };
   }
 

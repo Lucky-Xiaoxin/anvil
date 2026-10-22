@@ -269,7 +269,8 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     const plan = res.json();
     expect(plan.items).toHaveLength(1);
     expect(plan.totals.files).toBe(2);
-    expect(plan.items[0].shape).toBe('problem-file');
+    expect(plan.items[0].shape).toBe('contest-group');
+    expect(plan.items[0].files).toBe(2);
     expect(plan.items[0].selectedByDefault).toBe(true);
 
     res = await post('/api/work/import/commit', {
@@ -281,8 +282,10 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(result.units).toHaveLength(1);
     expect(result.units[0].status).toBe('success');
     expect(result.manifestRelPath).toMatch(/^\.anvil\/imports\//);
+    expect(result.units[0].objects).toHaveLength(1);
     const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
     expect(tree.objects).toHaveLength(1);
+    expect(tree.objects[0].kind).toBe('contest');
 
     res = await post('/api/work/import/commit', {
       planId: plan.planId,

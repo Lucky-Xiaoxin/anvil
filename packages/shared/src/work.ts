@@ -36,6 +36,8 @@ export interface WorkObjectDto {
   createdAt: string;
   updatedAt: string;
   fileCount: number;
+  /** 主源码文件数；比赛/题组用它判断「挂了题组」 */
+  sourceCount: number;
 }
 
 export interface WorkFileDto {

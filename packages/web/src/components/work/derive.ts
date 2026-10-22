@@ -12,9 +12,9 @@ export const KIND_ORDER: readonly WorkKind[] = ['contest', 'problem', 'template'
 
 /** 中间列表用语（契约 §2.3 / §12.3）：题组 / 比赛题组 / 未分组题目 */
 export const WORK_SECTION = {
-  groups: '题组',
-  contestBadge: '比赛题组',
-  ungrouped: '未分组题目',
+  groups: '比赛',
+  contestBadge: '题组',
+  ungrouped: '旧题目对象',
   templates: '模板',
   notes: '笔记',
   problemBadge: '题目',
@@ -172,6 +172,17 @@ export function folderActionsOf(kind: WorkKind): WorkFolderAction[] {
     ];
   }
   return [{ app: 'auto', label: '打开文件夹' }];
+}
+
+/** 比赛挂了题组（有自己的源码，或有旧的子题目对象）才显示「题组」徽章 */
+export function contestBadgeOf(contest: WorkObjectDto, childCount: number): string | null {
+  return childCount > 0 || contest.sourceCount > 0 ? WORK_SECTION.contestBadge : null;
+}
+
+export function contestCountLabel(contest: WorkObjectDto, childCount: number): string {
+  if (childCount > 0) return `${childCount} 题`;
+  if (contest.sourceCount > 0) return `${contest.sourceCount} 个源码`;
+  return '无题组';
 }
 
 export function allLabels(objects: readonly WorkObjectDto[]): string[] {

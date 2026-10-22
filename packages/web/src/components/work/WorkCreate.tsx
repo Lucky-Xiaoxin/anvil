@@ -1,13 +1,25 @@
-import { useMemo, useState } from 'react';
-import { defaultTemplateOf, type WorkKind, type WorkTreeDto, type WorkUnregisteredDto } from '@anvil/shared';
+import { useState } from 'react';
+import type { WorkKind, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
 import { ApiError, createWork, adoptWork } from '../../api.ts';
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
-import { KIND_NAME, KIND_ORDER } from './derive.ts';
 
 export type WorkDialog =
   | { mode: 'create' }
   | { mode: 'adopt'; target: WorkUnregisteredDto };
+
+/**
+ * 新模型：比赛和题组都是 contest 文件夹。
+ * 「题组」= 比赛文件夹里的源码集合；新建题组 / 比赛只是表单提示不同，落盘 kind 都是 contest。
+ */
+type CreateMode = 'group' | 'contest' | 'template' | 'note';
+
+const MODES: ReadonlyArray<{ mode: CreateMode; label: string; hint: string }> = [
+  { mode: 'group', label: '题组', hint: '建一个题组文件夹；写题时直接往里放 .cpp，题目不再单独建对象。' },
+  { mode: 'contest', label: '比赛', hint: '建一个比赛对象；可以不挂题组，也可以之后把源码放进文件夹。' },
+  { mode: 'template', label: '模板', hint: '模板仍是一个独立对象文件夹。' },
+  { mode: 'note', label: '笔记', hint: '笔记仍是一个独立对象文件夹。' },
+];
 
 interface Props {
   tree: WorkTreeDto;
@@ -16,32 +28,29 @@ interface Props {
   onClose: () => void;
 }
 
+function modeOfHint(kind: WorkKind | null): CreateMode {
+  if (kind === 'template') return 'template';
+  if (kind === 'note') return 'note';
+  return 'group';
+}
+
+function kindOfMode(mode: CreateMode): WorkKind {
+  return mode === 'group' || mode === 'contest' ? 'contest' : mode;
+}
+
 export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
   const adopting = dialog.mode === 'adopt';
   const target = adopting ? dialog.target : null;
-  const [kind, setKind] = useState<WorkKind>(target?.kindHint ?? 'problem');
+  const [mode, setMode] = useState<CreateMode>(target === null ? 'group' : modeOfHint(target.kindHint));
   const [title, setTitle] = useState(() => (target === null ? '' : (target.relPath.split('/').pop() ?? '')));
-  const [parentId, setParentId] = useState('');
-  const [problemKey, setProblemKey] = useState('');
   const [topId, setTopId] = useState('');
-  /** '' = 默认模板（没有默认时等于不复制）；__none__ = 明确不复制；其余 = 模板 id */
-  const [templateChoice, setTemplateChoice] = useState('');
   const [arenaPath, setArenaPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const contests = useMemo(
-    () => tree.objects.filter((o) => o.kind === 'contest' && !o.effectiveArchived),
-    [tree.objects],
-  );
-  const templates = useMemo(
-    () => tree.objects.filter((o) => o.kind === 'template' && !o.effectiveArchived),
-    [tree.objects],
-  );
-  const defaultTemplate = useMemo(() => defaultTemplateOf(tree.objects), [tree.objects]);
   const topNodes = tree.taxonomy?.nodes ?? [];
-
-  const canSubmit = adopting || title.trim() !== '' || (kind === 'problem' && problemKey.trim() !== '');
+  const current = MODES.find((item) => item.mode === mode) ?? MODES[0]!;
+  const canSubmit = adopting || title.trim() !== '';
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -49,24 +58,16 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
     setBusy(true);
     setErr(null);
     try {
+      const kind = kindOfMode(mode);
       if (adopting && target !== null) {
         const made = await adoptWork({ relPath: target.relPath, kind, title: title.trim() === '' ? undefined : title.trim() });
         onDone(made.title, made.id);
       } else {
         const made = await createWork({
           kind,
-          title: title.trim() === '' ? undefined : title.trim(),
-          ...(kind === 'problem' && parentId !== '' ? { parentId } : {}),
-          ...(kind === 'problem' && problemKey.trim() !== '' ? { problemKey: problemKey.trim() } : {}),
-          ...(kind === 'template' && topId !== '' ? { topId } : {}),
-          ...(kind === 'problem'
-            ? templateChoice === '__none__'
-              ? { templateId: null }
-              : templateChoice !== ''
-                ? { templateId: templateChoice }
-                : {}
-            : {}),
-          ...(kind === 'contest' && arenaPath.trim() !== '' ? { arenaPath: arenaPath.trim() } : {}),
+          title: title.trim(),
+          ...(mode === 'contest' && arenaPath.trim() !== '' ? { arenaPath: arenaPath.trim() } : {}),
+          ...(mode === 'template' && topId !== '' ? { topId } : {}),
         });
         onDone(made.title, made.id);
       }
@@ -94,13 +95,14 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
         <div className="wk-form">
           <label className="wk-field">
             <span className="wk-label">类型</span>
-            <select className="wk-select" value={kind} onChange={(e) => setKind(e.target.value as WorkKind)}>
-              {KIND_ORDER.map((k) => (
-                <option value={k} key={k}>
-                  {KIND_NAME[k]}
+            <select className="wk-select" value={mode} onChange={(e) => setMode(e.target.value as CreateMode)}>
+              {MODES.map((item) => (
+                <option value={item.mode} key={item.mode}>
+                  {item.label}
                 </option>
               ))}
             </select>
+            <span className="wk-hint">{current.hint}</span>
           </label>
 
           <label className="wk-field">
@@ -109,56 +111,12 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
               className="input"
               value={title}
               maxLength={120}
-              placeholder={kind === 'problem' ? '可留空（用题目 key 补）' : '必填'}
+              placeholder={mode === 'group' ? '例如 专题训练 / 2024 区域赛' : '必填'}
               onChange={(e) => setTitle(e.target.value)}
             />
           </label>
 
-          {kind === 'problem' && !adopting ? (
-            <>
-              <label className="wk-field">
-                <span className="wk-label">父比赛（可选）</span>
-                <select className="wk-select" value={parentId} onChange={(e) => setParentId(e.target.value)}>
-                  <option value="">不挂在比赛下</option>
-                  {contests.map((c) => (
-                    <option value={c.id} key={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="wk-field">
-                <span className="wk-label">题目 key（可选）</span>
-                <input
-                  className="input"
-                  value={problemKey}
-                  maxLength={80}
-                  placeholder="cf:2184:F"
-                  onChange={(e) => setProblemKey(e.target.value)}
-                />
-              </label>
-              {templates.length > 0 ? (
-                <label className="wk-field">
-                  <span className="wk-label">模板</span>
-                  <select className="wk-select" value={templateChoice} onChange={(e) => setTemplateChoice(e.target.value)}>
-                    {defaultTemplate === null ? (
-                      <option value="">不复制模板</option>
-                    ) : (
-                      <option value="">默认模板 · {defaultTemplate.title}</option>
-                    )}
-                    {defaultTemplate !== null ? <option value="__none__">不复制模板</option> : null}
-                    {templates.map((t) => (
-                      <option value={t.id} key={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </>
-          ) : null}
-
-          {kind === 'template' ? (
+          {mode === 'template' ? (
             <label className="wk-field">
               <span className="wk-label">一级分类（可选）</span>
               <select className="wk-select" value={topId} onChange={(e) => setTopId(e.target.value)}>
@@ -172,7 +130,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
             </label>
           ) : null}
 
-          {kind === 'contest' ? (
+          {mode === 'contest' ? (
             <label className="wk-field">
               <span className="wk-label">榜单路径（可选）</span>
               <input
@@ -189,7 +147,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
         </div>
 
         <div className="wk-modal__foot">
-          {!canSubmit ? <span className="wk-muted">先填标题，或给题目一个 key。</span> : <span />}
+          {!canSubmit ? <span className="wk-muted">先填标题。</span> : <span />}
           <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>
             取消
           </button>

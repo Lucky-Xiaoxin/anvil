@@ -85,9 +85,9 @@ const misc = candidate({
 
 describe('列表用语（契约 §2.3 / §12.3）', () => {
   it('题组 / 比赛题组 / 未分组题目 / 题目徽章', () => {
-    expect(WORK_SECTION.groups).toBe('题组');
-    expect(WORK_SECTION.contestBadge).toBe('比赛题组');
-    expect(WORK_SECTION.ungrouped).toBe('未分组题目');
+    expect(WORK_SECTION.groups).toBe('比赛');
+    expect(WORK_SECTION.contestBadge).toBe('题组');
+    expect(WORK_SECTION.ungrouped).toBe('旧题目对象');
     expect(WORK_SECTION.problemBadge).toBe('题目');
   });
 });
@@ -153,6 +153,35 @@ describe('导入选择状态（契约 §5.6 / §12.2）', () => {
     expect(child.title).toBe('A renamed');
     expect(child.parentItemId).toBeNull();
     expect(child.keepDuplicate).toBe(true);
+  });
+});
+
+describe('单目录题组计划（新语义）', () => {
+  it('一个 contest 候选、无子题：预览一张组头，摘要计题组 1', () => {
+    const group = candidate({
+      itemId: 'item_1',
+      unitId: 'unit_1',
+      sourceRelPath: '',
+      shape: 'contest-group',
+      role: 'contest',
+      suggestedTitle: 'old-code',
+      files: 5,
+      bytes: 50,
+      filePreview: ['A.cpp', 'B.cpp', 'README.md', 'data/test.in'],
+      filesTruncated: false,
+    });
+    const plan = planOf([group]);
+    const state = initialImportState(plan);
+    expect(state.item_1?.selected).toBe(true);
+    expect(validateImportState(plan, state)).toEqual([]);
+    expect(importSummary(plan, state)).toMatchObject({ objects: 1, units: 1, contests: 1, problems: 0 });
+    const model = buildImportPreview(plan);
+    expect(model.contests).toHaveLength(1);
+    expect(model.contests[0]!.children).toEqual([]);
+    expect(model.loose).toEqual([]);
+    const items = buildCommitItems(plan, state);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.parentItemId).toBeNull();
   });
 });
 
