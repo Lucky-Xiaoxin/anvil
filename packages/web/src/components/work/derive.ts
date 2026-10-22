@@ -163,9 +163,9 @@ export interface WorkFolderAction {
   label: string;
 }
 
-/** problem 详情必须同时给出资源管理器与 VS Code；其它对象保持 5a 的单一 auto 入口 */
+/** 题组 / 旧题目对象都给出资源管理器与 VS Code；模板 / 笔记保持 5a 的单一 auto 入口 */
 export function folderActionsOf(kind: WorkKind): WorkFolderAction[] {
-  if (kind === 'problem') {
+  if (kind === 'problem' || kind === 'contest') {
     return [
       { app: 'explorer', label: '打开文件夹' },
       { app: 'vscode', label: '用 VS Code 打开' },

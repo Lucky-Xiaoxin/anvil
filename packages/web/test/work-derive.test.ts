@@ -80,12 +80,14 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     expect(allLabels([obj(), obj({ labels: ['赛时', '复盘'] })])).toEqual(expect.arrayContaining(['赛时', '复盘']));
   });
 
-  it('problem 详情两个文件夹入口；其它 kind 只有 auto', () => {
-    expect(folderActionsOf('problem')).toEqual([
+  it('题组 / 旧题目对象两个文件夹入口；模板 / 笔记只有 auto', () => {
+    const two = [
       { app: 'explorer', label: '打开文件夹' },
       { app: 'vscode', label: '用 VS Code 打开' },
-    ]);
-    for (const kind of ['contest', 'template', 'note'] as const) {
+    ];
+    expect(folderActionsOf('contest')).toEqual(two);
+    expect(folderActionsOf('problem')).toEqual(two);
+    for (const kind of ['template', 'note'] as const) {
       expect(folderActionsOf(kind)).toEqual([{ app: 'auto', label: '打开文件夹' }]);
     }
   });
