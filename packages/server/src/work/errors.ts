@@ -13,6 +13,12 @@ export type WorkErrorKind =
   | 'path-occupied'
   | 'parent-missing'
   | 'editor-unavailable'
+  | 'import-source-invalid'
+  | 'import-limit'
+  | 'import-plan-expired'
+  | 'import-root-changed'
+  | 'import-source-changed'
+  | 'import-conflict'
   | 'internal';
 
 const STATUS: Record<WorkErrorKind, number> = {
@@ -29,6 +35,12 @@ const STATUS: Record<WorkErrorKind, number> = {
   'path-occupied': 409,
   'parent-missing': 409,
   'editor-unavailable': 502,
+  'import-source-invalid': 400,
+  'import-limit': 400,
+  'import-plan-expired': 409,
+  'import-root-changed': 409,
+  'import-source-changed': 409,
+  'import-conflict': 400,
   internal: 500,
 };
 

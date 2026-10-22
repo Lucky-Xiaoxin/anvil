@@ -4,6 +4,7 @@ import {
   allLabels,
   fileSize,
   filterWorkObjects,
+  folderActionsOf,
   flatNodes,
   groupWorkObjects,
   kindCounts,
@@ -76,6 +77,16 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     expect(allLabels([obj(), obj({ labels: ['赛时', '复盘'] })])).toEqual(expect.arrayContaining(['赛时', '复盘']));
   });
 
+  it('problem 详情两个文件夹入口；其它 kind 只有 auto', () => {
+    expect(folderActionsOf('problem')).toEqual([
+      { app: 'explorer', label: '打开文件夹' },
+      { app: 'vscode', label: '用 VS Code 打开' },
+    ]);
+    for (const kind of ['contest', 'template', 'note'] as const) {
+      expect(folderActionsOf(kind)).toEqual([{ app: 'auto', label: '打开文件夹' }]);
+    }
+  });
+
   it('文件大小与日期', () => {
     expect(fileSize(512)).toBe('512 B');
     expect(fileSize(2048)).toBe('2.0 KB');
@@ -101,7 +112,7 @@ describe('中间列表分组（切片 5a.1）', () => {
     expect(model.groups.map((g) => g.contest.id)).toEqual([c1.id, c2.id]);
     expect(model.groups[0]?.problems.map((p) => p.id)).toEqual([p1.id, p2.id]);
     expect(model.groups[0]?.included).toBe(true);
-    expect(model.standalone).toEqual([]);
+    expect(model.ungrouped).toEqual([]);
   });
 
   it('kind=题目 时父比赛不在筛选结果里，仍按比赛分组且组头不可点', () => {
@@ -120,7 +131,7 @@ describe('中间列表分组（切片 5a.1）', () => {
     const template = obj({ id: 'obj_0000000014', kind: 'template', title: 'DSU', relPath: 'templates/ds/dsu' });
     const note = obj({ id: 'obj_0000000015', kind: 'note', title: 'Week', relPath: 'notes/2026/10/x' });
     const model = groupWorkObjects([single, orphan, template, note, c1], [c1, single, orphan, template, note]);
-    expect(model.standalone.map((p) => p.id)).toEqual([single.id]);
+    expect(model.ungrouped.map((p) => p.id)).toEqual([single.id]);
     expect(model.orphans.map((p) => p.id)).toEqual([orphan.id]);
     expect(model.templates.map((p) => p.id)).toEqual([template.id]);
     expect(model.notes.map((p) => p.id)).toEqual([note.id]);

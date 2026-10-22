@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { WorkObjectDto, WorkScanErrorDto, WorkTaxonomyDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
 import { fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
-import { KIND_NAME, groupWorkObjects, isoDate, pathBreadcrumb, primaryName, type WorkContestGroup } from './derive.ts';
+import { KIND_NAME, WORK_SECTION, groupWorkObjects, isoDate, pathBreadcrumb, primaryName, type WorkContestGroup } from './derive.ts';
 
 interface Props {
   objects: WorkObjectDto[];
@@ -49,7 +49,8 @@ function ObjectRow(props: {
     >
       <div className="wk-row__main">
         <div className="wk-row__title">
-          {obj.title}
+          {obj.kind === 'problem' ? <span className="wk-kindbadge">{WORK_SECTION.problemBadge}</span> : null}
+          <span className="wk-row__titletext">{obj.title}</span>
           {obj.effectiveArchived ? <span className="wk-badge">归档</span> : null}
         </div>
         {breadcrumb ? (
@@ -103,7 +104,7 @@ function ContestGroups(props: {
   return (
     <div className="wk-sec">
       <div className="wk-sec__title">
-        <span>比赛</span>
+        <span>{WORK_SECTION.groups}</span>
         <b className="num">{groups.length}</b>
       </div>
       {groups.map((group) => {
@@ -130,6 +131,7 @@ function ContestGroups(props: {
                   ) : (
                     <span className="wk-group__title wk-group__title--static">{contest.title}</span>
                   )}
+                  <span className="wk-badge wk-badge--contest">{WORK_SECTION.contestBadge}</span>
                   {contest.effectiveArchived ? <span className="wk-badge">归档</span> : null}
                   <span className="wk-group__count">{group.problems.length} 题</span>
                 </div>
@@ -247,13 +249,13 @@ export function WorkList(props: Props) {
         />
       ) : null}
 
-      {model.standalone.length > 0 ? (
+      {model.ungrouped.length > 0 ? (
         <div className="wk-sec">
           <div className="wk-sec__title">
-            <span>单题</span>
-            <b className="num">{model.standalone.length}</b>
+            <span>{WORK_SECTION.ungrouped}</span>
+            <b className="num">{model.ungrouped.length}</b>
           </div>
-          {model.standalone.map((obj) => (
+          {model.ungrouped.map((obj) => (
             <ObjectRow
               key={obj.id}
               obj={obj}
@@ -269,7 +271,7 @@ export function WorkList(props: Props) {
       {model.templates.length > 0 ? (
         <div className="wk-sec">
           <div className="wk-sec__title">
-            <span>模板</span>
+            <span>{WORK_SECTION.templates}</span>
             <b className="num">{model.templates.length}</b>
           </div>
           {model.templates.map((obj) => (
@@ -281,7 +283,7 @@ export function WorkList(props: Props) {
       {model.notes.length > 0 ? (
         <div className="wk-sec">
           <div className="wk-sec__title">
-            <span>笔记</span>
+            <span>{WORK_SECTION.notes}</span>
             <b className="num">{model.notes.length}</b>
           </div>
           {model.notes.map((obj) => (

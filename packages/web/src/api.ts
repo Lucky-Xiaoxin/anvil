@@ -10,8 +10,12 @@ import type {
   WorkArenaRecordDto,
   WorkArenaSaveResult,
   WorkArenaView,
+  WorkImportCommitInput,
+  WorkImportPlanDto,
+  WorkImportResultDto,
   WorkKind,
   WorkObjectDetailDto,
+  WorkOpenApp,
   WorkTags,
   WorkTemplateFileDto,
   WorkTreeDto,
@@ -159,9 +163,20 @@ export const trashWork = (id: string): Promise<{ id: string; trashName: string }
 export const restoreWork = (id: string): Promise<WorkObjectDetailDto> =>
   request<WorkObjectDetailDto>('/api/work/restore', post({ id }), 30_000);
 
-export const openWork = async (id: string, relPath?: string): Promise<void> => {
-  await request<null>('/api/work/open', post({ id, ...(relPath === undefined ? {} : { relPath }) }), 30_000);
+export const openWork = async (id: string, relPath?: string, app?: WorkOpenApp): Promise<void> => {
+  await request<null>(
+    '/api/work/open',
+    post({ id, ...(relPath === undefined ? {} : { relPath }), ...(app === undefined ? {} : { app }) }),
+    30_000,
+  );
 };
+
+/* 旧代码导入（docs/contracts/24）：扫描可长达数分钟，提交要复制整棵目录 */
+export const scanWorkImport = (sourceRoot: string): Promise<WorkImportPlanDto> =>
+  request<WorkImportPlanDto>('/api/work/import/scan', post({ sourceRoot }), 5 * 60_000);
+
+export const commitWorkImport = (input: WorkImportCommitInput): Promise<WorkImportResultDto> =>
+  request<WorkImportResultDto>('/api/work/import/commit', post(input), 10 * 60_000);
 
 export const rescanWork = (): Promise<WorkRescanSummaryDto> => request<WorkRescanSummaryDto>('/api/work/rescan', post({}), 45_000);
 

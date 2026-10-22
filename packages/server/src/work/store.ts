@@ -28,7 +28,12 @@ import {
   type WorkArenaSaveResult,
   type WorkArenaView,
   type WorkFileDto,
+  type WorkImportCommitInput,
+  type WorkImportPlanDto,
+  type WorkImportResultDto,
+  type WorkImportScanInput,
   type WorkKind,
+  type WorkOpenApp,
   type WorkMeta,
   type WorkMetaRecord,
   type WorkObjectDetailDto,
@@ -44,7 +49,8 @@ import {
 } from '@anvil/shared';
 import { writeFileAtomic } from '../atomic.ts';
 import { WorkError } from './errors.ts';
-import { defaultFindCode, nodeSpawn, openTarget, type SpawnFn } from './open.ts';
+import { WorkImportService } from './import.ts';
+import { defaultFindCode, nodeSpawn, openTargetWithApp, type SpawnFn } from './open.ts';
 import {
   TOP_BUCKETS,
   assertNoSymlinkComponents,
@@ -67,6 +73,8 @@ export interface WorkServiceDeps {
   now?: () => Date;
   repoRoot?: string;
   vaultDir?: string;
+  /** 仅测试注入导入上限；生产固定用契约 §4.4 */
+  importLimits?: Partial<Record<'maxDepth' | 'maxFiles' | 'maxBytes' | 'maxFileBytes' | 'maxCandidates', number>>;
 }
 
 export interface WorkCreateInput {
@@ -181,9 +189,37 @@ export class WorkService {
   private index: WorkIndex | null = null;
   /** 写操作串行化；rescan 也排进同一条队列 */
   private tail: Promise<unknown> = Promise.resolve();
+  /** 旧代码导入（切片 5a-2）：plan 在内存，发布与恢复共用同一条写队列 */
+  private readonly imports: WorkImportService;
 
   constructor(deps: WorkServiceDeps) {
     this.deps = deps;
+    this.imports = new WorkImportService({
+      getManagedRoot: () => this.readRootState(),
+      refreshIndex: () => {
+        this.refreshIndex();
+      },
+      lookupObject: (id) => {
+        const obj = this.ensureIndex().byId.get(id);
+        return obj === undefined ? null : { id: obj.record.meta.id, relPath: obj.relPath };
+      },
+      now: () => this.nowDate(),
+      ...(deps.importLimits === undefined ? {} : { limits: deps.importLimits }),
+    });
+  }
+
+  /** 只读扫描：plan 在内存，扫描阶段不写受管根 */
+  importScan(input: WorkImportScanInput): Promise<WorkImportPlanDto> {
+    return this.enqueue(() => this.imports.scan(input));
+  }
+
+  importCommit(input: WorkImportCommitInput): Promise<WorkImportResultDto> {
+    return this.enqueue(() => this.imports.commit(input));
+  }
+
+  /** journal 对账入口；commit 前也会自动跑一次 */
+  recoverImports(): Promise<{ warnings: string[] }> {
+    return this.enqueue(() => this.imports.recover());
   }
 
   private enqueue<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -444,7 +480,7 @@ export class WorkService {
     return this.enqueue(() => this.restoreNow(id));
   }
 
-  async open(id: string, relPath?: string): Promise<void> {
+  async open(id: string, relPath?: string, app?: WorkOpenApp): Promise<void> {
     const idx = this.ensureIndex();
     const obj = idx.byId.get(id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
@@ -462,9 +498,10 @@ export class WorkService {
       if (st.isSymbolicLink()) throw new WorkError('unsafe-path', '不允许打开符号链接');
     }
     assertNoSymlinkComponents(idx.root, target);
-    await openTarget({
+    await openTargetWithApp({
       target,
       isDir,
+      app: app ?? 'auto',
       spawn: this.deps.spawn ?? nodeSpawn,
       findCode: this.deps.findCode ?? defaultFindCode,
     });

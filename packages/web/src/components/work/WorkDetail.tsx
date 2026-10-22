@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { WorkObjectDetailDto, WorkTaxonomyDto } from '@anvil/shared';
+import type { WorkObjectDetailDto, WorkOpenApp, WorkTaxonomyDto } from '@anvil/shared';
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { TemplateEditor } from './TemplateEditor.tsx';
-import { fileSize, flatNodes, isoDate, nodeNameMap } from './derive.ts';
+import { fileSize, flatNodes, folderActionsOf, isoDate, nodeNameMap } from './derive.ts';
 
 interface Props {
   detail: WorkObjectDetailDto;
@@ -16,7 +16,7 @@ interface Props {
   onLabels: (labels: string[]) => void;
   onArchive: (archived: boolean) => void;
   onTrash: () => void;
-  onOpen: (relPath?: string) => void;
+  onOpen: (relPath?: string, app?: WorkOpenApp) => void;
   onOpenArena: (arenaPath: string) => void;
   onSelectTag: (id: string) => void;
   onFilterLabel: (label: string) => void;
@@ -145,10 +145,16 @@ export function WorkDetail(props: Props) {
       </div>
 
       <div className="wk-detail__actions">
-        <button className="btn btn--sm" onClick={() => props.onOpen()}>
-          <Icon id="i-folder" />
-          打开文件夹
-        </button>
+        {folderActionsOf(detail.kind).map((action) => (
+          <button
+            className="btn btn--sm"
+            key={action.app}
+            onClick={() => props.onOpen(undefined, action.app === 'auto' ? undefined : action.app)}
+          >
+            <Icon id={action.app === 'vscode' ? 'i-file' : 'i-folder'} />
+            {action.label}
+          </button>
+        ))}
         {detail.links.arenaPath !== undefined ? (
           <button className="btn btn--sm" onClick={() => props.onOpenArena(detail.links.arenaPath!)}>
             <Icon id="i-play" />

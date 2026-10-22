@@ -57,6 +57,13 @@ app.setErrorHandler((err, request, reply) => {
     error: { kind: 'internal', message: '服务端内部错误，详情见 vault/anvil-server.log' },
   });
 });
+const work = new WorkService({
+  db,
+  getRoot: () => loadConfig().workspaceRoot,
+  setRoot: (root) => {
+    saveWorkspaceRoot(root);
+  },
+});
 registerApi(app, {
   db,
   sources,
@@ -72,14 +79,10 @@ registerApi(app, {
     client: new XcpcClient(),
   },
   arena: new ArenaClient(),
-  work: new WorkService({
-    db,
-    getRoot: () => loadConfig().workspaceRoot,
-    setRoot: (root) => {
-      saveWorkspaceRoot(root);
-    },
-  }),
+  work,
 });
+// 冷启动静默对账上次中断的导入；根还没配置 / 初始化时 recover 会抛，忽略即可
+void work.recoverImports().catch(() => undefined);
 // `npm run dev` 会把这个置 0：开发时前端走 Vite(5173) + 代理，别再让 7788 顺带发一份
 // 可能已经过期的 packages/web/dist —— 否则很容易对着旧 bundle 调 bug
 if (process.env.ANVIL_SERVE_WEB !== '0') registerStatic(app, webDistDir);

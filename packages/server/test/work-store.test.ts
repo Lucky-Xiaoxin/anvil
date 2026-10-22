@@ -11,12 +11,12 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { seedTaxonomy, type WorkArenaGhost, type WorkArenaView } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
-import { codeExeFromWherePath, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
+import { codeExeFromWherePath, codeLaunchFor, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
 
 let base: string;
@@ -27,12 +27,12 @@ let configRoot: string;
 let now: Date;
 let db: DatabaseSync;
 let service: WorkService;
-let spawnCalls: { cmd: string; args: string[]; shell: boolean }[];
+let spawnCalls: { cmd: string; args: string[]; shell: boolean; env?: NodeJS.ProcessEnv }[];
 let failingCmds: Set<string>;
 let codePath: string | null;
 
-function fakeSpawn(cmd: string, args: string[], opts: { shell: boolean }): SpawnLike {
-  spawnCalls.push({ cmd, args, shell: opts.shell });
+function fakeSpawn(cmd: string, args: string[], opts: { shell: boolean; env?: NodeJS.ProcessEnv }): SpawnLike {
+  spawnCalls.push({ cmd, args, shell: opts.shell, ...(opts.env === undefined ? {} : { env: opts.env }) });
   let spawnCb: (() => void) | null = null;
   let errorCb: ((err: Error) => void) | null = null;
   queueMicrotask(() => {
@@ -553,6 +553,29 @@ describe('adopt（契约 §6.2）与打开（§6.7）', () => {
     expect(codeExeFromWherePath(exe)).toBe(exe);
   });
 
+  it('codeLaunchFor：官方布局直接 spawn；版本目录布局走 cli.js + ELECTRON_RUN_AS_NODE', () => {
+    const target = join(base, 'target-folder');
+    const official = join(base, 'vscode-official');
+    mkdirSync(official, { recursive: true });
+    writeFileSync(join(official, 'Code.exe'), '');
+    expect(codeLaunchFor(join(official, 'Code.exe'), target, true, true)).toEqual({ args: ['--new-window', target] });
+
+    const versioned = join(base, 'vscode-versioned');
+    mkdirSync(join(versioned, 'bin'), { recursive: true });
+    writeFileSync(join(versioned, 'Code.exe'), '');
+    const cli = join(versioned, '2d0b7506a3', 'resources', 'app', 'out', 'cli.js');
+    mkdirSync(dirname(cli), { recursive: true });
+    writeFileSync(cli, '');
+    writeFileSync(
+      join(versioned, 'bin', 'code.cmd'),
+      '@echo off\n"%~dp0..\\2d0b7506a3\\resources\\app\\out\\cli.js" %*\n',
+    );
+    const launch = codeLaunchFor(join(versioned, 'Code.exe'), target, true, true);
+    expect(launch.args).toEqual([cli, '--new-window', target]);
+    expect(launch.env?.ELECTRON_RUN_AS_NODE).toBe('1');
+    expect(codeLaunchFor(join(versioned, 'Code.exe'), join(target, 'a.cpp'), false, false).args).toEqual([cli, '--goto', join(target, 'a.cpp')]);
+  });
+
   it('adopt 只写 meta；child 保持独立；祖先组合不合法则拒绝', async () => {
     await initRoot();
     mkdirSync(join(root, 'contests', 'manual'), { recursive: true });
@@ -596,6 +619,37 @@ describe('adopt（契约 §6.2）与打开（§6.7）', () => {
 
     failingCmds.clear();
     await expect(service.open(problem.id, '../x')).rejects.toMatchObject({ kind: 'unsafe-path' });
+  });
+
+  it('open 显式 app：vscode 只走新窗口且不回退，explorer 只开资源管理器', async () => {
+    await initRoot();
+    const problem = await service.create({ kind: 'problem', title: 'Explicit Open' });
+    writeFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'x');
+
+    await service.open(problem.id, undefined, 'vscode');
+    expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
+    expect(spawnCalls.at(-1)?.args).toEqual(['--new-window', absOf(problem.relPath)]);
+    expect(spawnCalls.at(-1)?.shell).toBe(false);
+
+    await service.open(problem.id, 'solution.cpp', 'vscode');
+    expect(spawnCalls.at(-1)?.args).toEqual(['--goto', join(absOf(problem.relPath), 'solution.cpp')]);
+
+    failingCmds.add(codePath!);
+    const before = spawnCalls.length;
+    await expect(service.open(problem.id, undefined, 'vscode')).rejects.toMatchObject({ kind: 'editor-unavailable' });
+    expect(spawnCalls.length).toBe(before + 1);
+    expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
+
+    failingCmds.clear();
+    await service.open(problem.id, undefined, 'explorer');
+    expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
+    expect(spawnCalls.at(-1)?.args).toEqual([absOf(problem.relPath)]);
+
+    failingCmds.add('explorer.exe');
+    await expect(service.open(problem.id, undefined, 'explorer')).rejects.toMatchObject({ kind: 'editor-unavailable' });
+
+    codePath = null;
+    await expect(service.open(problem.id, undefined, 'vscode')).rejects.toMatchObject({ kind: 'editor-unavailable' });
   });
 });
 

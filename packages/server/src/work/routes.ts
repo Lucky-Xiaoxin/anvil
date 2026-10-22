@@ -43,7 +43,29 @@ const updateBody = z.object({
 
 const idBody = z.object({ id: z.string().max(40) });
 
-const openBody = z.object({ id: z.string().max(40), relPath: z.string().max(400).optional() });
+const openBody = z.object({
+  id: z.string().max(40),
+  relPath: z.string().max(400).optional(),
+  app: z.enum(['auto', 'vscode', 'explorer']).optional(),
+});
+
+const importScanBody = z.object({ sourceRoot: z.string().max(500) });
+
+const importCommitBody = z.object({
+  planId: z.string().max(64),
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().max(80),
+        selected: z.boolean(),
+        title: z.string().max(200).optional(),
+        parentItemId: z.union([z.string().max(80), z.null()]).optional(),
+        confirmUndecidedAsProblem: z.boolean().optional(),
+        keepDuplicate: z.boolean().optional(),
+      }),
+    )
+    .max(4000),
+});
 
 const treeQuery = z.object({
   archived: z.enum(['0', '1']).default('0'),
@@ -223,8 +245,29 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     const parsed = openBody.safeParse(request.body ?? {});
     if (!parsed.success) return invalid(reply, '打开参数不合法');
     try {
-      await work.open(parsed.data.id, parsed.data.relPath);
+      await work.open(parsed.data.id, parsed.data.relPath, parsed.data.app);
       return reply.code(204).send();
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/import/scan', async (request, reply) => {
+    const parsed = importScanBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, '源目录参数不合法');
+    try {
+      return await work.importScan(parsed.data);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  // 候选项可能上千条；单独放宽请求体，正文仍受 plan 校验约束
+  app.post('/api/work/import/commit', { bodyLimit: 1024 * 1024 }, async (request, reply) => {
+    const parsed = importCommitBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '导入提交参数不合法');
+    try {
+      return await work.importCommit(parsed.data);
     } catch (err) {
       return sendWorkError(reply, err);
     }

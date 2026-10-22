@@ -133,6 +133,60 @@ export function validateRootPath(input: string, opts: RootValidationOptions = {}
   return abs;
 }
 
+export interface ImportSourceValidation {
+  /** 用户输入路径归一化后的绝对路径 */
+  abs: string;
+  /** 校验过的真实路径（不允许任何组件是链接） */
+  real: string;
+}
+
+function isUncPath(abs: string): boolean {
+  return abs.startsWith('\\\\') || abs.startsWith('//') || parse(abs).root.startsWith('\\\\');
+}
+
+function assertNoSymlinkPath(abs: string): void {
+  const rootPart = parse(abs).root;
+  let cur = rootPart;
+  for (const part of abs.slice(rootPart.length).split(sep).filter((p) => p !== '')) {
+    cur = join(cur, part);
+    const st = lstatOrNull(cur);
+    if (st === null) throw new WorkError('import-source-invalid', `源路径不存在：${part}`);
+    if (st.isSymbolicLink()) {
+      throw new WorkError('import-source-invalid', '源路径的任一级目录都不能是符号链接或 junction');
+    }
+  }
+}
+
+/**
+ * 旧代码导入的源目录校验（契约 §4.1）：绝对、普通目录、非盘符根 / UNC / 系统目录，
+ * 与受管根无祖先 / 后代关系；逐级检查已存在组件，不跟链接读别处。
+ * 不能复用只接受根内相对路径的 resolveInside()。
+ */
+export function validateImportSource(input: unknown, managedRoot: string): ImportSourceValidation {
+  const raw = normalizeInputPath(input);
+  if (raw === '') throw new WorkError('import-source-invalid', '源目录不能为空');
+  if (raw.includes('\0')) throw new WorkError('import-source-invalid', '源路径含非法字符');
+  if (!isAbsolute(raw)) throw new WorkError('import-source-invalid', '源目录必须是绝对路径');
+  const abs = resolve(raw);
+  if (parse(abs).root === abs) throw new WorkError('import-source-invalid', '源目录不能是盘符根目录');
+  if (isUncPath(raw) || isUncPath(abs)) throw new WorkError('import-source-invalid', '源目录不能是 UNC 路径');
+  if (forbiddenWindowsDir(abs)) throw new WorkError('import-source-invalid', '源目录不能位于 Windows 或 Program Files 下');
+
+  const st = lstatOrNull(abs);
+  if (st === null) throw new WorkError('import-source-invalid', '源目录不存在');
+  if (st.isSymbolicLink()) throw new WorkError('import-source-invalid', '源目录不能是符号链接或 junction');
+  if (!st.isDirectory()) throw new WorkError('import-source-invalid', '源路径必须是目录');
+  assertNoSymlinkPath(abs);
+
+  const real = realpathSync(abs);
+  const rootAbs = resolve(managedRoot);
+  const rootReal = realpathSync(rootAbs);
+  if (within(rootAbs, abs, true) || within(abs, rootAbs, true) || within(rootReal, real, true) || within(real, rootReal, true)) {
+    throw new WorkError('import-source-invalid', '源目录与工坊受管根不能互为祖先或后代');
+  }
+  return { abs, real };
+}
+
 /** 已存在路径中任何一段是符号链接都拒绝（open / adopt / restore 用） */
 export function assertNoSymlinkComponents(root: string, abs: string): void {
   const st = lstatOrNull(root);
