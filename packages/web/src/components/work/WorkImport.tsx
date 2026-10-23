@@ -166,7 +166,6 @@ function ImportRow(props: {
 
 function ImportTreeNodeView(props: {
   node: BatchImportTreeNode;
-  plan: WorkImportPlanDto;
   state: ImportState;
   disabled: Map<string, string>;
   collapsed: Set<string>;
@@ -230,7 +229,6 @@ function ImportTreeNodeView(props: {
             <ImportTreeNodeView
               key={child.key}
               node={child}
-              plan={props.plan}
               state={state}
               disabled={disabled}
               collapsed={collapsed}
@@ -452,7 +450,6 @@ export function WorkImport({ onClose, onImported }: Props) {
                 <ImportTreeNodeView
                   key={node.key}
                   node={node}
-                  plan={plan}
                   state={state}
                   disabled={disabled}
                   collapsed={collapsed}
