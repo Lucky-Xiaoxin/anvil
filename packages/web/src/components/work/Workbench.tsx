@@ -354,7 +354,11 @@ export function Workbench() {
 
       {importOpen ? (
         <WorkImport
-          onClose={() => setImportOpen(false)}
+          onClose={() => {
+            // 即使从「继续导入」直接离开，也要刷新：之前可能已经成功导入过对象
+            setImportOpen(false);
+            void load(archived, false);
+          }}
           onImported={(objectId) => {
             setImportOpen(false);
             setArchived(false);

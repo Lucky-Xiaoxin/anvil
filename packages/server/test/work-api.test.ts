@@ -24,20 +24,30 @@ let db: DatabaseSync;
 let app: FastifyInstance;
 let spawnCalls: { cmd: string; args: string[]; shell: boolean }[];
 let failingCmds: Set<string>;
+let exitFailCmds: Set<string>;
 let codePath: string | null;
 
 function fakeSpawn(cmd: string, args: string[], opts: { shell: boolean }): SpawnLike {
   spawnCalls.push({ cmd, args, shell: opts.shell });
   let spawnCb: (() => void) | null = null;
   let errorCb: ((err: Error) => void) | null = null;
+  let exitCb: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
   queueMicrotask(() => {
-    if (failingCmds.has(cmd)) errorCb?.(new Error('ENOENT'));
-    else spawnCb?.();
+    if (failingCmds.has(cmd)) {
+      errorCb?.(new Error('ENOENT'));
+      return;
+    }
+    spawnCb?.();
+    queueMicrotask(() => exitCb?.(exitFailCmds.has(cmd) ? 1 : 0, null));
   });
   return {
-    on(event: 'error' | 'spawn', cb: ((err: Error) => void) | (() => void)): unknown {
+    on(
+      event: 'error' | 'spawn' | 'exit',
+      cb: ((err: Error) => void) | (() => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
+    ): unknown {
       if (event === 'spawn') spawnCb = cb as () => void;
-      else errorCb = cb as (err: Error) => void;
+      else if (event === 'error') errorCb = cb as (err: Error) => void;
+      else exitCb = cb as (code: number | null, signal: NodeJS.Signals | null) => void;
       return undefined;
     },
     unref: () => undefined,
@@ -52,6 +62,7 @@ async function boot(): Promise<void> {
   configRoot = '';
   spawnCalls = [];
   failingCmds = new Set();
+  exitFailCmds = new Set();
   codePath = 'C:\\Code.exe';
   const work = new WorkService({
     db,
@@ -239,6 +250,11 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(spawnCalls.at(-1)?.cmd).toBe('C:\\Code.exe');
 
     failingCmds.clear();
+    exitFailCmds.add('C:\\Code.exe');
+    res = await post('/api/work/open', { id, app: 'vscode' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.kind).toBe('editor-unavailable');
+    exitFailCmds.clear();
     res = await post('/api/work/open', { id, app: 'explorer' });
     expect(res.statusCode, res.body).toBe(204);
     expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');

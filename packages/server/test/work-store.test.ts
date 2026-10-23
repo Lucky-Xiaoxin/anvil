@@ -29,20 +29,31 @@ let db: DatabaseSync;
 let service: WorkService;
 let spawnCalls: { cmd: string; args: string[]; shell: boolean; env?: NodeJS.ProcessEnv }[];
 let failingCmds: Set<string>;
+let exitFailCmds: Set<string>;
 let codePath: string | null;
 
 function fakeSpawn(cmd: string, args: string[], opts: { shell: boolean; env?: NodeJS.ProcessEnv }): SpawnLike {
   spawnCalls.push({ cmd, args, shell: opts.shell, ...(opts.env === undefined ? {} : { env: opts.env }) });
   let spawnCb: (() => void) | null = null;
   let errorCb: ((err: Error) => void) | null = null;
+  let exitCb: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
   queueMicrotask(() => {
-    if (failingCmds.has(cmd)) errorCb?.(new Error('ENOENT'));
-    else spawnCb?.();
+    if (failingCmds.has(cmd)) {
+      errorCb?.(new Error('ENOENT'));
+      return;
+    }
+    spawnCb?.();
+    // 真实 VS Code CLI 打开窗口后通常很快以 0 退出；模拟默认成功
+    queueMicrotask(() => exitCb?.(exitFailCmds.has(cmd) ? 1 : 0, null));
   });
   return {
-    on(event: 'error' | 'spawn', cb: ((err: Error) => void) | (() => void)): unknown {
+    on(
+      event: 'error' | 'spawn' | 'exit',
+      cb: ((err: Error) => void) | (() => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
+    ): unknown {
       if (event === 'spawn') spawnCb = cb as () => void;
-      else errorCb = cb as (err: Error) => void;
+      else if (event === 'error') errorCb = cb as (err: Error) => void;
+      else exitCb = cb as (code: number | null, signal: NodeJS.Signals | null) => void;
       return undefined;
     },
     unref: () => undefined,
@@ -68,6 +79,7 @@ beforeEach(() => {
   initSchema(db);
   spawnCalls = [];
   failingCmds = new Set();
+  exitFailCmds = new Set();
   codePath = 'C:\\Program Files\\Microsoft VS Code\\Code.exe';
   service = new WorkService({
     db,
@@ -641,6 +653,9 @@ describe('adopt（契约 §6.2）与打开（§6.7）', () => {
     expect(spawnCalls.at(-1)?.cmd).toBe(codePath);
 
     failingCmds.clear();
+    exitFailCmds.add(codePath!);
+    await expect(service.open(problem.id, undefined, 'vscode')).rejects.toMatchObject({ kind: 'editor-unavailable' });
+    exitFailCmds.clear();
     await service.open(problem.id, undefined, 'explorer');
     expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
     expect(spawnCalls.at(-1)?.args).toEqual([absOf(problem.relPath)]);

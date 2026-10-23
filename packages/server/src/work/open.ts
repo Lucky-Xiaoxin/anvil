@@ -17,6 +17,7 @@ export interface OpenSpawnOptions {
 export interface SpawnLike {
   on(event: 'error', cb: (err: Error) => void): unknown;
   on(event: 'spawn', cb: () => void): unknown;
+  on(event: 'exit', cb: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
   unref?: () => void;
 }
 
@@ -67,7 +68,20 @@ export function defaultFindCode(): string | null {
   return null;
 }
 
-function spawnAndWait(cmd: string, args: string[], spawnImpl: SpawnFn, env?: NodeJS.ProcessEnv): Promise<void> {
+interface SpawnWaitOptions {
+  /** 启动后最多等多久看退出码；不设 = 收到 spawn 就算成功（auto / explorer 保持旧行为） */
+  exitGraceMs?: number;
+  /** 宽限期内非零退出视为启动失败（显式 vscode） */
+  failOnNonZeroExit?: boolean;
+}
+
+function spawnAndWait(
+  cmd: string,
+  args: string[],
+  spawnImpl: SpawnFn,
+  env?: NodeJS.ProcessEnv,
+  wait: SpawnWaitOptions = {},
+): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     let child: SpawnLike;
     try {
@@ -78,18 +92,41 @@ function spawnAndWait(cmd: string, args: string[], spawnImpl: SpawnFn, env?: Nod
       return;
     }
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const clearTimer = (): void => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      timer = null;
+    };
     const ok = (): void => {
       if (settled) return;
       settled = true;
+      clearTimer();
       resolvePromise();
     };
     const fail = (err: Error): void => {
       if (settled) return;
       settled = true;
+      clearTimer();
       reject(err);
     };
-    child.on('spawn', ok);
     child.on('error', fail);
+    if (wait.exitGraceMs === undefined) {
+      child.on('spawn', ok);
+    } else {
+      child.on('spawn', () => {
+        // 有些安装会「spawn 成功但立刻带错误参数退出」；显式 vscode 在短窗口内看退出码
+        timer = setTimeout(ok, wait.exitGraceMs);
+        timer.unref?.();
+      });
+      child.on('exit', (code) => {
+        if (wait.failOnNonZeroExit === true && code !== 0) {
+          fail(new Error(`编辑器进程提前退出（code=${String(code)}）`));
+        } else {
+          ok();
+        }
+      });
+    }
     // 子进程不阻塞服务退出；编辑器自己活
     try {
       child.unref?.();
@@ -221,7 +258,7 @@ export async function openTargetWithApp(opts: OpenTargetAppOptions): Promise<voi
   if (code === null) throw new WorkError('editor-unavailable', '找不到 VS Code（未安装或不在 PATH 里）');
   try {
     const launch = codeLaunchFor(code, opts.target, opts.isDir, true);
-    await spawnAndWait(code, launch.args, spawnImpl, launch.env);
+    await spawnAndWait(code, launch.args, spawnImpl, launch.env, { exitGraceMs: 300, failOnNonZeroExit: true });
   } catch {
     throw new WorkError('editor-unavailable', 'VS Code 启动失败');
   }
