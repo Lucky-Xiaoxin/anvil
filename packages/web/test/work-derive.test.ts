@@ -187,6 +187,31 @@ describe('来源虚拟视图（切片 5a-3）', () => {
     expect(model.unsourced.map((group) => group.contest.id)).toEqual([manual.id]);
   });
 
+  it('来源组的题组数与文件数包含子组和旧子题', () => {
+    const a = sourcedContest('obj_0000000036', '10.ptc', 'contests/a', '2026/10/10.ptc');
+    a.fileCount = 2;
+    const aChild = obj({
+      id: 'obj_0000000037',
+      title: 'A',
+      relPath: 'contests/a/a',
+      parentId: a.id,
+      fileCount: 3,
+    });
+    const b = sourcedContest('obj_0000000038', 'July', 'contests/b', '2026/7/B');
+    b.fileCount = 4;
+    const all = [a, aChild, b];
+    const model = groupWorkObjectsBySource(groupWorkObjects(all, all));
+
+    const year = model.root?.children[0]!;
+    const october = year.children.find((node) => node.key === '2026/10')!;
+    expect(october.count).toBe(1);
+    expect(october.fileCount).toBe(5);
+    expect(year.count).toBe(2);
+    expect(year.fileCount).toBe(9);
+    expect(model.root?.count).toBe(2);
+    expect(model.root?.fileCount).toBe(9);
+  });
+
   it('没有任何 sourcePath 时退化为平铺，root 为 null', () => {
     const manual = obj({ id: 'obj_0000000035', kind: 'contest', title: 'Manual', relPath: 'contests/m', parentId: null });
     const model = groupWorkObjectsBySource(groupWorkObjects([manual], [manual]));

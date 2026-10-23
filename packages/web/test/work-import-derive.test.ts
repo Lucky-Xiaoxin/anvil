@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkImportCandidateDto, WorkImportPlanDto } from '@anvil/shared';
+import type { WorkImportCandidateDto, WorkImportPlanDto, WorkImportResultDto } from '@anvil/shared';
 import { WORK_SECTION } from '../src/components/work/derive.ts';
 import {
   batchDisabledMap,
@@ -8,6 +8,7 @@ import {
   buildCommitItems,
   buildImportPreview,
   duplicateLabel,
+  importResultSummary,
   importScopeLabel,
   importSummary,
   initialBatchImportState,
@@ -262,6 +263,23 @@ describe('5a-3 批量导入视图', () => {
     expect(validateBatchImportState(plan, both).some((issue) => issue.includes('父子目录'))).toBe(true);
   });
 
+  it('已选后代时祖先整目录仍可点击；点击后接管并取消后代', () => {
+    const plan = planOf([container, leafA, leafB, scatter]);
+    let state = initialBatchImportState(plan);
+    expect(state.item_2?.selected).toBe(true);
+    expect(state.item_3?.selected).toBe(true);
+
+    // 祖先不是禁用项：点击即可从「选叶子」切换为「整目录」
+    expect(batchDisabledMap(plan, state).has('item_1')).toBe(false);
+    state = setBatchImportSelected(plan, state, 'item_1', true);
+    expect(state.item_1?.selected).toBe(true);
+    expect(state.item_2?.selected).toBe(false);
+    expect(state.item_3?.selected).toBe(false);
+    expect(validateBatchImportState(plan, state)).toEqual([]);
+    // 切换后后代才被禁用，避免父子同选
+    expect(batchDisabledMap(plan, state).has('item_2')).toBe(true);
+  });
+
   it('预览树按 sourceRelPath 嵌套，散题挂在同目录节点；名字取源根末段', () => {
     const plan = planOf([container, leafA, leafB, scatter]);
     const tree = buildBatchImportTree(plan);
@@ -275,6 +293,26 @@ describe('5a-3 批量导入视图', () => {
     const october = year.children[1]!;
     expect(october.scatter?.itemId).toBe('item_4');
     expect(october.children[0]!.candidate?.itemId).toBe('item_2');
+  });
+
+  it('只有深层候选时补出中间目录节点，保证树能挂住', () => {
+    const deep = candidate({
+      itemId: 'item_9',
+      unitId: 'unit_9',
+      sourceRelPath: 'a/b/c',
+      sourceParentRelPath: 'a/b',
+      suggestedTitle: 'c',
+      selectedByDefault: true,
+    });
+    const tree = buildBatchImportTree(planOf([deep]));
+    const root = tree[0]!;
+    expect(root.candidate).toBeNull();
+    expect(root.children[0]!.key).toBe('a');
+    expect(root.children[0]!.candidate).toBeNull();
+    const b = root.children[0]!.children[0]!;
+    expect(b.key).toBe('a/b');
+    expect(b.children[0]!.key).toBe('a/b/c');
+    expect(b.children[0]!.candidate?.itemId).toBe('item_9');
   });
 
   it('候选类型文字：容器 / 题组 / 散题', () => {
@@ -365,5 +403,46 @@ describe('预览 / 摘要 / 校验', () => {
     expect(cut).toContain('…');
     expect(cut.startsWith('conte')).toBe(true);
     expect(cut.endsWith('.cpp')).toBe(true);
+  });
+});
+
+describe('导入结果摘要（5a-3 修复 P2）', () => {
+  const result = (units: WorkImportResultDto['units']): WorkImportResultDto => ({
+    batchId: 'imp_0123456789',
+    manifestRelPath: '.anvil/imports/batch.json',
+    units,
+    skipped: [
+      { itemId: 'item_7', reason: '同一来源与内容已经导入过，自动跳过', kind: 'duplicate' },
+      { itemId: 'item_8', reason: '未选中', kind: 'user' },
+    ],
+  });
+  const success = (n: number): WorkImportResultDto['units'][number] => ({
+    unitId: `unit_${n}`,
+    status: 'success',
+    objects: [{ itemId: `item_${n}`, objectId: `obj_${n}`, relPath: `contests/${n}` }],
+    itemIds: [`item_${n}`],
+  });
+  const failed = (n: number): WorkImportResultDto['units'][number] => ({
+    unitId: `unit_${n}`,
+    status: 'failed',
+    objects: [],
+    itemIds: [`item_${n}`],
+    error: { kind: 'import-source-changed', message: '源内容变了' },
+  });
+
+  it('全部成功：ok，成功 / 失败 / 自动跳过 / 未选中四类都在提示里', () => {
+    const summary = importResultSummary(result([success(1), success(2)]));
+    expect(summary).toMatchObject({ created: 2, successUnits: 2, failedUnits: 0, autoSkipped: 1, userSkipped: 1, level: 'ok' });
+    expect(summary.text).toContain('成功 2 个题组');
+    expect(summary.text).toContain('失败 0 个单元');
+    expect(summary.text).toContain('自动跳过 1');
+    expect(summary.text).toContain('未选中 1');
+  });
+
+  it('部分成功：warn；全部失败：err', () => {
+    expect(importResultSummary(result([success(1), failed(2)]))).toMatchObject({ created: 1, failedUnits: 1, level: 'warn' });
+    expect(importResultSummary(result([success(1), failed(2)])).text.startsWith('部分成功')).toBe(true);
+    expect(importResultSummary(result([failed(1), failed(2)]))).toMatchObject({ created: 0, failedUnits: 2, level: 'err' });
+    expect(importResultSummary(result([failed(1)])).text.startsWith('导入失败')).toBe(true);
   });
 });

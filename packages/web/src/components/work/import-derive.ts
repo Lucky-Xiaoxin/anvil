@@ -9,6 +9,7 @@ import {
   type WorkImportCandidateDto,
   type WorkImportCommitItemInput,
   type WorkImportPlanDto,
+  type WorkImportResultDto,
 } from '@anvil/shared';
 
 export interface ImportItemState {
@@ -236,6 +237,12 @@ function conflictKeyOf(item: WorkImportCandidateDto): { sourceRelPath: string; i
   return { sourceRelPath: item.sourceRelPath, importScope: item.scope };
 }
 
+function sourceContains(parent: string, child: string): boolean {
+  if (parent === child) return true;
+  if (parent === '') return child !== '';
+  return child.startsWith(`${parent}/`);
+}
+
 function batchSelectableOf(plan: WorkImportPlanDto): BatchImportSelectableCandidate[] {
   return plan.items.map((item) => ({
     itemId: item.itemId,
@@ -270,6 +277,8 @@ export function batchDisabledMap(plan: WorkImportPlanDto, state: ImportState): M
     if (state[item.itemId]?.selected === true) continue;
     const conflict = selected.find((other) => batchCandidatesConflict(conflictKeyOf(item), conflictKeyOf(other)));
     if (conflict === undefined) continue;
+    // 祖先整目录仍可点击：点击时 setBatchImportSelected 会清掉后代，换成整棵子树
+    if (item.scope === 'subtree' && sourceContains(item.sourceRelPath, conflict.sourceRelPath)) continue;
     disabled.set(
       item.itemId,
       `${conflict.scope === 'subtree' ? '已选整目录' : '已选散题'}「${conflict.sourceRelPath || '（源根）'}」；父子目录不能同时导入`,
@@ -369,4 +378,36 @@ export function importScopeLabel(item: WorkImportCandidateDto): string {
   if (item.scope === 'direct') return '散题';
   if (item.isContainer) return '容器';
   return '题组';
+}
+
+export interface ImportResultSummary {
+  /** 实际新建的题组数（与成功单元一一对应） */
+  created: number;
+  successUnits: number;
+  failedUnits: number;
+  autoSkipped: number;
+  userSkipped: number;
+  /** 结果页 / 工坊提示条用：全部成功 ok、部分成功 warn、全部失败 err */
+  level: 'ok' | 'warn' | 'err';
+  text: string;
+}
+
+/** 一次导入的完整结果摘要；成功 / 失败 / 自动跳过 / 未选中 四类都要落进提示 */
+export function importResultSummary(result: WorkImportResultDto): ImportResultSummary {
+  const created = result.units.reduce((sum, unit) => sum + unit.objects.length, 0);
+  const successUnits = result.units.filter((unit) => unit.status === 'success').length;
+  const failedUnits = result.units.filter((unit) => unit.status === 'failed').length;
+  const autoSkipped = result.skipped.filter((item) => item.kind === 'duplicate').length;
+  const userSkipped = result.skipped.filter((item) => item.kind === 'user').length;
+  const level: ImportResultSummary['level'] = failedUnits === 0 ? 'ok' : created > 0 ? 'warn' : 'err';
+  const head = level === 'ok' ? '导入完成' : level === 'warn' ? '部分成功' : '导入失败';
+  return {
+    created,
+    successUnits,
+    failedUnits,
+    autoSkipped,
+    userSkipped,
+    level,
+    text: `${head}：成功 ${created} 个题组 · 失败 ${failedUnits} 个单元 · 自动跳过 ${autoSkipped} · 未选中 ${userSkipped}`,
+  };
 }

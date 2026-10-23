@@ -491,6 +491,34 @@ describe('批量目录分类（5a-3 契约 §3 / §4）', () => {
     expect(items[0]!.reasons.join(' ')).toContain('整目录导入：2 个文件');
   });
 
+  it('混合目录（自身源码 + 一个含源码子目录）：父候选包含子树，散题只含直接文件', () => {
+    const items = classifyBatchImportTree(
+      tree(
+        [
+          ['parent/P.cpp', 'p'],
+          ['parent/notes.txt', 'n'],
+          ['parent/kid/K.cpp', 'k'],
+        ],
+        ['parent', 'parent/kid'],
+      ),
+      'ACM',
+    );
+    const parent = items.find((item) => item.sourceRelPath === 'parent' && item.importScope === 'subtree')!;
+    // 直接下级只有 1 个含源码目录，按契约 §3.2 不是容器
+    expect(parent.isContainer).toBe(false);
+    expect(parent.sourceCount).toBe(2);
+    expect(parent.files.map((file) => file.targetPath)).toEqual(['P.cpp', 'kid/K.cpp', 'notes.txt']);
+
+    const scatter = items.find((item) => item.sourceRelPath === 'parent' && item.importScope === 'direct')!;
+    expect(scatter.files.map((file) => file.sourcePath)).toEqual(['parent/P.cpp', 'parent/notes.txt']);
+    expect(scatter.files.map((file) => file.targetPath)).toEqual(['P.cpp', 'notes.txt']);
+    expect(scatter.sourceCount).toBe(1);
+
+    const kid = items.find((item) => item.sourceRelPath === 'parent/kid')!;
+    expect(kid.isContainer).toBe(false);
+    expect(kid.selectedByDefault).toBe(true);
+  });
+
   it('没有任何主源码时返回空候选', () => {
     expect(classifyBatchImportTree(tree([['README.md', 'doc'], ['a.png', 'img']], []), 'docs')).toEqual([]);
   });
@@ -500,9 +528,12 @@ describe('sourcePath 与来源排序（5a-3 契约 §3.3 / §8.3）', () => {
   it('清洗绝对路径 / 反斜杠 / 空段 / 点段 / 超长', () => {
     expect(cleanSourcePath('2026/10/10.ptc')).toBe('2026/10/10.ptc');
     expect(cleanSourcePath('2026_ICPC_1')).toBe('2026_ICPC_1');
-    for (const bad of ['', '/abs', 'a\\b', 'a//b', 'a/./b', 'a/../b', 'a/', 'x'.repeat(301)]) {
+    for (const bad of ['', '/abs', 'a\\b', 'a//b', 'a/./b', 'a/../b', 'a/', 'a\0b', 'x'.repeat(301)]) {
       expect(cleanSourcePath(bad), bad).toBeNull();
     }
+    expect(cleanSourcePath('x')).toBe('x');
+    expect(cleanSourcePath('x'.repeat(300))).toBe('x'.repeat(300));
+    expect(cleanSourcePath('2026年/十月 训练/10.ptc')).toBe('2026年/十月 训练/10.ptc');
   });
 
   it('来源分组键是 sourcePath 的父路径；无来源为 null', () => {

@@ -6,7 +6,7 @@ import { RatingChart } from './RatingChart.tsx';
 import { Delta, Icon, MonthlyBars, Num, StreakTicks } from './ui.tsx';
 
 export interface Notice {
-  kind: 'err' | 'ok';
+  kind: 'err' | 'ok' | 'warn';
   text: string;
 }
 
@@ -15,7 +15,7 @@ const NAME: Record<SyncSourceId, string> = { cf: 'Codeforces', at: 'AtCoder' };
 export function NoticeBar({ kind, text, onClose }: Notice & { onClose?: () => void }) {
   return (
     <div className={`alert alert--${kind}`} role="status">
-      <Icon id={kind === 'err' ? 'i-x' : 'i-check'} />
+      <Icon id={kind === 'err' ? 'i-x' : kind === 'warn' ? 'i-warn' : 'i-check'} />
       <div>{text}</div>
       {onClose === undefined ? null : (
         <button className="alert__x" onClick={onClose} title="关闭提示">

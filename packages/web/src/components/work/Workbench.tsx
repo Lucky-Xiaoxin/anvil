@@ -20,9 +20,10 @@ import { WorkDetail } from './WorkDetail.tsx';
 import { WorkImport } from './WorkImport.tsx';
 import { WorkList } from './WorkList.tsx';
 import { KIND_NAME, KIND_ORDER, filterWorkObjects, kindCounts } from './derive.ts';
+import { importResultSummary } from './import-derive.ts';
 
 interface Notice {
-  kind: 'err' | 'ok';
+  kind: 'err' | 'ok' | 'warn';
   text: string;
 }
 
@@ -331,7 +332,14 @@ export function Workbench() {
           <Icon id="i-sync" />
           重新扫描
         </button>
-        <button className={`btn btn--sm${importOpen ? ' is-on' : ''}`} disabled={busy !== null || importOpen} onClick={() => setImportOpen(true)}>
+        <button
+          className={`btn btn--sm${importOpen ? ' is-on' : ''}`}
+          disabled={busy !== null || importOpen}
+          onClick={() => {
+            setNotice(null);
+            setImportOpen(true);
+          }}
+        >
           <Icon id="i-folder" />
           导入旧代码
         </button>
@@ -359,12 +367,14 @@ export function Workbench() {
             setImportOpen(false);
             void load(archived, false);
           }}
-          onImported={(objectId) => {
+          onImported={(objectId, result) => {
             setImportOpen(false);
             setArchived(false);
             void (async () => {
-              await load(false, false, objectId === null ? undefined : objectId);
-              setNotice({ kind: 'ok', text: objectId === null ? '导入已结束' : '导入完成' });
+              const next = await load(false, false, objectId === null ? undefined : objectId);
+              if (next === null) return;
+              const summary = importResultSummary(result);
+              setNotice({ kind: summary.level, text: summary.text });
             })();
           }}
         />

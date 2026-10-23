@@ -685,6 +685,153 @@ describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
     expect(skipped.units.some((unit) => unit.status === 'success')).toBe(true);
     expect(skipped.skipped.some((item) => item.kind === 'duplicate')).toBe(true);
   });
+
+  it('混合目录可整体导入：父目录的散题只含直接文件，整体导入包含子目录', async () => {
+    writeSource('parent/P.cpp', 'int p;');
+    writeSource('parent/notes.txt', 'notes');
+    writeSource('parent/kid/K.cpp', 'int k;');
+    const plan = await scan();
+
+    const parent = itemAt(plan, 'parent');
+    expect(parent.isContainer).toBe(false);
+    expect(parent.files).toBe(3);
+    const scatter = itemAt(plan, 'parent', 'direct');
+    expect(scatter.files).toBe(2);
+    // 混合目录祖先优先：parent 保持默认选中，kid 让位
+    expect(parent.selectedByDefault).toBe(true);
+    expect(itemAt(plan, 'parent/kid').selectedByDefault).toBe(false);
+
+    const result = await service.importCommit({
+      planId: plan.planId,
+      items: [{ itemId: parent.itemId, selected: true }],
+    });
+    expect(result.units).toHaveLength(1);
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects).toHaveLength(1);
+    const contest = tree.objects[0]!;
+    expect(contest.sourcePath).toBe('parent');
+    expect(service.object(contest.id).files.map((file) => file.path)).toEqual(['P.cpp', 'kid/K.cpp', 'notes.txt']);
+  });
+
+  it('默认祖先优先：混合目录按默认选择提交只生成一个整目录题组，子目录不重复', async () => {
+    writeSource('parent/P.cpp', 'int p;');
+    writeSource('parent/notes.txt', 'notes');
+    writeSource('parent/kid/K.cpp', 'int k;');
+    // 同层再放一个叶子，避免源根自身成为唯一祖先，专门验证 parent / kid 的默认取舍
+    writeSource('other/O.cpp', 'int o;');
+    const plan = await scan();
+    expect(plan.items.filter((item) => item.selectedByDefault).map((item) => `${item.sourceRelPath}:${item.scope}`).sort()).toEqual([
+      'other:subtree',
+      'parent:subtree',
+    ]);
+
+    const result = await commitDefault(plan);
+    expect(result.units).toHaveLength(2);
+    expect(result.units.every((unit) => unit.status === 'success')).toBe(true);
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects).toHaveLength(2);
+    const parentContest = tree.objects.find((object) => object.sourcePath === 'parent')!;
+    expect(service.object(parentContest.id).files.map((file) => file.path)).toEqual(['P.cpp', 'kid/K.cpp', 'notes.txt']);
+    expect(tree.objects.some((object) => object.sourcePath === 'parent/kid')).toBe(false);
+  });
+
+  it('同批不同源同内容：全部候选默认不选，保留副本才可导入', async () => {
+    writeAt(source, 'mirror/a/X.cpp', 'same-content');
+    writeAt(source, 'mirror/b/X.cpp', 'same-content');
+    writeSource('solo/S.cpp', 'int s;');
+    const plan = await scan();
+    const a = itemAt(plan, 'mirror/a');
+    const b = itemAt(plan, 'mirror/b');
+
+    expect(a.duplicate).toMatchObject({ kind: 'same-content' });
+    expect(b.duplicate).toMatchObject({ kind: 'same-content' });
+    expect(a.selectedByDefault).toBe(false);
+    expect(b.selectedByDefault).toBe(false);
+    expect(plan.items.filter((item) => item.selectedByDefault).map((item) => `${item.sourceRelPath}:${item.scope}`)).toEqual([
+      'solo:subtree',
+    ]);
+
+    await expect(
+      service.importCommit({
+        planId: plan.planId,
+        items: [{ itemId: a.itemId, selected: true }],
+      }),
+    ).rejects.toMatchObject({ kind: 'import-conflict' });
+
+    const result = await service.importCommit({
+      planId: plan.planId,
+      items: [{ itemId: a.itemId, selected: true, keepDuplicate: true }],
+    });
+    expect(result.units).toHaveLength(1);
+    expect(result.units[0]!.status).toBe('success');
+    expect((await service.tree({ rescan: true })).objects).toHaveLength(1);
+  });
+
+  it('多单元同标题：目标路径自动追加 -2，来源各自独立', async () => {
+    writeAt(source, '2026/1/A/A.cpp', 'one');
+    writeAt(source, '2026/2/A/A.cpp', 'two');
+    const plan = await scan();
+    expect(plan.items.filter((item) => item.selectedByDefault)).toHaveLength(2);
+
+    const result = await commitDefault(plan);
+    expect(result.units).toHaveLength(2);
+    expect(result.units.every((unit) => unit.status === 'success')).toBe(true);
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects.map((obj) => obj.sourcePath).sort()).toEqual(['2026/1/A', '2026/2/A']);
+    expect(tree.objects.map((obj) => obj.relPath).sort()).toEqual([
+      'contests/2026-10-22_a',
+      'contests/2026-10-22_a-2',
+    ]);
+  });
+
+  it('sourcePath 在改名 / 打标 / 回收站恢复后保留', async () => {
+    writeSource('2026/10/10.ptc/A.cpp', 'int a;');
+    await commitDefault(await scan());
+    let tree = await service.tree({ rescan: true });
+    const contest = tree.objects[0]!;
+    expect(contest.sourcePath).toBe('2026/10/10.ptc');
+
+    await service.update({ id: contest.id, title: '改名题组', labels: ['赛时'] });
+    tree = await service.tree({ rescan: true });
+    expect(tree.objects[0]).toMatchObject({ title: '改名题组', labels: ['赛时'], sourcePath: '2026/10/10.ptc' });
+
+    await service.trash(contest.id);
+    tree = await service.tree({ rescan: true });
+    expect(tree.objects).toHaveLength(0);
+    await service.restore(contest.id);
+    tree = await service.tree({ rescan: true });
+    expect(tree.objects[0]).toMatchObject({ title: '改名题组', sourcePath: '2026/10/10.ptc' });
+    const meta = JSON.parse(readFileSync(join(root, ...tree.objects[0]!.relPath.split('/'), '.anvil.json'), 'utf8'));
+    expect(meta.sourcePath).toBe('2026/10/10.ptc');
+  });
+
+  it('源根自身作为题组时不写 sourcePath', async () => {
+    writeSource('A.cpp', 'int a;');
+    const plan = await scan();
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]!.sourceRelPath).toBe('');
+    const result = await commitDefault(plan);
+    expect(result.units[0]!.status).toBe('success');
+
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects[0]!.sourcePath).toBeUndefined();
+    const meta = JSON.parse(readFileSync(join(root, ...tree.objects[0]!.relPath.split('/'), '.anvil.json'), 'utf8'));
+    expect(meta).not.toHaveProperty('sourcePath');
+  });
+
+  it('中文 / 空格来源路径写入 sourcePath，重扫后仍保留', async () => {
+    writeSource('2026年/十月 训练/10.ptc/A.cpp', 'int a;');
+    const plan = await scan();
+    const leaf = itemAt(plan, '2026年/十月 训练/10.ptc');
+    expect(leaf.selectedByDefault).toBe(true);
+    expect(leaf.suggestedTitle).toBe('10.ptc');
+
+    await commitDefault(plan);
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects).toHaveLength(1);
+    expect(tree.objects[0]!.sourcePath).toBe('2026年/十月 训练/10.ptc');
+    expect((await service.tree({ rescan: true })).objects[0]!.sourcePath).toBe('2026年/十月 训练/10.ptc');
+  });
 });
 
 describe('目标路径安全边界（junction 不得写去受管根外）', () => {
@@ -740,6 +887,26 @@ describe('目标路径安全边界（junction 不得写去受管根外）', () =
 });
 
 describe('journal / 恢复', () => {
+  it('多单元批次恢复：逐单元按 objectId / targetRelPath 对账', async () => {
+    writeAt(source, 'A/A.cpp', 'int a;');
+    writeAt(source, 'B/B.cpp', 'int b;');
+    const result = await commitDefault(await scan());
+    expect(result.units).toHaveLength(2);
+
+    const manifest = readOnlyManifest();
+    manifest.status = 'running';
+    manifest.finishedAt = null;
+    for (const unit of manifest.units as Array<Record<string, unknown>>) unit.state = 'published';
+    for (const item of manifest.items as Array<Record<string, unknown>>) if (item.action === 'import') item.status = 'pending';
+    writeManifest(manifestFiles()[0]!, manifest);
+
+    const recovered = await service.recoverImports();
+    expect(recovered.warnings).toHaveLength(0);
+    const after = readOnlyManifest();
+    expect(after.status).toBe('completed');
+    expect((after.units as Array<Record<string, unknown>>).map((unit) => unit.state)).toEqual(['success', 'success']);
+  });
+
   it('staged 且最终路径存在：补写 success', async () => {
     seedGroup();
     await commitDefault(await scan());

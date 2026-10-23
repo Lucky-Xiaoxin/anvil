@@ -30,8 +30,8 @@ import {
 
 interface Props {
   onClose: () => void;
-  /** 成功后回工坊：有成功项时默认选中第一件 */
-  onImported: (objectId: string | null) => void;
+  /** 成功后回工坊：有成功项时默认选中第一件；result 用于工坊提示完整结果 */
+  onImported: (objectId: string | null, result: WorkImportResultDto) => void;
 }
 
 type Phase = 'source' | 'preview' | 'result';
@@ -330,7 +330,7 @@ export function WorkImport({ onClose, onImported }: Props) {
   /** 结果页离开时刷新工坊；预览 / 选源阶段只关闭，不丢未提交 plan 之外的东西 */
   const leave = (): void => {
     if (phase === 'result' && result !== null) {
-      onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null);
+      onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null, result);
       return;
     }
     onClose();
@@ -511,8 +511,8 @@ export function WorkImport({ onClose, onImported }: Props) {
           plan={plan}
           result={result}
           titleOf={titleOf}
-          onClose={() => onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null)}
-          onSelectObject={(objectId) => onImported(objectId)}
+          onClose={() => onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null, result)}
+          onSelectObject={(objectId) => onImported(objectId, result)}
           onContinue={reset}
         />
       ) : null}
@@ -559,7 +559,7 @@ function ResultView(props: {
         </div>
         <div className="wk-import__stat">
           <b className="num">{fmtInt(userSkipped.length)}</b>
-          <span>用户跳过</span>
+          <span>未选中</span>
         </div>
       </div>
 

@@ -450,7 +450,8 @@ export class WorkImportService {
       if (group.length < 2) continue;
       const keys = new Set(group.map((item) => historyKey(sourceReal, item.sourceRelPath, item.importScope)));
       if (keys.size < 2) continue;
-      for (const item of group.slice(1)) {
+      // 同批同内容没有「第一个」可默认可信：全部标潜在重复，选中必须明确保留副本
+      for (const item of group) {
         item.duplicate = { kind: 'same-content' };
         item.reasons.push('同一批里存在内容相同的其它候选，默认不选');
       }
@@ -468,23 +469,48 @@ export class WorkImportService {
     this.resolveDefaultConflicts(items);
   }
 
-  /** 默认勾选也不能父子重叠：有后代默认选中时让位给更具体的叶子 */
+  /**
+   * 默认勾选不能父子重叠。
+   * - 混合目录（自身有直接主源码、又只有一个下级源码目录）是叶子，祖先优先：它默认选中时后代让位，
+   *   否则父目录里的直接源码会被静默漏掉；
+   * - 纯包装目录（自身没有直接源码）仍是更深的叶子优先：一串 2026/10/7.XX 里默认选真正的比赛目录；
+   * - 容器（直接下级含源码目录 ≥2）本身不默认选中，所以其下级叶子不受影响。
+   */
   private resolveDefaultConflicts(items: PlanItem[]): void {
-    const selected = items.filter((item) => item.selectedByDefault);
-    for (const item of selected) {
-      if (item.importScope === 'direct') {
-        if (selected.some((other) => other !== item && other.sourceRelPath === item.sourceRelPath && other.importScope === 'subtree')) {
-          item.selectedByDefault = false;
-        }
-        continue;
+    const selected = items.filter((item) => item.selectedByDefault && item.importScope === 'subtree');
+    const isMixed = (item: PlanItem): boolean =>
+      item.ownedFiles.some((file) => !file.targetPath.includes('/') && isImportSourceName(file.targetPath));
+
+    // 1) 混合目录接管整棵子树
+    for (const ancestor of selected.filter(isMixed)) {
+      for (const other of items) {
+        if (other === ancestor || !other.selectedByDefault) continue;
+        const underAncestor =
+          ancestor.sourceRelPath === '' ? other.sourceRelPath !== '' : other.sourceRelPath.startsWith(`${ancestor.sourceRelPath}/`);
+        const sameDirScatter = other.importScope === 'direct' && other.sourceRelPath === ancestor.sourceRelPath;
+        if (underAncestor || sameDirScatter) other.selectedByDefault = false;
       }
-      const hasDescendant = selected.some(
+    }
+
+    // 2) 纯包装目录让位给仍被选中的后代
+    for (const wrapper of selected.filter((item) => !isMixed(item))) {
+      if (!wrapper.selectedByDefault) continue;
+      const hasSelectedDescendant = items.some(
         (other) =>
-          other !== item &&
-          other.sourceRelPath !== item.sourceRelPath &&
-          (item.sourceRelPath === '' || other.sourceRelPath.startsWith(`${item.sourceRelPath}/`)),
+          other !== wrapper &&
+          other.selectedByDefault &&
+          (wrapper.sourceRelPath === '' ? other.sourceRelPath !== '' : other.sourceRelPath.startsWith(`${wrapper.sourceRelPath}/`)),
       );
-      if (hasDescendant) item.selectedByDefault = false;
+      if (hasSelectedDescendant) wrapper.selectedByDefault = false;
+    }
+
+    // 3) 散题让位给同目录的整目录候选
+    for (const item of items) {
+      if (!item.selectedByDefault || item.importScope !== 'direct') continue;
+      const sameDirSubtree = items.some(
+        (other) => other !== item && other.selectedByDefault && other.importScope === 'subtree' && other.sourceRelPath === item.sourceRelPath,
+      );
+      if (sameDirSubtree) item.selectedByDefault = false;
     }
   }
 
