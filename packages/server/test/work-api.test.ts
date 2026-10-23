@@ -24,20 +24,30 @@ let db: DatabaseSync;
 let app: FastifyInstance;
 let spawnCalls: { cmd: string; args: string[]; shell: boolean }[];
 let failingCmds: Set<string>;
+let exitFailCmds: Set<string>;
 let codePath: string | null;
 
 function fakeSpawn(cmd: string, args: string[], opts: { shell: boolean }): SpawnLike {
   spawnCalls.push({ cmd, args, shell: opts.shell });
   let spawnCb: (() => void) | null = null;
   let errorCb: ((err: Error) => void) | null = null;
+  let exitCb: ((code: number | null, signal: NodeJS.Signals | null) => void) | null = null;
   queueMicrotask(() => {
-    if (failingCmds.has(cmd)) errorCb?.(new Error('ENOENT'));
-    else spawnCb?.();
+    if (failingCmds.has(cmd)) {
+      errorCb?.(new Error('ENOENT'));
+      return;
+    }
+    spawnCb?.();
+    queueMicrotask(() => exitCb?.(exitFailCmds.has(cmd) ? 1 : 0, null));
   });
   return {
-    on(event: 'error' | 'spawn', cb: ((err: Error) => void) | (() => void)): unknown {
+    on(
+      event: 'error' | 'spawn' | 'exit',
+      cb: ((err: Error) => void) | (() => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
+    ): unknown {
       if (event === 'spawn') spawnCb = cb as () => void;
-      else errorCb = cb as (err: Error) => void;
+      else if (event === 'error') errorCb = cb as (err: Error) => void;
+      else exitCb = cb as (code: number | null, signal: NodeJS.Signals | null) => void;
       return undefined;
     },
     unref: () => undefined,
@@ -52,6 +62,7 @@ async function boot(): Promise<void> {
   configRoot = '';
   spawnCalls = [];
   failingCmds = new Set();
+  exitFailCmds = new Set();
   codePath = 'C:\\Code.exe';
   const work = new WorkService({
     db,
@@ -64,6 +75,7 @@ async function boot(): Promise<void> {
     vaultDir: join(base, 'vault'),
     findCode: () => codePath,
     spawn: spawnImpl,
+    importLimits: { maxFiles: 3 },
   });
   app = Fastify();
   registerApi(app, {
@@ -223,6 +235,117 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     res = await post('/api/work/open', { id, relPath: '../x' });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.kind).toBe('unsafe-path');
+
+    res = await post('/api/work/open', { id, app: 'vscode' });
+    expect(res.statusCode, res.body).toBe(204);
+    expect(spawnCalls.at(-1)?.cmd).toBe('C:\\Code.exe');
+    expect(spawnCalls.at(-1)?.args).toEqual(['--new-window', join(root, problem.relPath)]);
+
+    failingCmds.add('C:\\Code.exe');
+    const before = spawnCalls.length;
+    res = await post('/api/work/open', { id, app: 'vscode' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.kind).toBe('editor-unavailable');
+    expect(spawnCalls.length).toBe(before + 1);
+    expect(spawnCalls.at(-1)?.cmd).toBe('C:\\Code.exe');
+
+    failingCmds.clear();
+    exitFailCmds.add('C:\\Code.exe');
+    res = await post('/api/work/open', { id, app: 'vscode' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.kind).toBe('editor-unavailable');
+    exitFailCmds.clear();
+    res = await post('/api/work/open', { id, app: 'explorer' });
+    expect(res.statusCode, res.body).toBe(204);
+    expect(spawnCalls.at(-1)?.cmd).toBe('explorer.exe');
+
+    failingCmds.add('explorer.exe');
+    res = await post('/api/work/open', { id, app: 'explorer' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.kind).toBe('editor-unavailable');
+
+    failingCmds.clear();
+    res = await post('/api/work/open', { id, app: 'bogus' });
+    expect(res.statusCode).toBe(400);
+    res = await post('/api/work/open', { id, relPath: '../x', app: 'vscode' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('unsafe-path');
+  });
+
+  it('import：scan / commit / 非法源 / 超限 / 过期 plan / 源变化 / 选择非法', async () => {
+    await boot();
+    await initApi();
+    const src = join(base, 'old-code');
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, 'alpha.cpp'), 'int main() {}');
+    writeFileSync(join(src, 'alpha.in'), '1');
+
+    let res = await post('/api/work/import/scan', { sourceRoot: src });
+    expect(res.statusCode, res.body).toBe(200);
+    const plan = res.json();
+    expect(plan.items).toHaveLength(1);
+    expect(plan.totals.files).toBe(2);
+    expect(plan.items[0].shape).toBe('contest-group');
+    expect(plan.items[0].files).toBe(2);
+    expect(plan.items[0].selectedByDefault).toBe(true);
+
+    res = await post('/api/work/import/commit', {
+      planId: plan.planId,
+      items: [{ itemId: plan.items[0].itemId, selected: true }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const result = res.json();
+    expect(result.units).toHaveLength(1);
+    expect(result.units[0].status).toBe('success');
+    expect(result.manifestRelPath).toMatch(/^\.anvil\/imports\//);
+    expect(result.units[0].objects).toHaveLength(1);
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    expect(tree.objects).toHaveLength(1);
+    expect(tree.objects[0].kind).toBe('contest');
+
+    res = await post('/api/work/import/commit', {
+      planId: plan.planId,
+      items: [{ itemId: plan.items[0].itemId, selected: true }],
+    });
+    expect(res.json()).toEqual(result);
+
+    res = await post('/api/work/import/scan', { sourceRoot: 'relative/path' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('import-source-invalid');
+
+    const tooMany = join(base, 'too-many');
+    mkdirSync(tooMany, { recursive: true });
+    for (let i = 0; i < 4; i += 1) writeFileSync(join(tooMany, `p${i}.cpp`), 'x');
+    res = await post('/api/work/import/scan', { sourceRoot: tooMany });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('import-limit');
+
+    res = await post('/api/work/import/commit', { planId: 'missing-plan', items: [] });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('import-plan-expired');
+
+    const changing = join(base, 'changing');
+    mkdirSync(changing, { recursive: true });
+    writeFileSync(join(changing, 'beta.cpp'), 'v1');
+    res = await post('/api/work/import/scan', { sourceRoot: changing });
+    const changingPlan = res.json();
+    writeFileSync(join(changing, 'beta.cpp'), 'v2');
+    res = await post('/api/work/import/commit', {
+      planId: changingPlan.planId,
+      items: [{ itemId: changingPlan.items[0].itemId, selected: true }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().units[0].status).toBe('failed');
+    expect(res.json().units[0].error.kind).toBe('import-source-changed');
+
+    res = await post('/api/work/import/scan', { sourceRoot: changing });
+    const invalidPlan = res.json();
+    res = await post('/api/work/import/commit', {
+      planId: invalidPlan.planId,
+      items: [{ itemId: 'item_999', selected: true }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('import-conflict');
   });
 
   it('template：读空文件 / 保存 / 冲突 / 非模板拒绝 / 新建题目自动复制默认模板', async () => {

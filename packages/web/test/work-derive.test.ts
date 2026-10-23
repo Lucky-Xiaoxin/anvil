@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
 import {
   allLabels,
+  contestBadgeOf,
+  contestCountLabel,
   fileSize,
   filterWorkObjects,
+  folderActionsOf,
   flatNodes,
   groupWorkObjects,
   kindCounts,
@@ -42,6 +45,7 @@ const obj = (patch: Partial<WorkObjectDto> = {}): WorkObjectDto => ({
   createdAt: '2026-10-21T02:00:00.000Z',
   updatedAt: '2026-10-21T02:10:00.000Z',
   fileCount: 3,
+  sourceCount: 0,
   ...patch,
 });
 
@@ -76,6 +80,29 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     expect(allLabels([obj(), obj({ labels: ['赛时', '复盘'] })])).toEqual(expect.arrayContaining(['赛时', '复盘']));
   });
 
+  it('题组 / 旧题目对象两个文件夹入口；模板 / 笔记只有 auto', () => {
+    const two = [
+      { app: 'explorer', label: '打开文件夹' },
+      { app: 'vscode', label: '用 VS Code 打开' },
+    ];
+    expect(folderActionsOf('contest')).toEqual(two);
+    expect(folderActionsOf('problem')).toEqual(two);
+    for (const kind of ['template', 'note'] as const) {
+      expect(folderActionsOf(kind)).toEqual([{ app: 'auto', label: '打开文件夹' }]);
+    }
+  });
+
+  it('比赛只有挂了题组才显示题组徽章；计数区分源码 / 旧子题', () => {
+    const emptyContest = obj({ id: 'obj_0000000020', kind: 'contest', title: 'Empty', relPath: 'contests/x', sourceCount: 0, parentId: null });
+    expect(contestBadgeOf(emptyContest, 0)).toBeNull();
+    expect(contestCountLabel(emptyContest, 0)).toBe('无题组');
+    const groupContest = obj({ ...emptyContest, sourceCount: 3 });
+    expect(contestBadgeOf(groupContest, 0)).toBe('题组');
+    expect(contestCountLabel(groupContest, 0)).toBe('3 个源码');
+    expect(contestBadgeOf(emptyContest, 2)).toBe('题组');
+    expect(contestCountLabel(emptyContest, 2)).toBe('2 题');
+  });
+
   it('文件大小与日期', () => {
     expect(fileSize(512)).toBe('512 B');
     expect(fileSize(2048)).toBe('2.0 KB');
@@ -101,7 +128,7 @@ describe('中间列表分组（切片 5a.1）', () => {
     expect(model.groups.map((g) => g.contest.id)).toEqual([c1.id, c2.id]);
     expect(model.groups[0]?.problems.map((p) => p.id)).toEqual([p1.id, p2.id]);
     expect(model.groups[0]?.included).toBe(true);
-    expect(model.standalone).toEqual([]);
+    expect(model.ungrouped).toEqual([]);
   });
 
   it('kind=题目 时父比赛不在筛选结果里，仍按比赛分组且组头不可点', () => {
@@ -120,7 +147,7 @@ describe('中间列表分组（切片 5a.1）', () => {
     const template = obj({ id: 'obj_0000000014', kind: 'template', title: 'DSU', relPath: 'templates/ds/dsu' });
     const note = obj({ id: 'obj_0000000015', kind: 'note', title: 'Week', relPath: 'notes/2026/10/x' });
     const model = groupWorkObjects([single, orphan, template, note, c1], [c1, single, orphan, template, note]);
-    expect(model.standalone.map((p) => p.id)).toEqual([single.id]);
+    expect(model.ungrouped.map((p) => p.id)).toEqual([single.id]);
     expect(model.orphans.map((p) => p.id)).toEqual([orphan.id]);
     expect(model.templates.map((p) => p.id)).toEqual([template.id]);
     expect(model.notes.map((p) => p.id)).toEqual([note.id]);

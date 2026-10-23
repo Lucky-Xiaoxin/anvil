@@ -17,6 +17,7 @@ import { Icon } from '../ui.tsx';
 import { TagTree } from './TagTree.tsx';
 import { WorkCreate, type WorkDialog } from './WorkCreate.tsx';
 import { WorkDetail } from './WorkDetail.tsx';
+import { WorkImport } from './WorkImport.tsx';
 import { WorkList } from './WorkList.tsx';
 import { KIND_NAME, KIND_ORDER, filterWorkObjects, kindCounts } from './derive.ts';
 
@@ -133,6 +134,7 @@ export function Workbench() {
   const [busy, setBusy] = useState<string | null>(null);
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const loadDetail = useCallback(async (id: string): Promise<void> => {
     setDetailLoading(true);
@@ -329,6 +331,10 @@ export function Workbench() {
           <Icon id="i-sync" />
           重新扫描
         </button>
+        <button className={`btn btn--sm${importOpen ? ' is-on' : ''}`} disabled={busy !== null || importOpen} onClick={() => setImportOpen(true)}>
+          <Icon id="i-folder" />
+          导入旧代码
+        </button>
         <button className="btn btn--primary btn--sm" disabled={busy !== null} onClick={() => setDialog({ mode: 'create' })}>
           <Icon id="i-plus" />
           新建
@@ -346,6 +352,23 @@ export function Workbench() {
         </div>
       ) : null}
 
+      {importOpen ? (
+        <WorkImport
+          onClose={() => {
+            // 即使从「继续导入」直接离开，也要刷新：之前可能已经成功导入过对象
+            setImportOpen(false);
+            void load(archived, false);
+          }}
+          onImported={(objectId) => {
+            setImportOpen(false);
+            setArchived(false);
+            void (async () => {
+              await load(false, false, objectId === null ? undefined : objectId);
+              setNotice({ kind: 'ok', text: objectId === null ? '导入已结束' : '导入完成' });
+            })();
+          }}
+        />
+      ) : (
       <div className="wk-grid">
         <aside className="wk-col wk-col--left">
           <div className="wk-col__body">
@@ -363,7 +386,7 @@ export function Workbench() {
                 <span>全部</span>
                 <b className="num">{counts.all}</b>
               </button>
-              {KIND_ORDER.map((kind) => (
+              {KIND_ORDER.filter((kind) => kind !== 'problem' || counts.problem > 0).map((kind) => (
                 <button
                   key={kind}
                   className={`wk-kindrow${kindFilter === kind ? ' is-on' : ''}`}
@@ -495,9 +518,9 @@ export function Workbench() {
                     }
                   })();
                 }}
-                onOpen={(relPath) => {
+                onOpen={(relPath, app) => {
                   if (detail === null) return;
-                  void openWork(detail.id, relPath).catch((error: unknown) => {
+                  void openWork(detail.id, relPath, app).catch((error: unknown) => {
                     const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
                     setNotice({ kind: 'err', text: api.message });
                   });
@@ -521,6 +544,7 @@ export function Workbench() {
           </div>
         </aside>
       </div>
+      )}
 
       {dialog !== null ? (
         <WorkCreate

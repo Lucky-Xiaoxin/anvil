@@ -10,6 +10,16 @@ export const KIND_NAME: Record<WorkKind, string> = {
 
 export const KIND_ORDER: readonly WorkKind[] = ['contest', 'problem', 'template', 'note'];
 
+/** 中间列表用语（契约 §2.3 / §12.3）：题组 / 比赛题组 / 未分组题目 */
+export const WORK_SECTION = {
+  groups: '比赛',
+  contestBadge: '题组',
+  ungrouped: '旧题目对象',
+  templates: '模板',
+  notes: '笔记',
+  problemBadge: '题目',
+} as const;
+
 export interface FlatNode {
   id: string;
   name: string;
@@ -82,7 +92,7 @@ export interface WorkContestGroup {
 
 export interface WorkListModel {
   groups: WorkContestGroup[];
-  standalone: WorkObjectDto[];
+  ungrouped: WorkObjectDto[];
   templates: WorkObjectDto[];
   notes: WorkObjectDto[];
   /** parentId 指向不存在的对象：扫描层已报错，这里兜底照常列出 */
@@ -92,13 +102,13 @@ export interface WorkListModel {
 const byRelPath = (a: WorkObjectDto, b: WorkObjectDto): number => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0);
 
 /**
- * 中间列表分组（切片 5a.1）：比赛题按父比赛折叠成组，未挂比赛的题目进独立「单题」区。
+ * 中间列表分组（切片 5a.1 / 5a-2）：比赛题按父比赛折叠成组，parentId=null 的题目进「未分组题目」区。
  * `filtered` 是当前筛选结果，`all` 用来补出被 kind 筛选挡掉的父比赛标题。
  */
 export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readonly WorkObjectDto[]): WorkListModel {
   const byId = new Map(all.map((obj) => [obj.id, obj]));
   const groups = new Map<string, WorkContestGroup>();
-  const standalone: WorkObjectDto[] = [];
+  const ungrouped: WorkObjectDto[] = [];
   const templates: WorkObjectDto[] = [];
   const notes: WorkObjectDto[] = [];
   const orphans: WorkObjectDto[] = [];
@@ -117,7 +127,7 @@ export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readon
       groupOf(obj).included = true;
     } else if (obj.kind === 'problem') {
       if (obj.parentId === null) {
-        standalone.push(obj);
+        ungrouped.push(obj);
         continue;
       }
       const parent = byId.get(obj.parentId);
@@ -135,7 +145,7 @@ export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readon
     .sort((a, b) => byRelPath(a.contest, b.contest));
   return {
     groups: sortedGroups,
-    standalone: standalone.sort(byRelPath),
+    ungrouped: ungrouped.sort(byRelPath),
     templates: templates.sort(byRelPath),
     notes: notes.sort(byRelPath),
     orphans: orphans.sort(byRelPath),
@@ -146,6 +156,33 @@ export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readon
 export function pathBreadcrumb(relPath: string): string[] {
   const parts = relPath.split('/').filter((part) => part !== '');
   return parts.slice(0, -1);
+}
+
+export interface WorkFolderAction {
+  app: 'auto' | 'explorer' | 'vscode';
+  label: string;
+}
+
+/** 题组 / 旧题目对象都给出资源管理器与 VS Code；模板 / 笔记保持 5a 的单一 auto 入口 */
+export function folderActionsOf(kind: WorkKind): WorkFolderAction[] {
+  if (kind === 'problem' || kind === 'contest') {
+    return [
+      { app: 'explorer', label: '打开文件夹' },
+      { app: 'vscode', label: '用 VS Code 打开' },
+    ];
+  }
+  return [{ app: 'auto', label: '打开文件夹' }];
+}
+
+/** 比赛挂了题组（有自己的源码，或有旧的子题目对象）才显示「题组」徽章 */
+export function contestBadgeOf(contest: WorkObjectDto, childCount: number): string | null {
+  return childCount > 0 || contest.sourceCount > 0 ? WORK_SECTION.contestBadge : null;
+}
+
+export function contestCountLabel(contest: WorkObjectDto, childCount: number): string {
+  if (childCount > 0) return `${childCount} 题`;
+  if (contest.sourceCount > 0) return `${contest.sourceCount} 个源码`;
+  return '无题组';
 }
 
 export function allLabels(objects: readonly WorkObjectDto[]): string[] {
