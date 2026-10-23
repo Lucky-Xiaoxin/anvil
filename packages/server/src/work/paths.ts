@@ -178,7 +178,8 @@ export function validateImportSource(input: unknown, managedRoot: string): Impor
   if (!st.isDirectory()) throw new WorkError('import-source-invalid', '源路径必须是目录');
   assertNoSymlinkPath(abs);
 
-  const real = realpathSync(abs);
+  // native realpath 在 Windows 上返回磁盘上的规范大小写，避免同一目录换个大小写输入就被当成不同来源
+  const real = realpathSync.native(abs);
   const rootAbs = resolve(managedRoot);
   const rootReal = realpathSync(rootAbs);
   if (within(rootAbs, abs, true) || within(abs, rootAbs, true) || within(rootReal, real, true) || within(real, rootReal, true)) {

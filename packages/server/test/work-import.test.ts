@@ -284,6 +284,49 @@ describe('提交：整目录发布成一个题组', () => {
     expect((items[0]!.fingerprint as string)).toHaveLength(64);
   });
 
+  it('Windows 同一真实源路径的大小写变体仍按同源自动跳过', async () => {
+    if (process.platform !== 'win32') return;
+    seedGroup();
+    await commitDefault(await scan());
+    const alt = source.replace(/^[A-Za-z]:/, (m) => (m === m.toLowerCase() ? m.toUpperCase() : m.toLowerCase()));
+    const plan = await scan(alt);
+    expect(plan.items[0]!.duplicate).toMatchObject({ kind: 'same-source', state: 'same' });
+    expect(plan.items[0]!.selectedByDefault).toBe(true);
+    const result = await commitDefault(plan);
+    expect(result.units).toHaveLength(0);
+    expect(result.skipped[0]!.kind).toBe('duplicate');
+    expect((await service.tree()).objects).toHaveLength(1);
+  });
+
+  it('两个 plan 都在提交前扫过：后提交的自动跳过，不重复搬运', async () => {
+    seedGroup();
+    const first = await scan();
+    const second = await scan();
+    expect(first.items[0]!.duplicate).toBeNull();
+    expect(second.items[0]!.duplicate).toBeNull();
+
+    await commitDefault(first);
+    const result = await commitDefault(second);
+    expect(result.units).toHaveLength(0);
+    expect(result.skipped[0]!.kind).toBe('duplicate');
+    expect((await service.tree()).objects).toHaveLength(1);
+  });
+
+  it('扫描后历史目标消失：提交时重新核对，允许重新导入', async () => {
+    seedGroup();
+    await commitDefault(await scan());
+    const contest = (await service.tree()).objects[0]!;
+    const targetAbs = join(root, ...contest.relPath.split('/'));
+
+    const stalePlan = await scan();
+    expect(stalePlan.items[0]!.duplicate).toMatchObject({ kind: 'same-source', state: 'same' });
+    rmSync(targetAbs, { recursive: true, force: true });
+
+    const result = await commitDefault(stalePlan);
+    expect(result.units[0]!.status).toBe('success');
+    expect((await service.tree()).objects).toHaveLength(1);
+  });
+
   it('同源同指纹重跑自动跳过；同一 plan 重复 commit 返回同一结果', async () => {
     seedGroup();
     const first = await commitDefault(await scan());
@@ -457,6 +500,58 @@ describe('提交：整目录发布成一个题组', () => {
     await commitDefault(await scan());
     for (const [abs, content] of contents) expect(readFileSync(abs, 'utf8')).toBe(content);
     expect(snapshotTree(source)).toEqual(before);
+  });
+});
+
+describe('目标路径安全边界（junction 不得写去受管根外）', () => {
+  function linkOutside(name: string, linkAbs: string): string | null {
+    const outside = join(base, name);
+    mkdirSync(outside, { recursive: true });
+    try {
+      symlinkSync(outside, linkAbs, 'junction');
+      return outside;
+    } catch {
+      return null;
+    }
+  }
+
+  it('contests 桶是 junction：提交拒绝，根外零写入', async () => {
+    seedGroup();
+    const contestsAbs = join(root, 'contests');
+    rmSync(contestsAbs, { recursive: true, force: true });
+    const outside = linkOutside('outside-contests', contestsAbs);
+    if (outside === null) return;
+
+    const plan = await scan();
+    await expect(service.importCommit({ planId: plan.planId, items: defaultInput(plan) })).rejects.toMatchObject({
+      kind: 'unsafe-path',
+    });
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('import-staging 是 junction：单元失败，根外零写入', async () => {
+    seedGroup();
+    const outside = linkOutside('outside-staging', join(root, '.anvil', 'import-staging'));
+    if (outside === null) return;
+
+    const plan = await scan();
+    const result = await commitDefault(plan);
+    expect(result.units[0]!.status).toBe('failed');
+    expect(result.units[0]!.error?.kind).toBe('unsafe-path');
+    expect(readdirSync(outside)).toEqual([]);
+    expect(manifestFiles()).toHaveLength(1);
+  });
+
+  it('.anvil/imports 是 junction：提交拒绝，根外零写入', async () => {
+    seedGroup();
+    const outside = linkOutside('outside-imports', join(root, '.anvil', 'imports'));
+    if (outside === null) return;
+
+    const plan = await scan();
+    await expect(service.importCommit({ planId: plan.planId, items: defaultInput(plan) })).rejects.toMatchObject({
+      kind: 'unsafe-path',
+    });
+    expect(readdirSync(outside)).toEqual([]);
   });
 });
 

@@ -57,7 +57,17 @@ import {
 } from '@anvil/shared';
 import { writeFileAtomic } from '../atomic.ts';
 import { WorkError } from './errors.ts';
-import { isIgnoredName, lstatOrNull, localTrashStamp, relPosix, toPosix, validateImportSource, within } from './paths.ts';
+import {
+  assertNoSymlinkComponents,
+  isIgnoredName,
+  lstatOrNull,
+  localTrashStamp,
+  relPosix,
+  resolveInside,
+  toPosix,
+  validateImportSource,
+  within,
+} from './paths.ts';
 
 /* ------------------------------------------------------------------ */
 /* 内部结构                                                            */
@@ -219,7 +229,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function sourceKey(sourceReal: string, sourceRelPath: string): string {
   const base = toPosix(sourceReal).replace(/\/+$/, '');
-  return sourceRelPath === '' ? base : `${base}/${sourceRelPath}`;
+  const key = sourceRelPath === '' ? base : `${base}/${sourceRelPath}`;
+  // Windows 路径大小写不敏感；历史 manifest 可能来自不同大小写的输入，统一折叠后才算「同一真实源路径」
+  return process.platform === 'win32' ? key.toLowerCase() : key;
 }
 
 function isBatchId(v: unknown): v is string {
@@ -282,7 +294,7 @@ export class WorkImportService {
 
     const warnings: string[] = [];
     if (scanned.ignored > 0) warnings.push(`已忽略 ${scanned.ignored} 项（依赖目录 / 编译产物 / 符号链接等）`);
-    if (items.length === 0) warnings.push('没有识别出可导入的候选；未判定项也需要在扫描结果里确认');
+    if (items.length === 0) warnings.push('没有识别出可导入的候选：源目录里没有非忽略的普通文件');
     for (const warning of history.warnings) warnings.push(warning);
 
     const plan: ImportPlan = {
@@ -447,6 +459,15 @@ export class WorkImportService {
     }
   }
 
+  /** 历史 / 扫描重复项是否仍指向一个可用的已导入对象（路径 + 索引都要对得上） */
+  private importedObjectUsable(root: string, objectId: string, targetRelPath: string): boolean {
+    if (!isSafeRelRelPath(targetRelPath)) return false;
+    const st = lstatOrNull(join(root, ...targetRelPath.split('/')));
+    if (st === null || st.isSymbolicLink() || !st.isDirectory()) return false;
+    const found = this.deps.lookupObject(objectId);
+    return found !== null && found.relPath === targetRelPath;
+  }
+
   private toPlanDto(plan: ImportPlan): WorkImportPlanDto {
     const items: WorkImportCandidateDto[] = plan.items.map((item) => {
       const preview = [...item.ownedFiles].map((file) => file.targetPath).sort(byPosix);
@@ -535,6 +556,8 @@ export class WorkImportService {
     const prepared: PreparedUnit[] = [];
     const usedTargets = new Set<string>();
     const usedObjectIds = new Set<string>();
+    // 提交前在写队列里重查一次历史：扫描后可能有别的 plan 已经导入同一来源
+    const historyBySource = new Map(this.readHistory(plan.root).entries.map((entry) => [entry.sourcePath, entry]));
 
     for (const unitPlan of unitPlans) {
       const unitItems = unitPlan.itemIds.map((id) => {
@@ -547,14 +570,28 @@ export class WorkImportService {
       const headResolved = resolvedById.get(head.itemId);
       if (headResolved === undefined) throw new WorkError('internal', '选择结果缺少单元头');
 
-      if (head.duplicate?.kind === 'same-source' && head.duplicate.state === 'same') {
+      const committed = historyBySource.get(sourceKey(plan.sourceRootReal, head.sourceRelPath));
+      const committedSame =
+        committed !== undefined &&
+        committed.fingerprint === head.fingerprint &&
+        this.importedObjectUsable(plan.root, committed.objectId, committed.targetRelPath)
+          ? committed
+          : null;
+      const scanSame =
+        head.duplicate?.kind === 'same-source' &&
+        head.duplicate.state === 'same' &&
+        head.duplicate.objectId !== undefined &&
+        head.duplicate.targetRelPath !== undefined &&
+        this.importedObjectUsable(plan.root, head.duplicate.objectId, head.duplicate.targetRelPath);
+      if (committedSame !== null || scanSame) {
+        const objectId = committedSame?.objectId ?? head.duplicate?.objectId;
         prepared.push({
           unitId: unitPlan.unitId,
           contestItemId: unitPlan.contestItemId,
           items: unitItems,
           objects: [],
           targetRelPath: '',
-          skip: { reason: '同一来源与内容已经导入过，自动跳过', ...(head.duplicate.objectId === undefined ? {} : { objectId: head.duplicate.objectId }) },
+          skip: { reason: '同一来源与内容已经导入过，自动跳过', ...(objectId === undefined ? {} : { objectId }) },
         });
         continue;
       }
@@ -835,7 +872,8 @@ export class WorkImportService {
     }
     let real: string;
     try {
-      real = realpathSync(plan.sourceRootAbs);
+      // native realpath 在 Windows 上返回磁盘上的规范大小写，和扫描时一致
+      real = realpathSync.native(plan.sourceRootAbs);
     } catch {
       throw new WorkError('import-source-changed', '源目录无法解析');
     }
@@ -881,10 +919,12 @@ export class WorkImportService {
   }
 
   private async stageUnit(plan: ImportPlan, unit: PreparedUnit, batchId: string, createdIso: string): Promise<void> {
-    const batchDir = join(plan.root, '.anvil', 'import-staging', batchId);
-    const unitDir = join(batchDir, unit.unitId);
+    // 暂存根也走受管根路径校验：.anvil/import-staging 若是 junction，不能把文件写去根外
+    const batchDir = resolveInside(plan.root, `.anvil/import-staging/${batchId}`, { allowMissing: true });
+    const unitDir = resolveInside(plan.root, `.anvil/import-staging/${batchId}/${unit.unitId}`, { allowMissing: true });
     if (lstatOrNull(unitDir) !== null) throw new WorkError('import-conflict', '暂存目录已存在，拒绝覆盖');
     mkdirSync(unitDir, { recursive: true });
+    assertNoSymlinkComponents(plan.root, unitDir);
     writeFileAtomic(
       join(batchDir, `${unit.unitId}.staging.json`),
       `${JSON.stringify({ schema: 1, batchId, unitId: unit.unitId, startedAt: this.deps.now().toISOString() }, null, 2)}\n`,
@@ -946,13 +986,15 @@ export class WorkImportService {
   }
 
   private publishUnit(plan: ImportPlan, unit: PreparedUnit, batchId: string): void {
-    const finalAbs = join(plan.root, ...unit.targetRelPath.split('/'));
+    // 目标路径与暂存路径都逐级拒绝符号链接：桶（contests 等）若是 junction，不能在根外发布
+    const finalAbs = resolveInside(plan.root, unit.targetRelPath, { allowMissing: true });
     if (lstatOrNull(finalAbs) !== null) throw new WorkError('import-conflict', '目标路径已被占用，未覆盖');
     const stagingRoot = join(plan.root, '.anvil', 'import-staging');
-    const unitDir = join(stagingRoot, batchId, unit.unitId);
+    const unitDir = resolveInside(plan.root, `.anvil/import-staging/${batchId}/${unit.unitId}`, { allowMissing: true });
     assertWithin(stagingRoot, unitDir, '暂存目录越界');
     if (lstatOrNull(unitDir) === null) throw new WorkError('internal', '暂存目录不存在');
     mkdirSync(dirname(finalAbs), { recursive: true });
+    assertNoSymlinkComponents(plan.root, finalAbs);
     renameSync(unitDir, finalAbs);
   }
 
@@ -982,6 +1024,7 @@ export class WorkImportService {
 
   private writeManifest(root: string, abs: string, manifest: ImportManifest): void {
     if (!within(root, abs, false)) throw new WorkError('unsafe-path', 'manifest 不在受管根内');
+    assertNoSymlinkComponents(root, abs);
     writeFileAtomic(abs, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 
@@ -995,6 +1038,11 @@ export class WorkImportService {
 
   private cleanupStagingBatch(root: string, batchId: string): void {
     const batchDir = join(root, '.anvil', 'import-staging', batchId);
+    try {
+      assertNoSymlinkComponents(root, batchDir);
+    } catch {
+      return;
+    }
     let entries: Dirent[];
     try {
       entries = readdirSync(batchDir, { withFileTypes: true });
@@ -1025,6 +1073,12 @@ export class WorkImportService {
     const unitDir = join(batchDir, unitId);
     const markerPath = join(batchDir, `${unitId}.staging.json`);
     if (!within(stagingRoot, unitDir, false) || !within(stagingRoot, markerPath, false)) return false;
+    try {
+      assertNoSymlinkComponents(root, unitDir);
+      assertNoSymlinkComponents(root, markerPath);
+    } catch {
+      return false;
+    }
     const markerStat = lstatOrNull(markerPath);
     if (markerStat === null || markerStat.isSymbolicLink() || !markerStat.isFile()) return false;
     let marker: unknown;
@@ -1399,7 +1453,8 @@ export class WorkImportService {
       if (!built.ok) return null;
       const rel = built.value.relPath;
       if (used.has(rel)) return null;
-      const abs = join(root, ...rel.split('/'));
+      // 逐级拒绝符号链接 / junction；父桶若是链接，直接报 unsafe-path，不换后缀重试
+      const abs = resolveInside(root, rel, { allowMissing: true });
       if (lstatOrNull(abs) !== null) return null;
       return rel;
     };
