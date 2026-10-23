@@ -1283,6 +1283,7 @@ export class WorkService {
       updatedAt: meta.updatedAt,
       fileCount: obj.fileCount,
       sourceCount: obj.sourceCount,
+      ...(meta.sourcePath === undefined ? {} : { sourcePath: meta.sourcePath }),
     };
   }
 

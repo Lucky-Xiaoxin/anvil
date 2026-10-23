@@ -9,6 +9,7 @@ import {
   folderActionsOf,
   flatNodes,
   groupWorkObjects,
+  groupWorkObjectsBySource,
   kindCounts,
   matchesTag,
   pathBreadcrumb,
@@ -158,5 +159,39 @@ describe('中间列表分组（切片 5a.1）', () => {
     expect(pathBreadcrumb('practice/2026-10/cherry-tree')).toEqual(['practice', '2026-10']);
     expect(pathBreadcrumb('manual/problem')).toEqual(['manual']);
     expect(pathBreadcrumb('cherry-tree')).toEqual([]);
+  });
+});
+
+describe('来源虚拟视图（切片 5a-3）', () => {
+  const sourcedContest = (id: string, title: string, relPath: string, sourcePath: string): WorkObjectDto =>
+    obj({ id, kind: 'contest', title, relPath, parentId: null, sourcePath, sourceCount: 1 });
+
+  it('按 sourcePath 父路径生成树；年月自然排序；组头统计子树', () => {
+    const a = sourcedContest('obj_0000000030', '10.ptc', 'contests/a', '2026/10/10.ptc');
+    const b = sourcedContest('obj_0000000031', '17.VP', 'contests/b', '2026/10/17.VP');
+    const c = sourcedContest('obj_0000000032', 'July', 'contests/c', '2026/7/A');
+    const d = sourcedContest('obj_0000000033', 'Root', 'contests/d', '2026_ICPC_1');
+    const manual = obj({ id: 'obj_0000000034', kind: 'contest', title: 'Manual', relPath: 'contests/m', parentId: null });
+    const all = [a, b, c, d, manual];
+    const model = groupWorkObjectsBySource(groupWorkObjects(all, all));
+
+    expect(model.hasSourcePath).toBe(true);
+    expect(model.root?.count).toBe(4);
+    expect(model.root?.groups.map((group) => group.contest.sourcePath)).toEqual(['2026_ICPC_1']);
+    expect(model.root?.children.map((node) => node.key)).toEqual(['2026']);
+    expect(model.root?.children[0]?.children.map((node) => node.key)).toEqual(['2026/7', '2026/10']);
+    expect(model.root?.children[0]?.children[1]?.groups.map((group) => group.contest.sourcePath)).toEqual([
+      '2026/10/10.ptc',
+      '2026/10/17.VP',
+    ]);
+    expect(model.unsourced.map((group) => group.contest.id)).toEqual([manual.id]);
+  });
+
+  it('没有任何 sourcePath 时退化为平铺，root 为 null', () => {
+    const manual = obj({ id: 'obj_0000000035', kind: 'contest', title: 'Manual', relPath: 'contests/m', parentId: null });
+    const model = groupWorkObjectsBySource(groupWorkObjects([manual], [manual]));
+    expect(model.hasSourcePath).toBe(false);
+    expect(model.root).toBeNull();
+    expect(model.unsourced.map((group) => group.contest.id)).toEqual([manual.id]);
   });
 });

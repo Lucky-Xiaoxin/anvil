@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { sourceParentPath } from '@anvil/shared';
 import type { WorkObjectDto, WorkScanErrorDto, WorkTaxonomyDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
 import { fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
@@ -8,10 +9,13 @@ import {
   contestBadgeOf,
   contestCountLabel,
   groupWorkObjects,
+  groupWorkObjectsBySource,
   isoDate,
   pathBreadcrumb,
   primaryName,
   type WorkContestGroup,
+  type WorkSourceGroup,
+  type WorkSourceModel,
 } from './derive.ts';
 
 interface Props {
@@ -105,7 +109,7 @@ function ObjectRow(props: {
   );
 }
 
-function ContestGroups(props: {
+function ContestGroupItems(props: {
   groups: WorkContestGroup[];
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
@@ -115,11 +119,7 @@ function ContestGroups(props: {
 }) {
   const { groups, taxonomy, selectedId, collapsed } = props;
   return (
-    <div className="wk-sec">
-      <div className="wk-sec__title">
-        <span>{WORK_SECTION.groups}</span>
-        <b className="num">{groups.length}</b>
-      </div>
+    <>
       {groups.map((group) => {
         const contest = group.contest;
         const folded = collapsed.has(contest.id);
@@ -190,6 +190,127 @@ function ContestGroups(props: {
           </div>
         );
       })}
+    </>
+  );
+}
+
+function ContestGroups(props: {
+  groups: WorkContestGroup[];
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="wk-sec">
+      <div className="wk-sec__title">
+        <span>{WORK_SECTION.groups}</span>
+        <b className="num">{props.groups.length}</b>
+      </div>
+      <ContestGroupItems {...props} />
+    </div>
+  );
+}
+
+function SourceGroupNode(props: {
+  node: WorkSourceGroup;
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const { node, collapsed } = props;
+  const foldKey = `src:${node.key}`;
+  const folded = collapsed.has(foldKey);
+  return (
+    <div className="wk-source">
+      <div className="wk-source__head">
+        <button
+          className={`wk-group__toggle${folded ? '' : ' is-open'}`}
+          aria-expanded={!folded}
+          aria-label={folded ? `展开来源 ${node.label}` : `收起来源 ${node.label}`}
+          onClick={() => props.onToggle(foldKey)}
+        >
+          <Icon id="i-chev" />
+        </button>
+        <div className="wk-source__main">
+          <span className="wk-source__title" title={node.key || '（根）'}>
+            {node.label}
+          </span>
+          <span className="wk-source__meta">
+            {fmtInt(node.count)} 个题组 · {fmtInt(node.fileCount)} 个文件
+          </span>
+        </div>
+      </div>
+      {folded ? null : (
+        <div className="wk-source__body">
+          <ContestGroupItems
+            groups={node.groups}
+            taxonomy={props.taxonomy}
+            selectedId={props.selectedId}
+            onSelect={props.onSelect}
+            collapsed={collapsed}
+            onToggle={props.onToggle}
+          />
+          {node.children.map((child) => (
+            <SourceGroupNode
+              key={child.key}
+              node={child}
+              taxonomy={props.taxonomy}
+              selectedId={props.selectedId}
+              onSelect={props.onSelect}
+              collapsed={collapsed}
+              onToggle={props.onToggle}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SourceGroups(props: {
+  model: WorkSourceModel;
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const { model } = props;
+  if (model.root === null) return null;
+  return (
+    <div className="wk-sec">
+      <div className="wk-sec__title">
+        <span>{WORK_SECTION.groups}</span>
+        <b className="num">{model.root.count}</b>
+      </div>
+      <SourceGroupNode
+        node={model.root}
+        taxonomy={props.taxonomy}
+        selectedId={props.selectedId}
+        onSelect={props.onSelect}
+        collapsed={props.collapsed}
+        onToggle={props.onToggle}
+      />
+      {model.unsourced.length > 0 ? (
+        <>
+          <div className="wk-sec__title wk-sec__title--sub">
+            <span>未归入来源</span>
+            <b className="num">{model.unsourced.length}</b>
+          </div>
+          <ContestGroupItems
+            groups={model.unsourced}
+            taxonomy={props.taxonomy}
+            selectedId={props.selectedId}
+            onSelect={props.onSelect}
+            collapsed={props.collapsed}
+            onToggle={props.onToggle}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -198,6 +319,7 @@ export function WorkList(props: Props) {
   const { objects, allObjects, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const model = useMemo(() => groupWorkObjects(objects, allObjects), [objects, allObjects]);
+  const sourceModel = useMemo(() => groupWorkObjectsBySource(model), [model]);
 
   useEffect(() => {
     setCollapsed(new Set());
@@ -205,15 +327,28 @@ export function WorkList(props: Props) {
 
   useEffect(() => {
     if (selectedId === null) return;
-    const group = model.groups.find((g) => g.problems.some((p) => p.id === selectedId));
+    const group = model.groups.find((g) => g.contest.id === selectedId || g.problems.some((p) => p.id === selectedId));
     if (group === undefined) return;
+    const keys = new Set<string>();
+    if (collapsed.has(group.contest.id)) keys.add(group.contest.id);
+    const sourcePath = group.contest.sourcePath;
+    if (sourcePath !== undefined) {
+      let parent = sourceParentPath(sourcePath) ?? '';
+      for (;;) {
+        keys.add(`src:${parent}`);
+        if (parent === '') break;
+        const slash = parent.lastIndexOf('/');
+        parent = slash < 0 ? '' : parent.slice(0, slash);
+      }
+    }
+    if (keys.size === 0) return;
     setCollapsed((prev) => {
-      if (!prev.has(group.contest.id)) return prev;
+      if ([...keys].every((key) => !prev.has(key))) return prev;
       const next = new Set(prev);
-      next.delete(group.contest.id);
+      for (const key of keys) next.delete(key);
       return next;
     });
-  }, [model, selectedId]);
+  }, [model, selectedId, collapsed]);
 
   const toggleGroup = (id: string): void => {
     setCollapsed((prev) => {
@@ -264,14 +399,25 @@ export function WorkList(props: Props) {
       {objects.length === 0 ? <div className="wk-empty">没有符合条件的对象。换个筛选，或新建一个。</div> : null}
 
       {model.groups.length > 0 ? (
-        <ContestGroups
-          groups={model.groups}
-          taxonomy={taxonomy}
-          selectedId={selectedId}
-          onSelect={props.onSelect}
-          collapsed={collapsed}
-          onToggle={toggleGroup}
-        />
+        sourceModel.hasSourcePath ? (
+          <SourceGroups
+            model={sourceModel}
+            taxonomy={taxonomy}
+            selectedId={selectedId}
+            onSelect={props.onSelect}
+            collapsed={collapsed}
+            onToggle={toggleGroup}
+          />
+        ) : (
+          <ContestGroups
+            groups={model.groups}
+            taxonomy={taxonomy}
+            selectedId={selectedId}
+            onSelect={props.onSelect}
+            collapsed={collapsed}
+            onToggle={toggleGroup}
+          />
+        )
       ) : null}
 
       {model.ungrouped.length > 0 ? (

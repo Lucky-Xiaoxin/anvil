@@ -20,35 +20,33 @@ import {
 import { basename, dirname, join } from 'node:path';
 import {
   buildWorkRelPath,
+  classifyBatchImportTree,
+  cleanSourcePath,
   importFingerprintInput,
-  isImportAttachmentName,
   isImportSourceName,
-  resolveImportSelection,
-  singleDirectoryImportCandidate,
+  resolveBatchImportSelection,
   slugForAttempt,
   slugWithRandomSuffix,
-  stemOf,
   workMetaToJson,
   WORK_IMPORT_FILE_PREVIEW,
   WORK_IMPORT_LIMITS,
   WORK_IMPORT_PLAN_KEEP,
   WORK_IMPORT_PLAN_TTL_MS,
+  type BatchImportCandidatePlan,
+  type BatchImportSelectableCandidate,
   type ImportCandidatePlan,
+  type ResolvedBatchImportItem,
   type ImportFingerprintEntry,
-  type ImportScope,
-  type ImportSelectableCandidate,
   type ImportTree,
-  type ImportUnitPlan,
-  type ResolvedImportItem,
   type WorkImportCandidateDto,
   type WorkImportCommitInput,
   type WorkImportDuplicateDto,
   type WorkImportPlanDto,
   type WorkImportResultDto,
-  type WorkImportResultObjectDto,
   type WorkImportResultUnitDto,
   type WorkImportRole,
   type WorkImportScanInput,
+  type WorkImportScope,
   type WorkImportShape,
   type WorkImportSkippedDto,
   type WorkImportTotals,
@@ -97,9 +95,12 @@ interface PlanItem {
   reasons: string[];
   parentItemId: string | null;
   childItemIds: string[];
-  scope: ImportScope;
+  importScope: WorkImportScope;
+  sourceParentRelPath: string | null;
+  isContainer: boolean;
+  sourceCount: number;
   ownedFiles: ImportFile[];
-  /** 扫描时的对象指纹（contest 包含建议中的全部子题） */
+  /** 扫描时的对象指纹（按 scope 的文件范围计算） */
   fingerprint: string;
   duplicate: WorkImportDuplicateDto | null;
   selectedByDefault: boolean;
@@ -127,6 +128,8 @@ interface PreparedObject {
   kind: 'contest' | 'problem';
   title: string;
   sourceRelPath: string;
+  /** 导入来源（源根相对 POSIX）；源根自身 / 手动对象没有 */
+  sourcePath?: string;
   targetRelPath: string;
   parentObjectId: string | null;
   ownedFiles: ImportFile[];
@@ -160,6 +163,7 @@ interface ManifestItem {
   itemId: string;
   unitId: string;
   sourceRelPath: string;
+  scope: WorkImportScope;
   sourceMtime: number;
   fingerprint: string;
   action: 'import' | 'skip-user' | 'skip-duplicate';
@@ -186,7 +190,10 @@ interface ImportManifest {
 }
 
 interface HistoryEntry {
+  /** sourceKey + scope 的组合键 */
+  key: string;
   sourcePath: string;
+  scope: WorkImportScope;
   fingerprint: string;
   objectId: string;
   targetRelPath: string;
@@ -232,6 +239,18 @@ function sourceKey(sourceReal: string, sourceRelPath: string): string {
   const key = sourceRelPath === '' ? base : `${base}/${sourceRelPath}`;
   // Windows 路径大小写不敏感；历史 manifest 可能来自不同大小写的输入，统一折叠后才算「同一真实源路径」
   return process.platform === 'win32' ? key.toLowerCase() : key;
+}
+
+/** 5a-3 去重键：同一真实源路径 + sourceRelPath + scope；旧 manifest 没有 scope 时按 subtree */
+function historyKey(sourceReal: string, sourceRelPath: string, scope: WorkImportScope): string {
+  return `${sourceKey(sourceReal, sourceRelPath)}\0${scope}`;
+}
+
+function sourcePathOf(sourceRelPath: string): string | undefined {
+  if (sourceRelPath === '') return undefined;
+  const cleaned = cleanSourcePath(sourceRelPath);
+  if (cleaned === null) throw new WorkError('import-conflict', `来源路径不合法：${sourceRelPath}`);
+  return cleaned;
 }
 
 function isBatchId(v: unknown): v is string {
@@ -281,9 +300,8 @@ export class WorkImportService {
       files: scanned.files.map((file) => ({ path: file.sourcePath, size: file.size, sha256: file.sha256 })),
       dirs: scanned.dirs,
     };
-    // 新语义：一个源目录 = 一个题组；整目录文件归入一个 contest，不再拆 problem 对象
-    const single = singleDirectoryImportCandidate(tree, basename(source.abs));
-    const candidates = single === null ? [] : [single];
+    // 5a-3：一个含源码目录 = 一个候选；容器 / 叶子 / 散题分开，提交时每项独立成 contest
+    const candidates = classifyBatchImportTree(tree, basename(source.abs));
     if (candidates.length > this.limits.maxCandidates) {
       throw new WorkError('import-limit', `候选对象超过上限（${candidates.length} > ${this.limits.maxCandidates}）`);
     }
@@ -294,7 +312,7 @@ export class WorkImportService {
 
     const warnings: string[] = [];
     if (scanned.ignored > 0) warnings.push(`已忽略 ${scanned.ignored} 项（依赖目录 / 编译产物 / 符号链接等）`);
-    if (items.length === 0) warnings.push('没有识别出可导入的候选：源目录里没有非忽略的普通文件');
+    if (items.length === 0) warnings.push('没有识别出可导入的候选：源目录里没有主源码文件（.cpp / .py 等）');
     for (const warning of history.warnings) warnings.push(warning);
 
     const plan: ImportPlan = {
@@ -335,15 +353,20 @@ export class WorkImportService {
     }
   }
 
-  private buildPlanItems(candidates: ImportCandidatePlan[], scanned: ScannedFile[]): PlanItem[] {
+  private buildPlanItems(candidates: BatchImportCandidatePlan[], scanned: ScannedFile[]): PlanItem[] {
     const bySource = new Map(scanned.map((file) => [file.sourcePath, file]));
-    const items: PlanItem[] = candidates.map((candidate) => {
+    return candidates.map((candidate) => {
       const ownedFiles: ImportFile[] = [];
       for (const file of candidate.files) {
         const scannedFile = bySource.get(file.sourcePath);
         if (scannedFile === undefined) throw new WorkError('internal', '扫描结果缺少候选文件');
         ownedFiles.push({ ...scannedFile, targetPath: file.targetPath });
       }
+      const entries: ImportFingerprintEntry[] = ownedFiles.map((file) => ({
+        path: file.targetPath,
+        size: file.size,
+        sha256: file.sha256,
+      }));
       return {
         itemId: candidate.itemId,
         unitId: candidate.unitId,
@@ -354,48 +377,29 @@ export class WorkImportService {
         confidence: candidate.confidence,
         reasons: [...candidate.reasons],
         parentItemId: candidate.parentItemId,
-        childItemIds: [...candidate.childItemIds],
-        scope: candidate.scope,
+        childItemIds: [],
+        importScope: candidate.importScope,
+        sourceParentRelPath: candidate.sourceParentRelPath,
+        isContainer: candidate.isContainer,
+        sourceCount: candidate.sourceCount,
         ownedFiles,
-        fingerprint: '',
+        fingerprint: sha256Text(importFingerprintInput(entries)),
         duplicate: null,
         selectedByDefault: false,
       };
     });
-    const byId = new Map(items.map((item) => [item.itemId, item]));
-    for (const item of items) {
-      const entries: ImportFingerprintEntry[] = [];
-      if (item.role === 'contest') {
-        for (const file of item.ownedFiles) entries.push({ path: file.targetPath, size: file.size, sha256: file.sha256 });
-        for (const childId of item.childItemIds) {
-          const child = byId.get(childId);
-          if (child === undefined) continue;
-          // 指纹里的子题前缀相对比赛根，不相对源根：同一场比赛换个父目录名仍是同一内容
-          const childRel =
-            item.sourceRelPath === '' ? child.sourceRelPath : child.sourceRelPath.slice(item.sourceRelPath.length + 1);
-          for (const file of child.ownedFiles) {
-            entries.push({ path: `${childRel}/${file.targetPath}`, size: file.size, sha256: file.sha256 });
-          }
-        }
-      } else {
-        for (const file of item.ownedFiles) entries.push({ path: file.targetPath, size: file.size, sha256: file.sha256 });
-      }
-      item.fingerprint = sha256Text(importFingerprintInput(entries));
-    }
-    return items;
   }
 
   private applyDuplicates(items: PlanItem[], history: HistoryEntry[], sourceReal: string, root: string): void {
-    const unitRoots = items.filter((item) => item.role === 'contest' || item.parentItemId === null);
-    const bySource = new Map(history.map((entry) => [entry.sourcePath, entry]));
+    const bySource = new Map(history.map((entry) => [entry.key, entry]));
     const byFingerprint = new Map<string, HistoryEntry>();
     for (const entry of history) {
       if (!byFingerprint.has(entry.fingerprint)) byFingerprint.set(entry.fingerprint, entry);
     }
 
-    for (const item of unitRoots) {
-      const fullSource = sourceKey(sourceReal, item.sourceRelPath);
-      const sameSource = bySource.get(fullSource);
+    for (const item of items) {
+      const key = historyKey(sourceReal, item.sourceRelPath, item.importScope);
+      const sameSource = bySource.get(key);
       if (sameSource !== undefined) {
         if (sameSource.fingerprint === item.fingerprint) {
           const target = lstatOrNull(join(root, ...sameSource.targetRelPath.split('/')));
@@ -424,19 +428,19 @@ export class WorkImportService {
       }
 
       const sameContent = byFingerprint.get(item.fingerprint);
-      if (sameContent !== undefined && sameContent.sourcePath !== fullSource) {
+      if (sameContent !== undefined && sameContent.key !== key) {
         item.duplicate = {
           kind: 'same-content',
           objectId: sameContent.objectId,
           targetRelPath: sameContent.targetRelPath,
         };
-        item.reasons.push('与已有对象内容相同（不同源路径），默认不选');
+        item.reasons.push('与已有对象内容相同（不同源路径或不同范围），默认不选');
       }
     }
 
-    // 同批内不同路径 + 同指纹：两边都标潜在重复，不自动合并
+    // 同批内不同来源 / 范围 + 同指纹：标潜在重复，不自动合并
     const groups = new Map<string, PlanItem[]>();
-    for (const item of unitRoots) {
+    for (const item of items) {
       if (item.duplicate !== null) continue;
       const list = groups.get(item.fingerprint);
       if (list === undefined) groups.set(item.fingerprint, [item]);
@@ -444,9 +448,8 @@ export class WorkImportService {
     }
     for (const group of groups.values()) {
       if (group.length < 2) continue;
-      const sources = new Set(group.map((item) => sourceKey(sourceReal, item.sourceRelPath)));
-      if (sources.size < 2) continue;
-      // 同批同内容：保留第一个作为主候选，其余标潜在重复；不自动合并
+      const keys = new Set(group.map((item) => historyKey(sourceReal, item.sourceRelPath, item.importScope)));
+      if (keys.size < 2) continue;
       for (const item of group.slice(1)) {
         item.duplicate = { kind: 'same-content' };
         item.reasons.push('同一批里存在内容相同的其它候选，默认不选');
@@ -455,7 +458,33 @@ export class WorkImportService {
 
     for (const item of items) {
       const exactDuplicate = item.duplicate?.kind === 'same-source' && item.duplicate.state === 'same';
-      item.selectedByDefault = item.confidence === 'high' && (item.duplicate === null || exactDuplicate);
+      if (exactDuplicate) {
+        item.selectedByDefault = true;
+        continue;
+      }
+      item.selectedByDefault =
+        item.importScope === 'subtree' && item.confidence === 'high' && !item.isContainer && item.duplicate === null;
+    }
+    this.resolveDefaultConflicts(items);
+  }
+
+  /** 默认勾选也不能父子重叠：有后代默认选中时让位给更具体的叶子 */
+  private resolveDefaultConflicts(items: PlanItem[]): void {
+    const selected = items.filter((item) => item.selectedByDefault);
+    for (const item of selected) {
+      if (item.importScope === 'direct') {
+        if (selected.some((other) => other !== item && other.sourceRelPath === item.sourceRelPath && other.importScope === 'subtree')) {
+          item.selectedByDefault = false;
+        }
+        continue;
+      }
+      const hasDescendant = selected.some(
+        (other) =>
+          other !== item &&
+          other.sourceRelPath !== item.sourceRelPath &&
+          (item.sourceRelPath === '' || other.sourceRelPath.startsWith(`${item.sourceRelPath}/`)),
+      );
+      if (hasDescendant) item.selectedByDefault = false;
     }
   }
 
@@ -488,6 +517,10 @@ export class WorkImportService {
         fingerprint: item.fingerprint,
         duplicate: item.duplicate === null ? null : { ...item.duplicate },
         selectedByDefault: item.selectedByDefault,
+        sourceParentRelPath: item.sourceParentRelPath,
+        scope: item.importScope,
+        isContainer: item.isContainer,
+        sourceCount: item.sourceCount,
       };
     });
     return {
@@ -532,17 +565,16 @@ export class WorkImportService {
   }
 
   private async commitNow(plan: ImportPlan, input: WorkImportCommitInput): Promise<WorkImportResultDto> {
-    const selectable: ImportSelectableCandidate[] = plan.items.map((item) => ({
+    const selectable: BatchImportSelectableCandidate[] = plan.items.map((item) => ({
       itemId: item.itemId,
       unitId: item.unitId,
-      role: item.role,
-      shape: item.shape,
-      parentItemId: item.parentItemId,
+      sourceRelPath: item.sourceRelPath,
+      importScope: item.importScope,
       suggestedTitle: item.suggestedTitle,
       duplicate: item.duplicate,
       files: item.ownedFiles.length,
     }));
-    const resolved = resolveImportSelection(selectable, input.items);
+    const resolved = resolveBatchImportSelection(selectable, input.items);
     if (!resolved.ok) throw new WorkError('import-conflict', resolved.issues.join('；'));
 
     const resolvedById = new Map(resolved.items.map((item) => [item.candidate.itemId, item]));
@@ -557,38 +589,35 @@ export class WorkImportService {
     const usedTargets = new Set<string>();
     const usedObjectIds = new Set<string>();
     // 提交前在写队列里重查一次历史：扫描后可能有别的 plan 已经导入同一来源
-    const historyBySource = new Map(this.readHistory(plan.root).entries.map((entry) => [entry.sourcePath, entry]));
+    const historyBySource = new Map(this.readHistory(plan.root).entries.map((entry) => [entry.key, entry]));
 
     for (const unitPlan of unitPlans) {
-      const unitItems = unitPlan.itemIds.map((id) => {
-        const planItem = plan.byId.get(id);
-        if (planItem === undefined) throw new WorkError('internal', '选择结果引用了不存在的候选');
-        return planItem;
-      });
-      const head = unitItems[0];
-      if (head === undefined) throw new WorkError('internal', '空导入单元');
-      const headResolved = resolvedById.get(head.itemId);
-      if (headResolved === undefined) throw new WorkError('internal', '选择结果缺少单元头');
+      const itemId = unitPlan.itemIds[0];
+      if (itemId === undefined) throw new WorkError('internal', '空导入单元');
+      const planItem = plan.byId.get(itemId);
+      if (planItem === undefined) throw new WorkError('internal', '选择结果引用了不存在的候选');
+      const resolvedItem = resolvedById.get(itemId);
+      if (resolvedItem === undefined) throw new WorkError('internal', '选择结果缺少单元头');
 
-      const committed = historyBySource.get(sourceKey(plan.sourceRootReal, head.sourceRelPath));
+      const committed = historyBySource.get(historyKey(plan.sourceRootReal, planItem.sourceRelPath, planItem.importScope));
       const committedSame =
         committed !== undefined &&
-        committed.fingerprint === head.fingerprint &&
+        committed.fingerprint === planItem.fingerprint &&
         this.importedObjectUsable(plan.root, committed.objectId, committed.targetRelPath)
           ? committed
           : null;
       const scanSame =
-        head.duplicate?.kind === 'same-source' &&
-        head.duplicate.state === 'same' &&
-        head.duplicate.objectId !== undefined &&
-        head.duplicate.targetRelPath !== undefined &&
-        this.importedObjectUsable(plan.root, head.duplicate.objectId, head.duplicate.targetRelPath);
+        planItem.duplicate?.kind === 'same-source' &&
+        planItem.duplicate.state === 'same' &&
+        planItem.duplicate.objectId !== undefined &&
+        planItem.duplicate.targetRelPath !== undefined &&
+        this.importedObjectUsable(plan.root, planItem.duplicate.objectId, planItem.duplicate.targetRelPath);
       if (committedSame !== null || scanSame) {
-        const objectId = committedSame?.objectId ?? head.duplicate?.objectId;
+        const objectId = committedSame?.objectId ?? planItem.duplicate?.objectId;
         prepared.push({
           unitId: unitPlan.unitId,
-          contestItemId: unitPlan.contestItemId,
-          items: unitItems,
+          contestItemId: null,
+          items: [planItem],
           objects: [],
           targetRelPath: '',
           skip: { reason: '同一来源与内容已经导入过，自动跳过', ...(objectId === undefined ? {} : { objectId }) },
@@ -596,72 +625,23 @@ export class WorkImportService {
         continue;
       }
 
-      if (unitPlan.contestItemId !== null) {
-        const contest = head;
-        const contestRel = this.allocateTarget(plan.root, usedTargets, 'contest', { title: headResolved.title, date: now });
-        const contestObject: PreparedObject = {
-          itemId: contest.itemId,
-          objectId: this.newObjectId(usedObjectIds),
-          kind: 'contest',
-          title: headResolved.title,
-          sourceRelPath: contest.sourceRelPath,
-          targetRelPath: contestRel,
-          parentObjectId: null,
-          ownedFiles: contest.ownedFiles,
-        };
-        const objects: PreparedObject[] = [contestObject];
-        for (const child of unitItems.slice(1)) {
-          const childResolved = resolvedById.get(child.itemId);
-          if (childResolved === undefined) continue;
-          const rel = this.allocateTarget(plan.root, usedTargets, 'problem', {
-            title: childResolved.title,
-            parentRelPath: contestRel,
-            date: now,
-          });
-          objects.push({
-            itemId: child.itemId,
-            objectId: this.newObjectId(usedObjectIds),
-            kind: 'problem',
-            title: childResolved.title,
-            sourceRelPath: child.sourceRelPath,
-            targetRelPath: rel,
-            parentObjectId: contestObject.objectId,
-            ownedFiles: child.ownedFiles,
-          });
-        }
-        const childNames = new Set(objects.slice(1).map((object) => basename(object.targetRelPath).toLowerCase()));
-        for (const file of contest.ownedFiles) {
-          const top = file.targetPath.split('/')[0]?.toLowerCase();
-          if (top !== undefined && childNames.has(top)) {
-            throw new WorkError('import-conflict', `比赛共享文件与子题目录重名：${file.targetPath}`);
-          }
-        }
-        prepared.push({
-          unitId: unitPlan.unitId,
-          contestItemId: unitPlan.contestItemId,
-          items: unitItems,
-          objects,
-          targetRelPath: contestRel,
-          skip: null,
-        });
-        continue;
-      }
-
-      const rel = this.allocateTarget(plan.root, usedTargets, 'problem', { title: headResolved.title, date: now });
+      const rel = this.allocateTarget(plan.root, usedTargets, 'contest', { title: resolvedItem.title, date: now });
+      const sourcePath = sourcePathOf(planItem.sourceRelPath);
       prepared.push({
         unitId: unitPlan.unitId,
         contestItemId: null,
-        items: unitItems,
+        items: [planItem],
         objects: [
           {
-            itemId: head.itemId,
+            itemId: planItem.itemId,
             objectId: this.newObjectId(usedObjectIds),
-            kind: 'problem',
-            title: headResolved.title,
-            sourceRelPath: head.sourceRelPath,
+            kind: 'contest',
+            title: resolvedItem.title,
+            sourceRelPath: planItem.sourceRelPath,
+            ...(sourcePath === undefined ? {} : { sourcePath }),
             targetRelPath: rel,
             parentObjectId: null,
-            ownedFiles: head.ownedFiles,
+            ownedFiles: planItem.ownedFiles,
           },
         ],
         targetRelPath: rel,
@@ -733,7 +713,7 @@ export class WorkImportService {
   }
 
   private buildSkipped(
-    resolved: Array<ResolvedImportItem<ImportSelectableCandidate>>,
+    resolved: Array<ResolvedBatchImportItem<BatchImportSelectableCandidate>>,
     prepared: PreparedUnit[],
   ): WorkImportSkippedDto[] {
     const skipUnits = new Map<string, PreparedUnit>();
@@ -761,7 +741,7 @@ export class WorkImportService {
 
   private buildManifest(
     plan: ImportPlan,
-    resolved: Array<ResolvedImportItem<ImportSelectableCandidate>>,
+    resolved: Array<ResolvedBatchImportItem<BatchImportSelectableCandidate>>,
     prepared: PreparedUnit[],
     batchId: string,
     createdAt: string,
@@ -792,11 +772,12 @@ export class WorkImportService {
       const inSkippedUnit = unit !== undefined && unit.skip !== null;
       const action: ManifestItem['action'] = selected ? (inSkippedUnit ? 'skip-duplicate' : 'import') : 'skip-user';
       const title = selected ? (resolvedItem?.title ?? item.suggestedTitle) : item.suggestedTitle;
-      const parentItemId = selected ? (resolvedItem?.finalParentItemId ?? item.parentItemId) : item.parentItemId;
+      const parentItemId = item.parentItemId;
       return {
         itemId: item.itemId,
         unitId: unit?.unitId ?? item.unitId,
         sourceRelPath: item.sourceRelPath,
+        scope: item.importScope,
         sourceMtime: item.ownedFiles.reduce((max, file) => Math.max(max, file.mtimeMs), 0),
         fingerprint: item.fingerprint,
         action,
@@ -826,42 +807,25 @@ export class WorkImportService {
   private async verifyUnit(plan: ImportPlan, unit: PreparedUnit): Promise<void> {
     this.assertSourceRootUnchanged(plan);
     const itemById = new Map(plan.items.map((item) => [item.itemId, item]));
-    const currentByObject = new Map<string, ImportFile[]>();
 
     for (const object of unit.objects) {
       const item = itemById.get(object.itemId);
       if (item === undefined) throw new WorkError('internal', '导入单元缺少 plan 项');
-      let current: ScannedFile[];
-      if (item.role === 'contest') {
-        const excludeDirs = new Set<string>();
-        const excludeFiles = new Set<string>();
-        for (const childId of item.childItemIds) {
-          const child = itemById.get(childId);
-          if (child === undefined) continue;
-          if (child.scope.kind === 'dir') excludeDirs.add(child.scope.path);
-          else for (const file of child.ownedFiles) excludeFiles.add(file.sourcePath);
-        }
-        current = await this.walkDir(plan.sourceRootAbs, item.sourceRelPath, excludeDirs, excludeFiles);
-      } else if (item.scope.kind === 'dir') {
-        current = await this.walkDir(plan.sourceRootAbs, item.scope.path, new Set(), new Set());
-      } else {
-        current = await this.fileScope(plan.sourceRootAbs, item);
-      }
+      const current =
+        item.importScope === 'subtree'
+          ? await this.walkDir(plan.sourceRootAbs, item.sourceRelPath, new Set(), new Set())
+          : await this.directFilesAt(plan.sourceRootAbs, item.sourceRelPath);
       if (!sameFileSet(item.ownedFiles, current)) {
         throw new WorkError('import-source-changed', `源内容在扫描后发生变化：${displaySource(item.sourceRelPath)}`);
       }
-      const currentWithTarget: ImportFile[] = current.map((file) => {
+      const currentEntries: ImportFingerprintEntry[] = current.map((file) => {
         const planned = item.ownedFiles.find((owned) => owned.sourcePath === file.sourcePath);
         if (planned === undefined) throw new WorkError('import-source-changed', `源文件集合变化：${file.sourcePath}`);
-        return { ...file, targetPath: planned.targetPath };
+        return { path: planned.targetPath, size: file.size, sha256: file.sha256 };
       });
-      currentByObject.set(item.itemId, currentWithTarget);
-    }
-
-    const expectedFingerprint = this.compositionFingerprint(unit, itemById, null);
-    const currentFingerprint = this.compositionFingerprint(unit, itemById, currentByObject);
-    if (expectedFingerprint !== currentFingerprint) {
-      throw new WorkError('import-source-changed', '源内容在扫描后发生变化，指纹不一致');
+      if (sha256Text(importFingerprintInput(currentEntries)) !== item.fingerprint) {
+        throw new WorkError('import-source-changed', '源内容在扫描后发生变化，指纹不一致');
+      }
     }
   }
 
@@ -885,37 +849,6 @@ export class WorkImportService {
         }
       }
     }
-  }
-
-  private compositionFingerprint(
-    unit: PreparedUnit,
-    itemById: Map<string, PlanItem>,
-    currentByObject: Map<string, ImportFile[]> | null,
-  ): string {
-    const entries: ImportFingerprintEntry[] = [];
-    const contest = unit.objects.find((object) => object.kind === 'contest');
-    for (const object of unit.objects) {
-      const item = itemById.get(object.itemId);
-      if (item === undefined) continue;
-      const files = currentByObject === null ? object.ownedFiles : (currentByObject.get(object.itemId) ?? []);
-      if (object.kind === 'contest') {
-        for (const file of files) entries.push({ path: file.targetPath, size: file.size, sha256: file.sha256 });
-        for (const child of unit.objects) {
-          if (child === object) continue;
-          const childItem = itemById.get(child.itemId);
-          if (childItem === undefined) continue;
-          const childRel =
-            item.sourceRelPath === '' ? childItem.sourceRelPath : childItem.sourceRelPath.slice(item.sourceRelPath.length + 1);
-          const childFiles = currentByObject === null ? child.ownedFiles : (currentByObject.get(child.itemId) ?? []);
-          for (const file of childFiles) {
-            entries.push({ path: `${childRel}/${file.targetPath}`, size: file.size, sha256: file.sha256 });
-          }
-        }
-      } else if (contest === undefined) {
-        for (const file of files) entries.push({ path: file.targetPath, size: file.size, sha256: file.sha256 });
-      }
-    }
-    return sha256Text(importFingerprintInput(entries));
   }
 
   private async stageUnit(plan: ImportPlan, unit: PreparedUnit, batchId: string, createdIso: string): Promise<void> {
@@ -981,6 +914,7 @@ export class WorkImportService {
       labels: [],
       links: {},
       archived: false,
+      ...(object.sourcePath === undefined ? {} : { sourcePath: object.sourcePath }),
     };
     return { meta, raw: { ...meta } as unknown as Record<string, unknown> };
   }
@@ -1240,8 +1174,11 @@ export class WorkImportService {
         const targetRelPath = item.targetRelPath;
         if (targetRelPath === undefined || !isSafeRelRelPath(targetRelPath) || item.objectId === undefined) continue;
         if (typeof item.fingerprint !== 'string' || item.fingerprint === '') continue;
-        entries.set(sourceKey(manifest.sourceRoot, item.sourceRelPath), {
+        const key = historyKey(manifest.sourceRoot, item.sourceRelPath, item.scope);
+        entries.set(key, {
+          key,
           sourcePath: sourceKey(manifest.sourceRoot, item.sourceRelPath),
+          scope: item.scope,
           fingerprint: item.fingerprint,
           objectId: item.objectId,
           targetRelPath,
@@ -1397,28 +1334,25 @@ export class WorkImportService {
     return files.sort((a, b) => byPosix(a.sourcePath, b.sourcePath));
   }
 
-  private async fileScope(sourceRootAbs: string, item: PlanItem): Promise<ScannedFile[]> {
-    if (item.scope.kind !== 'file') return [];
-    const dirRel = parentDirOf(item.scope.path);
+  /** 散题 scope：只读取目录的直接文件，不进入下级目录 */
+  private async directFilesAt(sourceRootAbs: string, dirRel: string): Promise<ScannedFile[]> {
     const dirAbs = join(sourceRootAbs, ...dirRel.split('/').filter((part) => part !== ''));
     const dirStat = lstatOrNull(dirAbs);
     if (dirStat === null || dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
       throw new WorkError('import-source-changed', `源目录不可用：${displaySource(dirRel)}`);
     }
-    const stem = item.scope.stem.toLowerCase();
     let entries: Dirent[];
     try {
       entries = readdirSync(dirAbs, { withFileTypes: true });
     } catch {
       throw new WorkError('import-source-changed', `源目录读取失败：${displaySource(dirRel)}`);
     }
+    entries.sort((a, b) => byPosix(a.name, b.name));
     const files: ScannedFile[] = [];
+    let bytes = 0;
     for (const entry of entries) {
       if (entry.isSymbolicLink() || !entry.isFile()) continue;
       if (isIgnoredName(entry.name, false)) continue;
-      const entryStem = stemOf(entry.name).toLowerCase();
-      if (entryStem !== stem) continue;
-      if (!isImportSourceName(entry.name) && !isImportAttachmentName(entry.name)) continue;
       const abs = join(dirAbs, entry.name);
       let st;
       try {
@@ -1427,15 +1361,28 @@ export class WorkImportService {
         throw new WorkError('import-source-changed', `源文件不可读：${displaySource(entry.name)}`);
       }
       if (st.isSymbolicLink() || !st.isFile()) continue;
+      if (st.size > this.limits.maxFileBytes || files.length >= this.limits.maxFiles) {
+        throw new WorkError('import-source-changed', '源文件集合超过扫描上限，按变化处理');
+      }
+      bytes += st.size;
+      if (bytes > this.limits.maxBytes) {
+        throw new WorkError('import-source-changed', '源文件总字节超过扫描上限，按变化处理');
+      }
       let sha256: string;
       try {
         sha256 = await hashFile(abs);
       } catch {
         throw new WorkError('import-source-changed', `源文件不可读：${displaySource(entry.name)}`);
       }
-      files.push({ sourcePath: dirRel === '' ? entry.name : `${dirRel}/${entry.name}`, absPath: abs, size: st.size, mtimeMs: st.mtimeMs, sha256 });
+      files.push({
+        sourcePath: dirRel === '' ? entry.name : `${dirRel}/${entry.name}`,
+        absPath: abs,
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        sha256,
+      });
     }
-    return files.sort((a, b) => byPosix(a.sourcePath, b.sourcePath));
+    return files;
   }
 
   /* ---------- 路径分配 ---------- */
@@ -1590,6 +1537,7 @@ function parseManifest(raw: unknown): { ok: true; manifest: ImportManifest } | {
       itemId: value.itemId,
       unitId: value.unitId,
       sourceRelPath: value.sourceRelPath,
+      scope: value.scope === 'direct' ? 'direct' : 'subtree',
       sourceMtime: typeof value.sourceMtime === 'number' ? value.sourceMtime : 0,
       fingerprint: typeof value.fingerprint === 'string' ? value.fingerprint : '',
       action: value.action,

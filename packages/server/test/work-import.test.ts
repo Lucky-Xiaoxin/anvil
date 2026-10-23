@@ -503,6 +503,190 @@ describe('提交：整目录发布成一个题组', () => {
   });
 });
 
+/** 5a-3：一个旧根下多层目录，叶子 / 容器 / 散题同时存在 */
+function seedBatch(dir = source): void {
+  writeAt(dir, 'root.txt', 'root');
+  writeAt(dir, '2026/10/10.ptc/A.cpp', 'int a;');
+  writeAt(dir, '2026/10/10.ptc/data/1.in', '1');
+  writeAt(dir, '2026/10/17.VP/a.cpp', 'int b;');
+  writeAt(dir, '2026/10/TreeDP/sol.cpp', 'int c;');
+  writeAt(dir, '2026/10/Moban.cpp', 'template');
+  writeAt(dir, '2026/10/runner.cpp', 'runner');
+  writeAt(dir, '2026/7/A.cpp', 'int d;');
+  writeAt(dir, '2026_ICPC_1/sol.cpp', 'int e;');
+}
+
+function itemAt(plan: WorkImportPlanDto, sourceRelPath: string, scope: 'subtree' | 'direct' = 'subtree') {
+  const item = plan.items.find((x) => x.sourceRelPath === sourceRelPath && x.scope === scope);
+  if (item === undefined) throw new Error(`缺少候选：${sourceRelPath}:${scope}`);
+  return item;
+}
+
+describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
+  it('扫描返回容器 / 叶子 / 散题，默认只选叶子且父子不冲突', async () => {
+    seedBatch();
+    const before = snapshotTree(root);
+    const plan = await scan();
+    expect(snapshotTree(root)).toEqual(before);
+
+    expect(itemAt(plan, '').isContainer).toBe(true);
+    expect(itemAt(plan, '').selectedByDefault).toBe(false);
+    expect(itemAt(plan, '2026').isContainer).toBe(true);
+    expect(itemAt(plan, '2026/10').isContainer).toBe(true);
+    expect(itemAt(plan, '2026/10').selectedByDefault).toBe(false);
+    expect(itemAt(plan, '2026/10', 'direct').selectedByDefault).toBe(false);
+    expect(itemAt(plan, '2026/10', 'direct').files).toBe(2);
+
+    const selected = plan.items.filter((item) => item.selectedByDefault).map((item) => `${item.sourceRelPath}:${item.scope}`).sort();
+    expect(selected).toEqual([
+      '2026/10/10.ptc:subtree',
+      '2026/10/17.VP:subtree',
+      '2026/10/TreeDP:subtree',
+      '2026/7:subtree',
+      '2026_ICPC_1:subtree',
+    ]);
+  });
+
+  it('一次提交多个叶子题组：平铺在 contests/，sourcePath 写进 meta 并在重扫后保留', async () => {
+    seedBatch();
+    const plan = await scan();
+    const result = await commitDefault(plan);
+    expect(result.units).toHaveLength(5);
+    expect(result.units.every((unit) => unit.status === 'success' && unit.objects.length === 1)).toBe(true);
+    expect(result.skipped.every((item) => item.kind === 'user')).toBe(true);
+
+    const tree = await service.tree({ rescan: true });
+    const contests = tree.objects.filter((obj) => obj.kind === 'contest');
+    expect(contests).toHaveLength(5);
+    expect(contests.every((obj) => obj.parentId === null)).toBe(true);
+    expect(tree.objects.some((obj) => obj.kind === 'problem')).toBe(false);
+    expect(contests.map((obj) => obj.sourcePath).sort()).toEqual([
+      '2026/10/10.ptc',
+      '2026/10/17.VP',
+      '2026/10/TreeDP',
+      '2026/7',
+      '2026_ICPC_1',
+    ]);
+    expect(contests.every((obj) => obj.relPath.startsWith('contests/'))).toBe(true);
+    expect(contests.every((obj) => !/\/2026\//.test(obj.relPath))).toBe(true);
+
+    const contest = contests.find((obj) => obj.sourcePath === '2026/10/10.ptc')!;
+    const meta = JSON.parse(readFileSync(join(root, ...contest.relPath.split('/'), '.anvil.json'), 'utf8'));
+    expect(meta.sourcePath).toBe('2026/10/10.ptc');
+
+    service = makeService();
+    configRoot = root;
+    const reopened = await service.tree({ rescan: true });
+    expect(reopened.objects.find((obj) => obj.id === contest.id)?.sourcePath).toBe('2026/10/10.ptc');
+
+    const manifest = readOnlyManifest();
+    expect(manifest.status).toBe('completed');
+    const items = manifest.items as Array<Record<string, unknown>>;
+    const imported = items.filter((item) => item.action === 'import');
+    expect(imported).toHaveLength(5);
+    expect(imported.every((item) => item.scope === 'subtree')).toBe(true);
+    expect(items.some((item) => item.scope === 'direct')).toBe(true);
+  });
+
+  it('明确选中容器整体：只生成一个题组，散题与后代不再重复', async () => {
+    seedBatch();
+    const plan = await scan();
+    const container = itemAt(plan, '2026/10');
+    const result = await service.importCommit({
+      planId: plan.planId,
+      items: [{ itemId: container.itemId, selected: true, title: '十月训练' }],
+    });
+    expect(result.units).toHaveLength(1);
+    expect(result.units[0]!.status).toBe('success');
+    const tree = await service.tree({ rescan: true });
+    expect(tree.objects).toHaveLength(1);
+    const contest = tree.objects[0]!;
+    expect(contest.title).toBe('十月训练');
+    expect(contest.sourcePath).toBe('2026/10');
+    const detail = service.object(contest.id);
+    expect(detail.files.map((file) => file.path)).toEqual([
+      '10.ptc/A.cpp',
+      '10.ptc/data/1.in',
+      '17.VP/a.cpp',
+      'Moban.cpp',
+      'TreeDP/sol.cpp',
+      'runner.cpp',
+    ]);
+  });
+
+  it('散题只复制直接文件；父子同选与散题/整目录同选被拒绝', async () => {
+    seedBatch();
+    const plan = await scan();
+    const scatter = itemAt(plan, '2026/10', 'direct');
+    const leaf = itemAt(plan, '2026/10/10.ptc');
+    const container = itemAt(plan, '2026/10');
+
+    await expect(
+      service.importCommit({
+        planId: plan.planId,
+        items: [
+          { itemId: container.itemId, selected: true },
+          { itemId: leaf.itemId, selected: true },
+        ],
+      }),
+    ).rejects.toMatchObject({ kind: 'import-conflict' });
+    await expect(
+      service.importCommit({
+        planId: plan.planId,
+        items: [
+          { itemId: scatter.itemId, selected: true },
+          { itemId: container.itemId, selected: true },
+        ],
+      }),
+    ).rejects.toMatchObject({ kind: 'import-conflict' });
+    expect(manifestFiles()).toHaveLength(0);
+
+    const result = await service.importCommit({
+      planId: plan.planId,
+      items: [{ itemId: scatter.itemId, selected: true }],
+    });
+    expect(result.units).toHaveLength(1);
+    const tree = await service.tree({ rescan: true });
+    const contest = tree.objects[0]!;
+    expect(contest.title).toBe('10 散题');
+    expect(contest.sourcePath).toBe('2026/10');
+    expect(service.object(contest.id).files.map((file) => file.path)).toEqual(['Moban.cpp', 'runner.cpp']);
+  });
+
+  it('部分成功：一个叶子源变化只让该单元失败，其它单元照常发布', async () => {
+    seedBatch();
+    const plan = await scan();
+    writeAt(source, '2026/10/17.VP/a.cpp', 'changed');
+    const result = await commitDefault(plan);
+    const failed = result.units.filter((unit) => unit.status === 'failed');
+    const success = result.units.filter((unit) => unit.status === 'success');
+    expect(failed).toHaveLength(1);
+    expect(success).toHaveLength(4);
+    const failedItem = plan.items.find((item) => item.itemId === failed[0]!.itemIds[0])!;
+    expect(failedItem.sourceRelPath).toBe('2026/10/17.VP');
+    expect(failed[0]!.error?.kind).toBe('import-source-changed');
+    expect((await service.tree({ rescan: true })).objects).toHaveLength(4);
+    expect(readOnlyManifest().status).toBe('partial');
+  });
+
+  it('去重键含 scope：同源同 scope 跳过，不同 scope 不误跳过', async () => {
+    seedBatch();
+    const first = await scan();
+    await service.importCommit({
+      planId: first.planId,
+      items: [{ itemId: itemAt(first, '2026/10', 'direct').itemId, selected: true }],
+    });
+
+    const rescan = await scan();
+    expect(itemAt(rescan, '2026/10', 'direct').duplicate).toMatchObject({ kind: 'same-source', state: 'same' });
+    expect(itemAt(rescan, '2026/10', 'direct').selectedByDefault).toBe(true);
+    expect(itemAt(rescan, '2026/10').duplicate).toBeNull();
+    const skipped = await commitDefault(rescan);
+    expect(skipped.units.some((unit) => unit.status === 'success')).toBe(true);
+    expect(skipped.skipped.some((item) => item.kind === 'duplicate')).toBe(true);
+  });
+});
+
 describe('目标路径安全边界（junction 不得写去受管根外）', () => {
   function linkOutside(name: string, linkAbs: string): string | null {
     const outside = join(base, name);

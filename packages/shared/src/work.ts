@@ -3,6 +3,7 @@
  * 口径见 docs/contracts/23-工坊-代码管辖契约.md；服务端只做 IO 与索引，判据尽量留在这里。
  */
 import { contestPathOk } from './arena-path.ts';
+import { cleanSourcePath } from './work-import.ts';
 
 export type WorkKind = 'contest' | 'problem' | 'template' | 'note';
 
@@ -38,6 +39,8 @@ export interface WorkObjectDto {
   fileCount: number;
   /** 主源码文件数；比赛/题组用它判断「挂了题组」 */
   sourceCount: number;
+  /** 导入来源（源根相对 POSIX 路径）；手动创建 / 旧对象没有 */
+  sourcePath?: string;
 }
 
 export interface WorkFileDto {
@@ -266,6 +269,8 @@ export interface WorkMeta {
   labels: string[];
   links: WorkLinks;
   archived: boolean;
+  /** 导入来源（源根相对 POSIX 路径）；可选，手动创建没有 */
+  sourcePath?: string;
 }
 
 export interface WorkMetaRecord {
@@ -383,10 +388,31 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
     archived = input.archived;
   }
 
+  let sourcePath: string | undefined;
+  if (input.sourcePath !== undefined) {
+    if (typeof input.sourcePath !== 'string') return { ok: false, message: 'sourcePath 必须是字符串' };
+    const cleaned = cleanSourcePath(input.sourcePath);
+    if (cleaned === null) return { ok: false, message: 'sourcePath 不是合法的源根相对路径' };
+    sourcePath = cleaned;
+  }
+
   return {
     ok: true,
     record: {
-      meta: { schema: 1, id: input.id, kind: input.kind, title, createdAt: input.createdAt, updatedAt, parentId, tags: tags.tags, labels: labels.labels, links: links.links, archived },
+      meta: {
+        schema: 1,
+        id: input.id,
+        kind: input.kind,
+        title,
+        createdAt: input.createdAt,
+        updatedAt,
+        parentId,
+        tags: tags.tags,
+        labels: labels.labels,
+        links: links.links,
+        archived,
+        ...(sourcePath === undefined ? {} : { sourcePath }),
+      },
       raw: input,
     },
   };
@@ -408,6 +434,7 @@ export function workMetaToJson(record: WorkMetaRecord): Record<string, unknown> 
     labels: [...meta.labels],
     links: { ...meta.links },
     archived: meta.archived,
+    ...(meta.sourcePath === undefined ? {} : { sourcePath: meta.sourcePath }),
   };
 }
 

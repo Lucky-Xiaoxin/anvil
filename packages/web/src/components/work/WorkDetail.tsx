@@ -279,7 +279,10 @@ export function WorkDetail(props: Props) {
         </div>
       </section>
 
-      {detail.links.problemKey !== undefined || detail.links.arenaPath !== undefined || props.parentTitle !== null ? (
+      {detail.links.problemKey !== undefined ||
+      detail.links.arenaPath !== undefined ||
+      detail.sourcePath !== undefined ||
+      props.parentTitle !== null ? (
         <section className="wk-sec">
           <div className="wk-sec__title">
             <span>关联</span>
@@ -289,6 +292,12 @@ export function WorkDetail(props: Props) {
               <>
                 <span>父比赛</span>
                 <b>{props.parentTitle}</b>
+              </>
+            ) : null}
+            {detail.sourcePath !== undefined ? (
+              <>
+                <span>来源路径</span>
+                <code title={detail.sourcePath}>{detail.sourcePath}</code>
               </>
             ) : null}
             {detail.links.problemKey !== undefined ? (

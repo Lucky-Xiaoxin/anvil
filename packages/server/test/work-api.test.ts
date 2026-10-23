@@ -348,6 +348,60 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().error.kind).toBe('import-conflict');
   });
 
+  it('import 5a-3：多候选 / 多单元 / sourcePath DTO / 父子选择冲突', async () => {
+    await boot();
+    await initApi();
+    const src = join(base, 'batch-code');
+    mkdirSync(join(src, '2026', 'jan'), { recursive: true });
+    mkdirSync(join(src, '2026', 'feb'), { recursive: true });
+    writeFileSync(join(src, '2026', 'jan', 'A.cpp'), 'int a;');
+    writeFileSync(join(src, '2026', 'feb', 'B.cpp'), 'int b;');
+
+    let res = await post('/api/work/import/scan', { sourceRoot: src });
+    expect(res.statusCode, res.body).toBe(200);
+    const plan = res.json();
+    const leaves = plan.items.filter(
+      (item: { scope: string; isContainer: boolean; selectedByDefault: boolean }) =>
+        item.scope === 'subtree' && !item.isContainer && item.selectedByDefault,
+    );
+    expect(leaves.map((item: { sourceRelPath: string }) => item.sourceRelPath).sort()).toEqual(['2026/feb', '2026/jan']);
+    expect(leaves.every((item: { sourceCount: number }) => item.sourceCount === 1)).toBe(true);
+    expect(plan.items.some((item: { isContainer: boolean }) => item.isContainer)).toBe(true);
+
+    res = await post('/api/work/import/commit', {
+      planId: plan.planId,
+      items: plan.items.map((item: { itemId: string; selectedByDefault: boolean }) => ({
+        itemId: item.itemId,
+        selected: item.selectedByDefault,
+      })),
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().units.filter((unit: { status: string }) => unit.status === 'success')).toHaveLength(2);
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    const contests = tree.objects.filter((obj: { kind: string }) => obj.kind === 'contest');
+    expect(contests.map((obj: { sourcePath: string }) => obj.sourcePath).sort()).toEqual(['2026/feb', '2026/jan']);
+
+    const conflictPlan = (await post('/api/work/import/scan', { sourceRoot: src })).json();
+    const container = conflictPlan.items.find(
+      (item: { sourceRelPath: string; scope: string }) => item.sourceRelPath === '2026' && item.scope === 'subtree',
+    );
+    const leaf = conflictPlan.items.find(
+      (item: { sourceRelPath: string; scope: string }) => item.sourceRelPath === '2026/jan' && item.scope === 'subtree',
+    );
+    expect(container).toBeDefined();
+    expect(leaf).toBeDefined();
+    res = await post('/api/work/import/commit', {
+      planId: conflictPlan.planId,
+      items: [
+        { itemId: container!.itemId, selected: true },
+        { itemId: leaf!.itemId, selected: true },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('import-conflict');
+  });
+
   it('template：读空文件 / 保存 / 冲突 / 非模板拒绝 / 新建题目自动复制默认模板', async () => {
     await boot();
     await initApi();

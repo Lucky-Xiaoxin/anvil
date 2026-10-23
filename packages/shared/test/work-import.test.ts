@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+  batchCandidatesConflict,
+  classifyBatchImportTree,
   classifyImportTree,
+  cleanSourcePath,
+  compareSourcePathNatural,
   importFingerprintInput,
   isImportAttachmentName,
   isImportSourceName,
   planImportUnits,
   problemShapeOf,
+  resolveBatchImportSelection,
   resolveImportSelection,
   singleDirectoryImportCandidate,
+  sourceParentPath,
+  type BatchImportSelectableCandidate,
   type ImportCandidatePlan,
   type ImportSelectableCandidate,
   type ImportTree,
@@ -22,7 +29,7 @@ function tree(files: Array<[path: string, content?: string]>, dirs: string[]): I
   };
 }
 
-const find = (items: ImportCandidatePlan[], sourceRelPath: string): ImportCandidatePlan => {
+const find = <T extends ImportCandidatePlan>(items: readonly T[], sourceRelPath: string): T => {
   const item = items.find((x) => x.sourceRelPath === sourceRelPath);
   if (item === undefined) throw new Error(`缺少候选：${sourceRelPath}`);
   return item;
@@ -364,6 +371,53 @@ describe('提交选择矩阵（契约 §10.2）', () => {
     if (!long.ok) expect(long.issues.some((x) => x.includes('标题长度'))).toBe(true);
   });
 
+  it('5a-3：每个候选独立成单元，父子互斥或散题/整目录同选都拒绝', () => {
+    const plan: BatchImportSelectableCandidate[] = [
+      { itemId: 'item_1', unitId: 'unit_1', sourceRelPath: '2026', importScope: 'subtree', suggestedTitle: '2026', duplicate: null, files: 5 },
+      { itemId: 'item_2', unitId: 'unit_2', sourceRelPath: '2026/10', importScope: 'subtree', suggestedTitle: '10', duplicate: null, files: 3 },
+      { itemId: 'item_3', unitId: 'unit_3', sourceRelPath: '2026/10', importScope: 'direct', suggestedTitle: '10 散题', duplicate: null, files: 2 },
+      { itemId: 'item_4', unitId: 'unit_4', sourceRelPath: '2026/10/A', importScope: 'subtree', suggestedTitle: 'A', duplicate: null, files: 1 },
+    ];
+    const parentChild = resolveBatchImportSelection(plan, [
+      { itemId: 'item_1', selected: true },
+      { itemId: 'item_4', selected: true },
+    ]);
+    expect(parentChild.ok).toBe(false);
+    if (!parentChild.ok) expect(parentChild.issues.some((x) => x.includes('父子目录'))).toBe(true);
+
+    const wholeAndScatter = resolveBatchImportSelection(plan, [
+      { itemId: 'item_2', selected: true },
+      { itemId: 'item_3', selected: true },
+    ]);
+    expect(wholeAndScatter.ok).toBe(false);
+
+    const scatterAndChild = resolveBatchImportSelection(plan, [
+      { itemId: 'item_3', selected: true },
+      { itemId: 'item_4', selected: true },
+    ]);
+    expect(scatterAndChild.ok).toBe(true);
+    if (scatterAndChild.ok) {
+      expect(scatterAndChild.units).toEqual([
+        { unitId: 'unit_3', itemIds: ['item_3'] },
+        { unitId: 'unit_4', itemIds: ['item_4'] },
+      ]);
+    }
+  });
+
+  it('5a-3：同内容必须保留副本，标题与空范围仍校验', () => {
+    const plan: BatchImportSelectableCandidate[] = [
+      { itemId: 'item_1', unitId: 'unit_1', sourceRelPath: 'a', importScope: 'subtree', suggestedTitle: 'a', duplicate: { kind: 'same-content' }, files: 1 },
+    ];
+    expect(resolveBatchImportSelection(plan, [{ itemId: 'item_1', selected: true }]).ok).toBe(false);
+    expect(resolveBatchImportSelection(plan, [{ itemId: 'item_1', selected: true, keepDuplicate: true }]).ok).toBe(true);
+    const empty: BatchImportSelectableCandidate[] = [
+      { itemId: 'item_1', unitId: 'unit_1', sourceRelPath: 'a', importScope: 'subtree', suggestedTitle: 'a', duplicate: null, files: 0 },
+    ];
+    expect(resolveBatchImportSelection(empty, [{ itemId: 'item_1', selected: true }]).ok).toBe(false);
+    expect(resolveBatchImportSelection(plan, [{ itemId: 'nope', selected: true }]).ok).toBe(false);
+    expect(resolveBatchImportSelection(plan, []).ok).toBe(false);
+  });
+
   it('planImportUnits 保持 plan 顺序，拆出的子题不参与原比赛单元', () => {
     const resolved = resolveImportSelection([contest({ files: 1 }), child(), cand({ itemId: 'item_3', suggestedTitle: 'C' })], [
       { itemId: 'item_1', selected: true },
@@ -378,5 +432,94 @@ describe('提交选择矩阵（契约 §10.2）', () => {
       { unitId: 'item_2', itemIds: ['item_2'], contestItemId: null },
       { unitId: 'item_3', itemIds: ['item_3'], contestItemId: null },
     ]);
+  });
+});
+
+describe('批量目录分类（5a-3 契约 §3 / §4）', () => {
+  const fixture = tree(
+    [
+      ['2026/10/10.ptc/A.cpp', 'a'],
+      ['2026/10/10.ptc/data/1.in', '1'],
+      ['2026/10/17.VP/a.cpp', 'b'],
+      ['2026/10/TreeDP/sol.cpp', 'c'],
+      ['2026/10/Moban.cpp', 'm'],
+      ['2026/10/runner.cpp', 'r'],
+      ['2026/7/A.cpp', 'd'],
+      ['2026_ICPC_1/sol.cpp', 'e'],
+      ['docs/README.md', 'doc'],
+    ],
+    ['2026', '2026/10', '2026/10/10.ptc', '2026/10/10.ptc/data', '2026/10/17.VP', '2026/10/TreeDP', '2026/7', '2026_ICPC_1', 'docs'],
+  );
+
+  it('容器 / 叶子 / 散题各自成候选；只有文档的目录不产生候选', () => {
+    const items = classifyBatchImportTree(fixture, 'ACM');
+    const paths = items.map((item) => `${item.sourceRelPath}:${item.importScope}`);
+    expect(paths).toContain('2026/10/10.ptc:subtree');
+    expect(paths).toContain('2026/10:direct');
+    expect(paths).not.toContain('docs:subtree');
+
+    const root = find(items, '');
+    expect(root.isContainer).toBe(true);
+    expect(root.selectedByDefault).toBe(false);
+    expect(root.sourceCount).toBe(7);
+
+    const ten = items.find((item) => item.sourceRelPath === '2026/10' && item.importScope === 'subtree')!;
+    expect(ten.isContainer).toBe(true);
+    expect(ten.reasons.join(' ')).toContain('容器');
+    expect(ten.selectedByDefault).toBe(false);
+
+    const leaf = items.find((item) => item.sourceRelPath === '2026/10/10.ptc')!;
+    expect(leaf.isContainer).toBe(false);
+    expect(leaf.selectedByDefault).toBe(true);
+    expect(leaf.files.map((file) => file.targetPath)).toEqual(['A.cpp', 'data/1.in']);
+    expect(leaf.sourceCount).toBe(1);
+
+    const scatter = items.find((item) => item.sourceRelPath === '2026/10' && item.importScope === 'direct')!;
+    expect(scatter.files.map((file) => file.sourcePath)).toEqual(['2026/10/Moban.cpp', '2026/10/runner.cpp']);
+    expect(scatter.files.map((file) => file.targetPath)).toEqual(['Moban.cpp', 'runner.cpp']);
+    expect(scatter.selectedByDefault).toBe(false);
+    expect(scatter.suggestedTitle).toBe('10 散题');
+  });
+
+  it('单叶子源根与 5a-2 一致：一个候选、无散题、默认选中', () => {
+    const items = classifyBatchImportTree(tree([['A.cpp', 'a'], ['data/1.in', '1']], ['data']), 'old-code');
+    expect(items).toHaveLength(1);
+    expect(items[0]!.importScope).toBe('subtree');
+    expect(items[0]!.sourceRelPath).toBe('');
+    expect(items[0]!.suggestedTitle).toBe('old-code');
+    expect(items[0]!.selectedByDefault).toBe(true);
+    expect(items[0]!.reasons.join(' ')).toContain('整目录导入：2 个文件');
+  });
+
+  it('没有任何主源码时返回空候选', () => {
+    expect(classifyBatchImportTree(tree([['README.md', 'doc'], ['a.png', 'img']], []), 'docs')).toEqual([]);
+  });
+});
+
+describe('sourcePath 与来源排序（5a-3 契约 §3.3 / §8.3）', () => {
+  it('清洗绝对路径 / 反斜杠 / 空段 / 点段 / 超长', () => {
+    expect(cleanSourcePath('2026/10/10.ptc')).toBe('2026/10/10.ptc');
+    expect(cleanSourcePath('2026_ICPC_1')).toBe('2026_ICPC_1');
+    for (const bad of ['', '/abs', 'a\\b', 'a//b', 'a/./b', 'a/../b', 'a/', 'x'.repeat(301)]) {
+      expect(cleanSourcePath(bad), bad).toBeNull();
+    }
+  });
+
+  it('来源分组键是 sourcePath 的父路径；无来源为 null', () => {
+    expect(sourceParentPath('2026/10/10.ptc')).toBe('2026/10');
+    expect(sourceParentPath('2026_ICPC_1')).toBe('');
+    expect(sourceParentPath(undefined)).toBeNull();
+  });
+
+  it('年月数字按数值自然排序，而不是字典序', () => {
+    const paths = ['2026/10', '2026/7', '2026/2', '2025/12', '2026/10/A'];
+    expect([...paths].sort(compareSourcePathNatural)).toEqual(['2025/12', '2026/2', '2026/7', '2026/10', '2026/10/A']);
+  });
+
+  it('父子 / 散题冲突判据', () => {
+    expect(batchCandidatesConflict({ sourceRelPath: 'a', importScope: 'subtree' }, { sourceRelPath: 'a/b', importScope: 'subtree' })).toBe(true);
+    expect(batchCandidatesConflict({ sourceRelPath: 'a', importScope: 'subtree' }, { sourceRelPath: 'a/b', importScope: 'direct' })).toBe(true);
+    expect(batchCandidatesConflict({ sourceRelPath: 'a', importScope: 'direct' }, { sourceRelPath: 'a/b', importScope: 'subtree' })).toBe(false);
+    expect(batchCandidatesConflict({ sourceRelPath: 'a', importScope: 'subtree' }, { sourceRelPath: 'a', importScope: 'direct' })).toBe(true);
   });
 });

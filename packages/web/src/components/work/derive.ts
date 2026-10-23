@@ -1,4 +1,5 @@
 /** 工坊前端的纯派生：树展开、筛选、搜索、名字查找（可单测，不碰 DOM） */
+import { compareSourcePathNatural, sourceParentPath } from '@anvil/shared';
 import type { WorkKind, WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
 
 export const KIND_NAME: Record<WorkKind, string> = {
@@ -150,6 +151,102 @@ export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readon
     notes: notes.sort(byRelPath),
     orphans: orphans.sort(byRelPath),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* 5a-3：来源虚拟视图                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface WorkSourceGroup {
+  /** 来源父路径；根级为 '' */
+  key: string;
+  label: string;
+  name: string;
+  groups: WorkContestGroup[];
+  children: WorkSourceGroup[];
+  /** 含子分组在内的题组数 */
+  count: number;
+  /** 含子分组在内的文件数 */
+  fileCount: number;
+}
+
+export interface WorkSourceModel {
+  /** null 表示没有任何 sourcePath，列表退化为 5a-2 平铺 */
+  root: WorkSourceGroup | null;
+  unsourced: WorkContestGroup[];
+  hasSourcePath: boolean;
+}
+
+function sourceGroupOf(key: string): WorkSourceGroup {
+  return {
+    key,
+    label: key === '' ? '（根）' : key.split('/').join(' / '),
+    name: key === '' ? '（根）' : (key.split('/').pop() ?? key),
+    groups: [],
+    children: [],
+    count: 0,
+    fileCount: 0,
+  };
+}
+
+/**
+ * 按 contest.sourcePath 的父路径生成虚拟来源树。
+ * 节点只由 sourcePath 派生，不是对象、不能打开或操作。
+ */
+export function groupWorkObjectsBySource(model: WorkListModel): WorkSourceModel {
+  const sourced = model.groups.filter((group) => group.contest.sourcePath !== undefined);
+  if (sourced.length === 0) {
+    return { root: null, unsourced: model.groups, hasSourcePath: false };
+  }
+
+  const root = sourceGroupOf('');
+  const nodes = new Map<string, WorkSourceGroup>([['', root]]);
+  const ensure = (key: string): WorkSourceGroup => {
+    const existing = nodes.get(key);
+    if (existing !== undefined) return existing;
+    const slash = key.lastIndexOf('/');
+    const parentKey = slash < 0 ? '' : key.slice(0, slash);
+    const node = sourceGroupOf(key);
+    ensure(parentKey).children.push(node);
+    nodes.set(key, node);
+    return node;
+  };
+
+  for (const group of sourced) {
+    const sourcePath = group.contest.sourcePath!;
+    const parent = sourceParentPath(sourcePath) ?? '';
+    ensure(parent).groups.push(group);
+  }
+  const unsourced = model.groups.filter((group) => group.contest.sourcePath === undefined);
+
+  const sortNode = (node: WorkSourceGroup): void => {
+    node.children.sort((a, b) => compareSourcePathNatural(a.key, b.key));
+    node.groups.sort((a, b) => {
+      const left = a.contest.sourcePath ?? '';
+      const right = b.contest.sourcePath ?? '';
+      return compareSourcePathNatural(left, right) || byRelPath(a.contest, b.contest);
+    });
+    for (const child of node.children) sortNode(child);
+  };
+  sortNode(root);
+
+  const countNode = (node: WorkSourceGroup): void => {
+    let count = node.groups.length;
+    let fileCount = node.groups.reduce(
+      (sum, group) => sum + group.contest.fileCount + group.problems.reduce((n, problem) => n + problem.fileCount, 0),
+      0,
+    );
+    for (const child of node.children) {
+      countNode(child);
+      count += child.count;
+      fileCount += child.fileCount;
+    }
+    node.count = count;
+    node.fileCount = fileCount;
+  };
+  countNode(root);
+
+  return { root, unsourced, hasSourcePath: true };
 }
 
 /** 单题目录面包屑：`practice/2026-10/cherry-tree` → `['practice', '2026-10']` */

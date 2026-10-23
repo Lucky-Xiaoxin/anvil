@@ -2,17 +2,24 @@ import { describe, expect, it } from 'vitest';
 import type { WorkImportCandidateDto, WorkImportPlanDto } from '@anvil/shared';
 import { WORK_SECTION } from '../src/components/work/derive.ts';
 import {
+  batchDisabledMap,
+  batchImportSummary,
+  buildBatchImportTree,
   buildCommitItems,
   buildImportPreview,
   duplicateLabel,
+  importScopeLabel,
   importSummary,
+  initialBatchImportState,
   initialImportState,
   isAutoSkipDuplicate,
   middleEllipsis,
+  setBatchImportSelected,
   setImportKeepDuplicate,
   setImportParent,
   setImportSelected,
   setImportTitle,
+  validateBatchImportState,
   validateImportState,
 } from '../src/components/work/import-derive.ts';
 
@@ -34,6 +41,10 @@ const candidate = (patch: Partial<WorkImportCandidateDto>): WorkImportCandidateD
   duplicate: null,
   selectedByDefault: true,
   ...patch,
+  sourceParentRelPath: patch.sourceParentRelPath ?? null,
+  scope: patch.scope ?? 'subtree',
+  isContainer: patch.isContainer ?? false,
+  sourceCount: patch.sourceCount ?? 1,
 });
 
 function planOf(items: WorkImportCandidateDto[]): WorkImportPlanDto {
@@ -182,6 +193,94 @@ describe('单目录题组计划（新语义）', () => {
     const items = buildCommitItems(plan, state);
     expect(items).toHaveLength(1);
     expect(items[0]!.parentItemId).toBeNull();
+  });
+});
+
+describe('5a-3 批量导入视图', () => {
+  const container = candidate({
+    itemId: 'item_1',
+    unitId: 'unit_1',
+    sourceRelPath: '2026',
+    scope: 'subtree',
+    isContainer: true,
+    suggestedTitle: '2026',
+    files: 9,
+    sourceCount: 3,
+    selectedByDefault: false,
+  });
+  const leafA = candidate({
+    itemId: 'item_2',
+    unitId: 'unit_2',
+    sourceRelPath: '2026/10/A',
+    sourceParentRelPath: '2026/10',
+    suggestedTitle: 'A',
+    selectedByDefault: true,
+  });
+  const leafB = candidate({
+    itemId: 'item_3',
+    unitId: 'unit_3',
+    sourceRelPath: '2026/7/B',
+    sourceParentRelPath: '2026/7',
+    suggestedTitle: 'B',
+    selectedByDefault: true,
+  });
+  const scatter = candidate({
+    itemId: 'item_4',
+    unitId: 'unit_4',
+    sourceRelPath: '2026/10',
+    sourceParentRelPath: '2026',
+    scope: 'direct',
+    suggestedTitle: '10 散题',
+    files: 2,
+    selectedByDefault: false,
+  });
+
+  it('默认勾选叶子；勾容器会清掉后代并禁用；散题与容器互斥', () => {
+    const plan = planOf([container, leafA, leafB, scatter]);
+    let state = initialBatchImportState(plan);
+    expect(state.item_2?.selected).toBe(true);
+    expect(state.item_3?.selected).toBe(true);
+    expect(validateBatchImportState(plan, state)).toEqual([]);
+    expect(batchImportSummary(plan, state)).toMatchObject({ objects: 2, units: 2, autoSkipped: 0 });
+
+    state = setBatchImportSelected(plan, state, 'item_1', true);
+    expect(state.item_1?.selected).toBe(true);
+    expect(state.item_2?.selected).toBe(false);
+    expect(state.item_3?.selected).toBe(false);
+    expect(batchDisabledMap(plan, state).has('item_2')).toBe(true);
+
+    state = setBatchImportSelected(plan, state, 'item_4', true);
+    expect(state.item_1?.selected).toBe(false);
+    expect(state.item_4?.selected).toBe(true);
+    expect(validateBatchImportState(plan, state)).toEqual([]);
+  });
+
+  it('手动制造父子同选时校验给出问题', () => {
+    const plan = planOf([container, leafA]);
+    const state = initialBatchImportState(plan);
+    const both = { ...state, item_1: { ...state.item_1!, selected: true }, item_2: { ...state.item_2!, selected: true } };
+    expect(validateBatchImportState(plan, both).some((issue) => issue.includes('父子目录'))).toBe(true);
+  });
+
+  it('预览树按 sourceRelPath 嵌套，散题挂在同目录节点；名字取源根末段', () => {
+    const plan = planOf([container, leafA, leafB, scatter]);
+    const tree = buildBatchImportTree(plan);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]!.name).toBe('old-code');
+    expect(tree[0]!.candidate).toBeNull();
+    const year = tree[0]!.children[0]!;
+    expect(year.key).toBe('2026');
+    expect(year.candidate?.itemId).toBe('item_1');
+    expect(year.children.map((node) => node.key)).toEqual(['2026/7', '2026/10']);
+    const october = year.children[1]!;
+    expect(october.scatter?.itemId).toBe('item_4');
+    expect(october.children[0]!.candidate?.itemId).toBe('item_2');
+  });
+
+  it('候选类型文字：容器 / 题组 / 散题', () => {
+    expect(importScopeLabel(container)).toBe('容器');
+    expect(importScopeLabel(leafA)).toBe('题组');
+    expect(importScopeLabel(scatter)).toBe('散题');
   });
 });
 

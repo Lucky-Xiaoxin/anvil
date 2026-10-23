@@ -177,6 +177,21 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(parseWorkMeta(meta({ kind: 'contest', links: { arenaPath: '../y.srk.json' } })).ok).toBe(false);
   });
 
+  it('sourcePath 可选、清洗后写回，不合法拒绝', () => {
+    const parsed = parseWorkMeta(meta({ sourcePath: '2026/10/10.ptc' }));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.record.meta.sourcePath).toBe('2026/10/10.ptc');
+    expect(workMetaToJson(parsed.record).sourcePath).toBe('2026/10/10.ptc');
+
+    for (const bad of ['', '/abs', 'a\\b', 'a/../b', 'a//b']) {
+      expect(parseWorkMeta(meta({ sourcePath: bad })), bad).toMatchObject({ ok: false });
+    }
+    const absent = parseWorkMeta(meta());
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect(absent.record.meta.sourcePath).toBeUndefined();
+  });
+
   it('未知顶层字段写回时保留', () => {
     const parsed = parseWorkMeta(meta({ custom: { keep: 1 }, note: '手写扩展' }));
     expect(parsed.ok).toBe(true);
