@@ -13,7 +13,6 @@ import {
   slugify,
   unregisteredKindHint,
   workMetaToJson,
-  workMigrateProposalOf,
 } from '@anvil/shared';
 
 const D = new Date(2026, 9, 21, 12); // 本地 2026-10-21（路径日期取服务端本地日期）
@@ -297,30 +296,5 @@ describe('record.json（VP 成绩存档）', () => {
     expect(parseWorkArenaRecord(record({ ghost: { show: true, subs: [{ p: 0, t: 1, r: 'FB' }] } })).ok).toBe(false);
     expect(parseWorkArenaRecord(record({ view: { mode: 'x', viewMs: 1, paused: false, frozenView: false } })).ok).toBe(false);
     expect(parseWorkArenaRecord(record({ view: { mode: 'live', viewMs: -1, paused: false, frozenView: false } })).ok).toBe(false);
-  });
-});
-
-describe('角色迁移提议（契约 26 §3.2）', () => {
-  const evidence = (patch: Partial<Parameters<typeof workMigrateProposalOf>[0]> = {}) => ({
-    hasRecord: false,
-    hasArenaPath: false,
-    hasChildProblem: false,
-    hasSourcePath: false,
-    ...patch,
-  });
-
-  it('record / arenaPath / 旧子题 → 保持比赛；sourcePath → 题组；全无 → 待确认', () => {
-    expect(workMigrateProposalOf(evidence({ hasRecord: true })).proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasArenaPath: true })).proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasChildProblem: true })).proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasSourcePath: true })).proposal).toBe('to-problemset');
-    expect(workMigrateProposalOf(evidence()).proposal).toBe('ambiguous');
-  });
-
-  it('比赛证据优先于 sourcePath；规则文案能区分来源', () => {
-    const withRecord = workMigrateProposalOf(evidence({ hasRecord: true, hasSourcePath: true }));
-    expect(withRecord.proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasSourcePath: true })).rule).toContain('sourcePath');
-    expect(workMigrateProposalOf(evidence()).rule).toContain('确认');
   });
 });

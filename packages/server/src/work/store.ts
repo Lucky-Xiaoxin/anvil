@@ -23,7 +23,6 @@ import {
   unregisteredKindHint,
   workIdOk,
   workMetaToJson,
-  workMigrateProposalOf,
   WORK_TEMPLATE_CONTENT_MAX,
   type WorkArenaGhost,
   type WorkArenaRecordDto,
@@ -38,9 +37,6 @@ import {
   type WorkOpenApp,
   type WorkMeta,
   type WorkMetaRecord,
-  type WorkMigrateApplyResultDto,
-  type WorkMigratePreviewDto,
-  type WorkMigratePreviewItemDto,
   type WorkObjectDetailDto,
   type WorkObjectDto,
   type WorkScanErrorDto,
@@ -481,15 +477,6 @@ export class WorkService {
 
   update(input: WorkUpdateInput): Promise<WorkObjectDetailDto> {
     return this.enqueue(() => this.updateNow(input));
-  }
-
-  /** 5a-4 角色迁移预览：只读，不改任何文件（契约 26 §3.1） */
-  migratePreview(): WorkMigratePreviewDto {
-    return this.migratePreviewOf(this.ensureIndex());
-  }
-
-  migrateApply(input: { ids: string[]; confirm: boolean }): Promise<WorkMigrateApplyResultDto> {
-    return this.enqueue(() => this.migrateApplyNow(input));
   }
 
   trash(id: string): Promise<{ id: string; trashName: string }> {
@@ -958,84 +945,6 @@ export class WorkService {
     const updated = fresh.byId.get(next.id);
     if (updated === undefined) throw new WorkError('internal', '更新后对象没有进入索引');
     return this.detailOf(updated);
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 5a-4：角色迁移（契约 26 §3）                                          */
-  /* ------------------------------------------------------------------ */
-
-  private migratePreviewOf(idx: WorkIndex): WorkMigratePreviewDto {
-    const items: WorkMigratePreviewItemDto[] = [];
-    for (const obj of idx.objects) {
-      const meta = obj.record.meta;
-      if (meta.kind !== 'contest') continue; // 只迁移 contest（26 §3.1）
-      const evidence = {
-        hasRecord: lstatOrNull(join(obj.absPath, 'record.json')) !== null,
-        hasArenaPath: meta.links.arenaPath !== undefined,
-        hasChildProblem: idx.objects.some((o) => o.record.meta.kind === 'problem' && o.record.meta.parentId === meta.id),
-        hasSourcePath: meta.sourcePath !== undefined,
-      };
-      const { proposal, rule } = workMigrateProposalOf(evidence);
-      items.push({
-        id: meta.id,
-        title: meta.title,
-        relPath: obj.relPath,
-        kind: meta.kind,
-        proposal,
-        rule,
-        ambiguous: proposal === 'ambiguous',
-        evidence,
-      });
-    }
-    return {
-      items,
-      counts: {
-        contest: items.length,
-        keep: items.filter((item) => item.proposal === 'keep-contest').length,
-        toProblemset: items.filter((item) => item.proposal === 'to-problemset').length,
-        ambiguous: items.filter((item) => item.proposal === 'ambiguous').length,
-      },
-    };
-  }
-
-  private migrateApplyNow(input: { ids: string[]; confirm: boolean }): WorkMigrateApplyResultDto {
-    if (input.confirm !== true) throw new WorkError('invalid', '迁移必须显式确认（confirm: true）');
-    if (!Array.isArray(input.ids)) throw new WorkError('invalid', 'ids 必须是数组');
-    const idx = this.ensureIndex();
-    const applied: WorkMigrateApplyResultDto['applied'] = [];
-    const failed: WorkMigrateApplyResultDto['failed'] = [];
-    const seen = new Set<string>();
-    for (const id of input.ids) {
-      if (typeof id !== 'string' || !workIdOk(id)) {
-        failed.push({ id: String(id), message: 'id 形状不合法' });
-        continue;
-      }
-      if (seen.has(id)) {
-        failed.push({ id, message: 'id 重复' });
-        continue;
-      }
-      seen.add(id);
-      const obj = idx.byId.get(id);
-      if (obj === undefined) {
-        failed.push({ id, message: '对象不存在' });
-        continue;
-      }
-      const currentKind = obj.record.meta.kind;
-      if (currentKind !== 'contest') {
-        failed.push({ id, message: `只允许 contest → problemset，当前是 ${currentKind}` });
-        continue;
-      }
-      try {
-        // 只改 meta 的 kind：路径 / 文件名 / updatedAt / sourcePath 全部保持（26 §3.1）
-        const record: WorkMetaRecord = { meta: { ...obj.record.meta, kind: 'problemset' }, raw: obj.record.raw };
-        writeFileAtomic(join(obj.absPath, '.anvil.json'), `${JSON.stringify(workMetaToJson(record), null, 2)}\n`);
-        applied.push({ id, relPath: obj.relPath });
-      } catch (err) {
-        failed.push({ id, message: `写入失败：${asError(err).message}` });
-      }
-    }
-    if (applied.length > 0) this.refreshIndex();
-    return { applied, failed };
   }
 
   private trashNow(id: string): { id: string; trashName: string } {

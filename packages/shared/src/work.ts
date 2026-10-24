@@ -388,7 +388,7 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
 
   const links = parseLinks(input.links);
   if (!links.ok) return links;
-  // 字段职责（26 §2.4）：arenaPath 只属于比赛；sourcePath 不限定 kind（旧 contest 数据靠迁移预览读取）
+  // 字段职责（26 §2.4）：arenaPath 只属于比赛；sourcePath 不限定 kind（旧 contest 数据迁移已执行完毕，不限制解析是兼容口径）
   if (links.links.arenaPath !== undefined && input.kind !== 'contest') {
     return { ok: false, message: 'arenaPath 只属于 contest' };
   }
@@ -720,58 +720,4 @@ export function unregisteredKindHint(relPath: string): WorkKind | null {
   if (parts.length === 3 && parts[0] === 'templates') return 'template';
   if (parts.length === 4 && parts[0] === 'notes' && /^\d{4}$/.test(parts[1] ?? '') && /^\d{2}$/.test(parts[2] ?? '')) return 'note';
   return null;
-}
-
-/* ------------------------------------------------------------------ */
-/* 5a-4：角色迁移（docs/contracts/26 §3）                                */
-/* ------------------------------------------------------------------ */
-
-export type WorkMigrateProposal = 'keep-contest' | 'to-problemset' | 'ambiguous';
-
-export interface WorkMigrateEvidence {
-  /** 文件夹里有 record.json（已存 VP 成绩） */
-  hasRecord: boolean;
-  /** links.arenaPath（榜单关联） */
-  hasArenaPath: boolean;
-  /** 有旧 problem 子对象 */
-  hasChildProblem: boolean;
-  /** 5a-3 批量导入的来源路径 */
-  hasSourcePath: boolean;
-}
-
-export interface WorkMigrateProposalResult {
-  proposal: WorkMigrateProposal;
-  /** 命中的规则说明（预览展示用） */
-  rule: string;
-}
-
-/** 迁移提议规则（26 §3.2）：record / arenaPath / 旧子题 → 保持比赛；sourcePath → 题组；全无 → 待确认（提议题组） */
-export function workMigrateProposalOf(evidence: WorkMigrateEvidence): WorkMigrateProposalResult {
-  if (evidence.hasRecord) return { proposal: 'keep-contest', rule: '已保存成绩（record.json）' };
-  if (evidence.hasArenaPath) return { proposal: 'keep-contest', rule: '有榜单路径（links.arenaPath）' };
-  if (evidence.hasChildProblem) return { proposal: 'keep-contest', rule: '有旧子题目对象（problem）' };
-  if (evidence.hasSourcePath) return { proposal: 'to-problemset', rule: '批量导入的来源题组（sourcePath）' };
-  return { proposal: 'ambiguous', rule: '没有比赛证据也没有导入来源，需人工确认' };
-}
-
-export interface WorkMigratePreviewItemDto {
-  id: string;
-  title: string;
-  relPath: string;
-  kind: WorkKind;
-  proposal: WorkMigrateProposal;
-  rule: string;
-  ambiguous: boolean;
-  evidence: WorkMigrateEvidence;
-}
-
-export interface WorkMigratePreviewDto {
-  items: WorkMigratePreviewItemDto[];
-  counts: { contest: number; keep: number; toProblemset: number; ambiguous: number };
-}
-
-/** apply 只接受 contest → problemset；任一项失败不影响其它项 */
-export interface WorkMigrateApplyResultDto {
-  applied: Array<{ id: string; relPath: string }>;
-  failed: Array<{ id: string; message: string }>;
 }

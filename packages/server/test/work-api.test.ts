@@ -496,44 +496,4 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     res = await post('/api/work/update', { id: set.id, parentId: contest2.id });
     expect(res.statusCode).toBe(409); // 已被 adopted 占用
   });
-
-  it('migrate：preview 只读 / apply 只改 kind / 部分成功 / 非法 body（契约 26 §9.3）', async () => {
-    await boot();
-    await initApi();
-    const imported = await create('contest', '导入题组');
-    const keep = await create('contest', '有成绩', { arenaPath: 'official/icpc/x/y.srk.json' });
-    writeFileSync(join(root, ...keep.relPath.split('/'), 'record.json'), '{}');
-    const importedMeta = join(root, ...imported.relPath.split('/'), '.anvil.json');
-    const raw = JSON.parse(readFileSync(importedMeta, 'utf8'));
-    raw.sourcePath = '2026/10/10.ptc';
-    writeFileSync(importedMeta, JSON.stringify(raw, null, 2));
-    await app.inject({ method: 'POST', url: '/api/work/rescan' });
-
-    let res = await app.inject({ method: 'GET', url: '/api/work/migrate/preview' });
-    expect(res.statusCode, res.body).toBe(200);
-    const preview = res.json();
-    expect(preview.counts).toEqual({ contest: 2, keep: 1, toProblemset: 1, ambiguous: 0 });
-    // preview 后 meta 未动
-    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).kind).toBe('contest');
-
-    res = await post('/api/work/migrate/apply', { ids: [imported.id], confirm: false });
-    expect(res.statusCode).toBe(400);
-
-    res = await post('/api/work/migrate/apply', { ids: [imported.id, 'obj_0000000099'], confirm: true });
-    expect(res.statusCode, res.body).toBe(200);
-    expect(res.json().applied).toEqual([{ id: imported.id, relPath: imported.relPath }]);
-    expect(res.json().failed).toEqual([{ id: 'obj_0000000099', message: '对象不存在' }]);
-
-    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).kind).toBe('problemset');
-    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).sourcePath).toBe('2026/10/10.ptc');
-
-    // kind 不可逆：再跑该项失败
-    res = await post('/api/work/migrate/apply', { ids: [imported.id], confirm: true });
-    expect(res.json().applied).toHaveLength(0);
-    expect(res.json().failed[0].message).toContain('problemset');
-
-    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
-    expect(tree.objects.find((obj: { id: string }) => obj.id === imported.id).relPath).toBe(imported.relPath);
-    expect(tree.objects.find((obj: { id: string }) => obj.id === keep.id).kind).toBe('contest');
-  });
 });

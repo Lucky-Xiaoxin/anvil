@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
-import { workMigrateProposalOf } from '@anvil/shared';
 import {
   allLabels,
   availableContests,
@@ -277,35 +276,5 @@ describe('来源虚拟视图（26 §6.1 / §6.2：只组织 problemset）', () =
     const withContest = groupWorkObjectsBySource([contest, manual]);
     expect(withContest.hasSourcePath).toBe(false);
     expect(withContest.unsourced.map((set) => set.id)).toEqual([manual.id]);
-  });
-});
-
-describe('角色迁移提议（契约 26 §3.2）', () => {
-  const evidence = (patch: Partial<Parameters<typeof workMigrateProposalOf>[0]> = {}) => ({
-    hasRecord: false,
-    hasArenaPath: false,
-    hasChildProblem: false,
-    hasSourcePath: false,
-    ...patch,
-  });
-
-  it('record / arenaPath / 旧子题 → 保持比赛', () => {
-    expect(workMigrateProposalOf(evidence({ hasRecord: true })).proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasArenaPath: true })).proposal).toBe('keep-contest');
-    expect(workMigrateProposalOf(evidence({ hasChildProblem: true })).proposal).toBe('keep-contest');
-  });
-
-  it('sourcePath → 转为题组；全无证据 → 待确认', () => {
-    const sourced = workMigrateProposalOf(evidence({ hasSourcePath: true }));
-    expect(sourced.proposal).toBe('to-problemset');
-    expect(sourced.rule).toContain('sourcePath');
-
-    const ambiguous = workMigrateProposalOf(evidence());
-    expect(ambiguous.proposal).toBe('ambiguous');
-    expect(ambiguous.rule).toContain('确认');
-  });
-
-  it('record 优先于 sourcePath（已存成绩的比赛不迁移）', () => {
-    expect(workMigrateProposalOf(evidence({ hasRecord: true, hasSourcePath: true })).proposal).toBe('keep-contest');
   });
 });

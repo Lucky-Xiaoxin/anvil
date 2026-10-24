@@ -45,11 +45,6 @@ const updateBody = z.object({
 
 const idBody = z.object({ id: z.string().max(40) });
 
-const migrateApplyBody = z.object({
-  ids: z.array(z.string().max(40)).max(2000),
-  confirm: z.boolean(),
-});
-
 const openBody = z.object({
   id: z.string().max(40),
   relPath: z.string().max(400).optional(),
@@ -223,24 +218,6 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '更新参数不合法');
     try {
       return await work.update(parsed.data);
-    } catch (err) {
-      return sendWorkError(reply, err);
-    }
-  });
-
-  app.get('/api/work/migrate/preview', async (_request, reply) => {
-    try {
-      return work.migratePreview();
-    } catch (err) {
-      return sendWorkError(reply, err);
-    }
-  });
-
-  app.post('/api/work/migrate/apply', async (request, reply) => {
-    const parsed = migrateApplyBody.safeParse(request.body ?? {});
-    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '迁移参数不合法');
-    try {
-      return await work.migrateApply(parsed.data);
     } catch (err) {
       return sendWorkError(reply, err);
     }
