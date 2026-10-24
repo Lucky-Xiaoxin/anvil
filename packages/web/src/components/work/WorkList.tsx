@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { sourceParentPath } from '@anvil/shared';
 import type { WorkObjectDto, WorkScanErrorDto, WorkTaxonomyDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
 import { fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
@@ -7,6 +6,7 @@ import {
   KIND_NAME,
   WORK_SECTION,
   contestCountLabel,
+  expandKeysForSelection,
   groupWorkObjects,
   groupWorkObjectsBySource,
   isoDate,
@@ -373,28 +373,17 @@ export function WorkList(props: Props) {
 
   useEffect(() => {
     if (selectedId === null) return;
-    const keys = new Set<string>();
-    const selected = allObjects.find((obj) => obj.id === selectedId);
-    if (selected !== undefined && selected.kind === 'problemset' && selected.sourcePath !== undefined) {
-      let parent = sourceParentPath(selected.sourcePath) ?? '';
-      for (;;) {
-        keys.add(`src:${parent}`);
-        if (parent === '') break;
-        const slash = parent.lastIndexOf('/');
-        parent = slash < 0 ? '' : parent.slice(0, slash);
-      }
-    }
-    // 旧题目对象选中时展开父比赛组
-    const group = model.groups.find((g) => g.contest.id === selectedId || g.problems.some((p) => p.id === selectedId));
-    if (group !== undefined && collapsed.has(group.contest.id)) keys.add(group.contest.id);
-    if (keys.size === 0) return;
+    const keys = expandKeysForSelection(selectedId, allObjects, model);
+    if (keys.length === 0) return;
+    // 只在选中项变化时展开祖先；依赖里没有 collapsed / model，手动收起的组不会被自动弹回
     setCollapsed((prev) => {
-      if ([...keys].every((key) => !prev.has(key))) return prev;
+      if (!keys.some((key) => prev.has(key))) return prev;
       const next = new Set(prev);
       for (const key of keys) next.delete(key);
       return next;
     });
-  }, [model, allObjects, selectedId, collapsed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const toggleGroup = (id: string): void => {
     setCollapsed((prev) => {

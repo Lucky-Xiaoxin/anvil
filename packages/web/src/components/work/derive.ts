@@ -322,6 +322,27 @@ export function availableContests(objects: readonly WorkObjectDto[], selfId: str
   return objects.filter((obj) => obj.kind === 'contest' && !takenBy.has(obj.id)).sort(byRelPath);
 }
 
+/**
+ * 选中对象需要展开的折叠键：题组带 sourcePath 时是其来源祖先链（src:*），旧题目对象是其父比赛组。
+ * 只在选中项变化时调用；不读折叠状态，调用方用函数式 setCollapsed 自己判断哪些键真的收着。
+ */
+export function expandKeysForSelection(selectedId: string, objects: readonly WorkObjectDto[], model: WorkListModel): string[] {
+  const keys = new Set<string>();
+  const selected = objects.find((obj) => obj.id === selectedId);
+  if (selected !== undefined && selected.kind === 'problemset' && selected.sourcePath !== undefined) {
+    let parent = sourceParentPath(selected.sourcePath) ?? '';
+    for (;;) {
+      keys.add(`src:${parent}`);
+      if (parent === '') break;
+      const slash = parent.lastIndexOf('/');
+      parent = slash < 0 ? '' : parent.slice(0, slash);
+    }
+  }
+  const group = model.groups.find((g) => g.contest.id === selectedId || g.problems.some((p) => p.id === selectedId));
+  if (group !== undefined) keys.add(group.contest.id);
+  return [...keys];
+}
+
 export function allLabels(objects: readonly WorkObjectDto[]): string[] {
   const out = new Set<string>();
   for (const obj of objects) for (const label of obj.labels) out.add(label);

@@ -4,6 +4,7 @@ import {
   allLabels,
   availableContests,
   contestCountLabel,
+  expandKeysForSelection,
   fileSize,
   filterWorkObjects,
   folderActionsOf,
@@ -276,5 +277,31 @@ describe('来源虚拟视图（26 §6.1 / §6.2：只组织 problemset）', () =
     const withContest = groupWorkObjectsBySource([contest, manual]);
     expect(withContest.hasSourcePath).toBe(false);
     expect(withContest.unsourced.map((set) => set.id)).toEqual([manual.id]);
+  });
+});
+
+describe('选中项自动展开键（修复：手动折叠不被弹回的前提是 effect 只看选中项）', () => {
+  it('题组沿来源祖先链给出 src: 键，从直接父级到根', () => {
+    const set = obj({
+      id: 'obj_0000000060',
+      kind: 'problemset',
+      title: 'X',
+      relPath: 'practice/2026-10/x',
+      sourcePath: '2026/7/16.div1',
+    });
+    const model = groupWorkObjects([set], [set]);
+    expect(expandKeysForSelection(set.id, [set], model)).toEqual(['src:2026/7', 'src:2026', 'src:']);
+  });
+
+  it('无来源题组没有 src 键；旧题目对象与其父比赛给组键；未选中项不产生键', () => {
+    const bare = obj({ id: 'obj_0000000061', kind: 'problemset', title: 'Bare', relPath: 'practice/2026-10/bare' });
+    const contest = obj({ id: 'obj_0000000062', kind: 'contest', title: 'C', relPath: 'contests/c' });
+    const problem = obj({ id: 'obj_0000000063', title: 'P', relPath: 'contests/c/p', parentId: contest.id });
+    const all = [contest, problem, bare];
+    const model = groupWorkObjects(all, all);
+    expect(expandKeysForSelection(bare.id, all, model)).toEqual([]);
+    expect(expandKeysForSelection(problem.id, all, model)).toEqual([contest.id]);
+    expect(expandKeysForSelection(contest.id, all, model)).toEqual([contest.id]);
+    expect(expandKeysForSelection('obj_0000000099', all, model)).toEqual([]);
   });
 });
