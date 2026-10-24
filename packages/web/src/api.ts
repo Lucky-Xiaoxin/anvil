@@ -14,6 +14,8 @@ import type {
   WorkImportPlanDto,
   WorkImportResultDto,
   WorkKind,
+  WorkMigrateApplyResultDto,
+  WorkMigratePreviewDto,
   WorkObjectDetailDto,
   WorkOpenApp,
   WorkTags,
@@ -146,7 +148,7 @@ export const createWork = (body: {
   templateId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/create', post(body), 30_000);
 
-export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string }): Promise<WorkObjectDetailDto> =>
+export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string; parentId?: string | null }): Promise<WorkObjectDetailDto> =>
   request<WorkObjectDetailDto>('/api/work/adopt', post(body), 30_000);
 
 export const updateWork = (body: {
@@ -155,6 +157,8 @@ export const updateWork = (body: {
   tags?: { primary?: string | null; related?: string[] };
   labels?: string[];
   archived?: boolean;
+  /** 仅题组：关联 / 清除关联比赛（26 §4.2） */
+  parentId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/update', post(body), 30_000);
 
 export const trashWork = (id: string): Promise<{ id: string; trashName: string }> =>
@@ -179,6 +183,13 @@ export const commitWorkImport = (input: WorkImportCommitInput): Promise<WorkImpo
   request<WorkImportResultDto>('/api/work/import/commit', post(input), 10 * 60_000);
 
 export const rescanWork = (): Promise<WorkRescanSummaryDto> => request<WorkRescanSummaryDto>('/api/work/rescan', post({}), 45_000);
+
+/** 5a-4 角色迁移（docs/contracts/26 §3.3）：只读预览 + 显式确认应用 */
+export const workMigratePreview = (): Promise<WorkMigratePreviewDto> =>
+  request<WorkMigratePreviewDto>('/api/work/migrate/preview', undefined, 30_000);
+
+export const workMigrateApply = (ids: string[]): Promise<WorkMigrateApplyResultDto> =>
+  request<WorkMigrateApplyResultDto>('/api/work/migrate/apply', post({ ids, confirm: true }), 60_000);
 
 /** 模板详情内联编辑：只读写一个主文件（切片 5a.1） */
 export const getWorkTemplate = (id: string): Promise<WorkTemplateFileDto> =>

@@ -125,7 +125,8 @@ interface ImportPlan {
 interface PreparedObject {
   itemId: string;
   objectId: string;
-  kind: 'contest' | 'problem';
+  /** 5a-4 起批量导入生成 problemset（26 §4.3）；旧 manifest 里的历史 kind 不重写 */
+  kind: 'contest' | 'problemset' | 'problem';
   title: string;
   sourceRelPath: string;
   /** 导入来源（源根相对 POSIX）；源根自身 / 手动对象没有 */
@@ -167,7 +168,7 @@ interface ManifestItem {
   sourceMtime: number;
   fingerprint: string;
   action: 'import' | 'skip-user' | 'skip-duplicate';
-  kind: 'contest' | 'problem';
+  kind: 'contest' | 'problemset' | 'problem';
   title: string;
   parentItemId: string | null;
   objectId?: string;
@@ -300,7 +301,7 @@ export class WorkImportService {
       files: scanned.files.map((file) => ({ path: file.sourcePath, size: file.size, sha256: file.sha256 })),
       dirs: scanned.dirs,
     };
-    // 5a-3：一个含源码目录 = 一个候选；容器 / 叶子 / 散题分开，提交时每项独立成 contest
+    // 5a-3：一个含源码目录 = 一个候选；容器 / 叶子 / 散题分开，提交时每项独立成题组（5a-4 起为 problemset）
     const candidates = classifyBatchImportTree(tree, basename(source.abs));
     if (candidates.length > this.limits.maxCandidates) {
       throw new WorkError('import-limit', `候选对象超过上限（${candidates.length} > ${this.limits.maxCandidates}）`);
@@ -651,7 +652,7 @@ export class WorkImportService {
         continue;
       }
 
-      const rel = this.allocateTarget(plan.root, usedTargets, 'contest', { title: resolvedItem.title, date: now });
+      const rel = this.allocateTarget(plan.root, usedTargets, 'problemset', { title: resolvedItem.title, date: now });
       const sourcePath = sourcePathOf(planItem.sourceRelPath);
       prepared.push({
         unitId: unitPlan.unitId,
@@ -661,7 +662,7 @@ export class WorkImportService {
           {
             itemId: planItem.itemId,
             objectId: this.newObjectId(usedObjectIds),
-            kind: 'contest',
+            kind: 'problemset',
             title: resolvedItem.title,
             sourceRelPath: planItem.sourceRelPath,
             ...(sourcePath === undefined ? {} : { sourcePath }),
@@ -807,7 +808,8 @@ export class WorkImportService {
         sourceMtime: item.ownedFiles.reduce((max, file) => Math.max(max, file.mtimeMs), 0),
         fingerprint: item.fingerprint,
         action,
-        kind: item.role === 'contest' ? 'contest' : 'problem',
+        // manifest 是历史事实：5a-4 起批量导入创建的是 problemset；旧 manifest 的 kind 不重写
+        kind: 'problemset',
         title,
         parentItemId,
         ...(object === undefined ? {} : { objectId: object.objectId, targetRelPath: object.targetRelPath }),
@@ -1416,7 +1418,7 @@ export class WorkImportService {
   private allocateTarget(
     root: string,
     used: Set<string>,
-    kind: 'contest' | 'problem',
+    kind: 'contest' | 'problemset' | 'problem',
     input: { title: string; parentRelPath?: string; date: Date },
   ): string {
     const base = buildWorkRelPath(kind, input);
@@ -1567,7 +1569,7 @@ function parseManifest(raw: unknown): { ok: true; manifest: ImportManifest } | {
       sourceMtime: typeof value.sourceMtime === 'number' ? value.sourceMtime : 0,
       fingerprint: typeof value.fingerprint === 'string' ? value.fingerprint : '',
       action: value.action,
-      kind: value.kind === 'contest' ? 'contest' : 'problem',
+      kind: value.kind === 'contest' ? 'contest' : value.kind === 'problemset' ? 'problemset' : 'problem',
       title: typeof value.title === 'string' ? value.title : '',
       parentItemId: typeof value.parentItemId === 'string' ? value.parentItemId : null,
       ...(typeof value.objectId === 'string' ? { objectId: value.objectId } : {}),

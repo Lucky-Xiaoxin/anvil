@@ -5,9 +5,13 @@
 import { contestPathOk } from './arena-path.ts';
 import { cleanSourcePath } from './work-import.ts';
 
-export type WorkKind = 'contest' | 'problem' | 'template' | 'note';
+/**
+ * 五类对象（docs/contracts/26）：contest 只表示比赛；problemset 是题组 / 散题代码集合；
+ * problem 仅保留旧数据兼容，不再新建。
+ */
+export type WorkKind = 'contest' | 'problemset' | 'problem' | 'template' | 'note';
 
-export const WORK_KINDS: readonly WorkKind[] = ['contest', 'problem', 'template', 'note'];
+export const WORK_KINDS: readonly WorkKind[] = ['contest', 'problemset', 'problem', 'template', 'note'];
 
 export function isWorkKind(v: unknown): v is WorkKind {
   return typeof v === 'string' && (WORK_KINDS as readonly string[]).includes(v);
@@ -37,7 +41,7 @@ export interface WorkObjectDto {
   createdAt: string;
   updatedAt: string;
   fileCount: number;
-  /** 主源码文件数；比赛/题组用它判断「挂了题组」 */
+  /** 主源码文件数；只用于展示（26 §2.4），不参与分类 */
   sourceCount: number;
   /** 导入来源（源根相对 POSIX 路径）；手动创建 / 旧对象没有 */
   sourcePath?: string;
@@ -370,8 +374,11 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
     if (!workIdOk(input.parentId)) return { ok: false, message: 'parentId 形状不合法' };
     parentId = input.parentId;
   }
-  // 只有 problem 可以挂父；父必须是 contest 这一条要等扫描拿到父对象，见 WorkService
-  if (parentId !== null && input.kind !== 'problem') return { ok: false, message: '只有 problem 可以有 parentId' };
+  // parentId 是逻辑关联：problemset 关联一个比赛（0..1）；旧 problem 是物理父子。
+  // 「父必须是 contest」这一条要等扫描拿到父对象，见 WorkService
+  if (parentId !== null && input.kind !== 'problem' && input.kind !== 'problemset') {
+    return { ok: false, message: '只有 problemset / problem 可以有 parentId' };
+  }
 
   const tags = parseTags(input.tags);
   if (!tags.ok) return tags;
@@ -381,6 +388,10 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
 
   const links = parseLinks(input.links);
   if (!links.ok) return links;
+  // 字段职责（26 §2.4）：arenaPath 只属于比赛；sourcePath 不限定 kind（旧 contest 数据靠迁移预览读取）
+  if (links.links.arenaPath !== undefined && input.kind !== 'contest') {
+    return { ok: false, message: 'arenaPath 只属于 contest' };
+  }
 
   let archived = false;
   if (input.archived !== undefined) {
@@ -674,6 +685,9 @@ export function buildWorkRelPath(
   let relPath: string;
   if (kind === 'contest') {
     relPath = `contests/${parts.date}_${slug}`;
+  } else if (kind === 'problemset') {
+    // 题组（26 §2.1）：practice/<YYYY-MM>/<slug>/；parentId 只是逻辑关联，不落进路径
+    relPath = `practice/${parts.month}/${slug}`;
   } else if (kind === 'problem') {
     if (input.parentRelPath !== undefined && input.parentRelPath !== null && input.parentRelPath !== '') {
       const parent = input.parentRelPath.replace(/\\/g, '/').replace(/\/+$/g, '');
@@ -698,12 +712,66 @@ export function buildWorkRelPath(
   return { ok: true, value: { slug, relPath } };
 }
 
-/** 候选位置 → kindHint（§8.3） */
+/** 候选位置 → kindHint（§8.3；practice 桶自 5a-4 起默认提议题组，problem 仅旧数据兼容） */
 export function unregisteredKindHint(relPath: string): WorkKind | null {
   const parts = relPath.split('/');
   if (parts.length === 2 && parts[0] === 'contests') return 'contest';
-  if (parts.length === 3 && parts[0] === 'practice' && /^\d{4}-\d{2}$/.test(parts[1] ?? '')) return 'problem';
+  if (parts.length === 3 && parts[0] === 'practice' && /^\d{4}-\d{2}$/.test(parts[1] ?? '')) return 'problemset';
   if (parts.length === 3 && parts[0] === 'templates') return 'template';
   if (parts.length === 4 && parts[0] === 'notes' && /^\d{4}$/.test(parts[1] ?? '') && /^\d{2}$/.test(parts[2] ?? '')) return 'note';
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 5a-4：角色迁移（docs/contracts/26 §3）                                */
+/* ------------------------------------------------------------------ */
+
+export type WorkMigrateProposal = 'keep-contest' | 'to-problemset' | 'ambiguous';
+
+export interface WorkMigrateEvidence {
+  /** 文件夹里有 record.json（已存 VP 成绩） */
+  hasRecord: boolean;
+  /** links.arenaPath（榜单关联） */
+  hasArenaPath: boolean;
+  /** 有旧 problem 子对象 */
+  hasChildProblem: boolean;
+  /** 5a-3 批量导入的来源路径 */
+  hasSourcePath: boolean;
+}
+
+export interface WorkMigrateProposalResult {
+  proposal: WorkMigrateProposal;
+  /** 命中的规则说明（预览展示用） */
+  rule: string;
+}
+
+/** 迁移提议规则（26 §3.2）：record / arenaPath / 旧子题 → 保持比赛；sourcePath → 题组；全无 → 待确认（提议题组） */
+export function workMigrateProposalOf(evidence: WorkMigrateEvidence): WorkMigrateProposalResult {
+  if (evidence.hasRecord) return { proposal: 'keep-contest', rule: '已保存成绩（record.json）' };
+  if (evidence.hasArenaPath) return { proposal: 'keep-contest', rule: '有榜单路径（links.arenaPath）' };
+  if (evidence.hasChildProblem) return { proposal: 'keep-contest', rule: '有旧子题目对象（problem）' };
+  if (evidence.hasSourcePath) return { proposal: 'to-problemset', rule: '批量导入的来源题组（sourcePath）' };
+  return { proposal: 'ambiguous', rule: '没有比赛证据也没有导入来源，需人工确认' };
+}
+
+export interface WorkMigratePreviewItemDto {
+  id: string;
+  title: string;
+  relPath: string;
+  kind: WorkKind;
+  proposal: WorkMigrateProposal;
+  rule: string;
+  ambiguous: boolean;
+  evidence: WorkMigrateEvidence;
+}
+
+export interface WorkMigratePreviewDto {
+  items: WorkMigratePreviewItemDto[];
+  counts: { contest: number; keep: number; toProblemset: number; ambiguous: number };
+}
+
+/** apply 只接受 contest → problemset；任一项失败不影响其它项 */
+export interface WorkMigrateApplyResultDto {
+  applied: Array<{ id: string; relPath: string }>;
+  failed: Array<{ id: string; message: string }>;
 }

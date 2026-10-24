@@ -19,6 +19,7 @@ import { WorkCreate, type WorkDialog } from './WorkCreate.tsx';
 import { WorkDetail } from './WorkDetail.tsx';
 import { WorkImport } from './WorkImport.tsx';
 import { WorkList } from './WorkList.tsx';
+import { WorkMigrate } from './WorkMigrate.tsx';
 import { KIND_NAME, KIND_ORDER, filterWorkObjects, kindCounts } from './derive.ts';
 import { importResultSummary } from './import-derive.ts';
 
@@ -136,6 +137,7 @@ export function Workbench() {
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
 
   const loadDetail = useCallback(async (id: string): Promise<void> => {
     setDetailLoading(true);
@@ -343,6 +345,18 @@ export function Workbench() {
           <Icon id="i-folder" />
           导入旧代码
         </button>
+        <button
+          className="btn btn--sm"
+          disabled={busy !== null}
+          onClick={() => {
+            setNotice(null);
+            setMigrateOpen(true);
+          }}
+          title="把 5a-3 导入的 contest 题组改成 problemset 对象（先预览，后确认）"
+        >
+          <Icon id="i-sync" />
+          题组迁移
+        </button>
         <button className="btn btn--primary btn--sm" disabled={busy !== null} onClick={() => setDialog({ mode: 'create' })}>
           <Icon id="i-plus" />
           新建
@@ -496,6 +510,7 @@ export function Workbench() {
                 taxonomy={tree.taxonomy}
                 taxonomyError={tree.taxonomyError}
                 parentTitle={parentTitle}
+                objects={tree.objects}
                 busy={busy}
                 onRetitle={(title) => {
                   if (detail !== null) void afterMutation('retitle', () => updateWork({ id: detail.id, title }));
@@ -509,6 +524,10 @@ export function Workbench() {
                 onArchive={(next) => {
                   if (detail !== null) void afterMutation('archive', () => updateWork({ id: detail.id, archived: next }));
                 }}
+                onSetParent={(parentId) => {
+                  if (detail !== null) void afterMutation('link', () => updateWork({ id: detail.id, parentId }));
+                }}
+                onSelectObject={(id) => selectObject(id)}
                 onTrash={() => {
                   if (detail === null) return;
                   const id = detail.id;
@@ -571,6 +590,19 @@ export function Workbench() {
             })();
           }}
           onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {migrateOpen ? (
+        <WorkMigrate
+          onDone={(text) => {
+            setMigrateOpen(false);
+            void (async () => {
+              await load(archived, false);
+              setNotice({ kind: 'ok', text });
+            })();
+          }}
+          onClose={() => setMigrateOpen(false)}
         />
       ) : null}
     </div>

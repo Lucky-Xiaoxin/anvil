@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import type { WorkObjectDetailDto, WorkOpenApp, WorkTaxonomyDto } from '@anvil/shared';
+import type { WorkObjectDetailDto, WorkObjectDto, WorkOpenApp, WorkTaxonomyDto } from '@anvil/shared';
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { TemplateEditor } from './TemplateEditor.tsx';
-import { fileSize, flatNodes, folderActionsOf, isoDate, nodeNameMap } from './derive.ts';
+import { KIND_NAME, WORK_SECTION, availableContests, fileSize, flatNodes, folderActionsOf, isoDate, linkedProblemsetOf, nodeNameMap, problemsetLinkOf } from './derive.ts';
 
 interface Props {
   detail: WorkObjectDetailDto;
   taxonomy: WorkTaxonomyDto | null;
   taxonomyError: string | null;
   parentTitle: string | null;
+  /** 全量对象：关联比赛选择器与「关联题组」展示用 */
+  objects: WorkObjectDto[];
   busy: string | null;
   onRetitle: (title: string) => void;
   onTags: (tags: { primary?: string | null; related?: string[] }) => void;
   onLabels: (labels: string[]) => void;
   onArchive: (archived: boolean) => void;
+  /** 仅题组：设置 / 清除关联比赛（null = 清除） */
+  onSetParent: (parentId: string | null) => void;
+  onSelectObject: (id: string) => void;
   onTrash: () => void;
   onOpen: (relPath?: string, app?: WorkOpenApp) => void;
   onOpenArena: (arenaPath: string) => void;
@@ -54,6 +59,8 @@ export function WorkDetail(props: Props) {
   const names = nodeNameMap(taxonomy);
   const primary = detail.tags.primary;
   const related = detail.tags.related;
+  const objectsById = new Map(props.objects.map((obj) => [obj.id, obj]));
+  const parentLink = detail.kind === 'problemset' ? problemsetLinkOf(detail, objectsById) : null;
 
   const saveTitle = (): void => {
     const next = title.trim();
@@ -133,7 +140,7 @@ export function WorkDetail(props: Props) {
           </button>
         )}
         <div className="wk-detail__meta">
-          <span className="wk-kind">{detail.kind === 'contest' ? '比赛' : detail.kind === 'problem' ? '题目' : detail.kind === 'template' ? '模板' : '笔记'}</span>
+          <span className="wk-kind">{KIND_NAME[detail.kind]}</span>
           {detail.archived ? <span className="wk-badge">已归档</span> : null}
           {!detail.archived && detail.effectiveArchived ? <span className="wk-badge">父对象归档</span> : null}
           <span className="wk-dot" />
@@ -279,19 +286,60 @@ export function WorkDetail(props: Props) {
         </div>
       </section>
 
-      {detail.links.problemKey !== undefined ||
+      {detail.kind === 'problemset' ||
+      detail.kind === 'contest' ||
+      detail.links.problemKey !== undefined ||
       detail.links.arenaPath !== undefined ||
       detail.sourcePath !== undefined ||
       props.parentTitle !== null ? (
         <section className="wk-sec">
           <div className="wk-sec__title">
             <span>关联</span>
+            {parentLink?.state === 'missing' ? <span className="wk-sec__note">{WORK_SECTION.linkMissing}；题组不受影响</span> : null}
           </div>
           <div className="wk-kv">
-            {props.parentTitle !== null ? (
+            {detail.kind === 'problem' && props.parentTitle !== null ? (
               <>
                 <span>父比赛</span>
                 <b>{props.parentTitle}</b>
+              </>
+            ) : null}
+            {detail.kind === 'contest' ? (
+              <>
+                <span>关联题组</span>
+                <b>
+                  {(() => {
+                    const linked = linkedProblemsetOf(detail, props.objects);
+                    return linked === null ? (
+                      <span className="wk-muted">无</span>
+                    ) : (
+                      <button className="wk-chip wk-chip--tag" title="跳到关联题组详情" onClick={() => props.onSelectObject(linked.id)}>
+                        {linked.title}
+                      </button>
+                    );
+                  })()}
+                </b>
+              </>
+            ) : null}
+            {detail.kind === 'problemset' ? (
+              <>
+                <span>关联比赛</span>
+                <b>
+                  <select
+                    className="wk-select wk-select--inline"
+                    value={parentLink?.state === 'ok' && detail.parentId !== null ? detail.parentId : ''}
+                    disabled={props.busy !== null}
+                    aria-label="关联比赛"
+                    onChange={(e) => props.onSetParent(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">无关联</option>
+                    {availableContests(props.objects, detail.id).map((contest) => (
+                      <option value={contest.id} key={contest.id}>
+                        {contest.title}
+                      </option>
+                    ))}
+                  </select>
+                </b>
               </>
             ) : null}
             {detail.sourcePath !== undefined ? (

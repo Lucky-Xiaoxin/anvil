@@ -95,12 +95,13 @@ const misc = candidate({
   selectedByDefault: false,
 });
 
-describe('列表用语（契约 §2.3 / §12.3）', () => {
-  it('题组 / 比赛题组 / 未分组题目 / 题目徽章', () => {
-    expect(WORK_SECTION.groups).toBe('比赛');
-    expect(WORK_SECTION.contestBadge).toBe('题组');
+describe('列表用语（26 §6.1：kind 分区）', () => {
+  it('比赛 / 题组 / 旧题目对象 / 题目徽章', () => {
+    expect(WORK_SECTION.contests).toBe('比赛');
+    expect(WORK_SECTION.problemSets).toBe('题组');
     expect(WORK_SECTION.ungrouped).toBe('旧题目对象');
     expect(WORK_SECTION.problemBadge).toBe('题目');
+    expect(WORK_SECTION.linkMissing).toBe('关联比赛不可用');
   });
 });
 

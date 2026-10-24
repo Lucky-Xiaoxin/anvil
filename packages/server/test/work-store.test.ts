@@ -758,3 +758,190 @@ describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
     expect(() => service.getArenaRecord(arenaPath)).toThrowError(/不一致/);
   });
 });
+
+describe('题组对象与关联（契约 26 §2 / §4 / §5）', () => {
+  it('problemset 落 practice/<YYYY-MM>/，可带关联比赛；arenaPath / templateId 拒绝', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai', arenaPath: 'official/icpc/x/y.srk.json' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    expect(set.kind).toBe('problemset');
+    expect(set.relPath).toBe('practice/2026-10/treedp');
+    expect(set.parentId).toBe(contest.id);
+    await expect(service.create({ kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.create({ kind: 'problemset', title: 'Bad', templateId: null })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.create({ kind: 'problemset', title: 'Bad', parentId: 'obj_0000000099' })).rejects.toMatchObject({ kind: 'parent-missing' });
+    // 0..1：同一比赛不能被第二个题组关联
+    await expect(service.create({ kind: 'problemset', title: 'Second', parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });
+    // 比赛不能带 parentId
+    await expect(service.create({ kind: 'contest', title: 'Bad', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
+  });
+
+  it('update 关联 / 换关联 / 清除关联；重复关联与非题组拒绝', async () => {
+    await initRoot();
+    const c1 = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const c2 = await service.create({ kind: 'contest', title: 'Nanjing' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP' });
+    expect(set.parentId).toBeNull();
+
+    const linked = await service.update({ id: set.id, parentId: c1.id });
+    expect(linked.parentId).toBe(c1.id);
+    const moved = await service.update({ id: set.id, parentId: c2.id });
+    expect(moved.parentId).toBe(c2.id);
+    // c1 已空出来，第二个题组可以关联；c2 被占用则拒绝
+    const other = await service.create({ kind: 'problemset', title: 'Other' });
+    await expect(service.update({ id: other.id, parentId: c2.id })).rejects.toMatchObject({ kind: 'conflict' });
+    const ok = await service.update({ id: other.id, parentId: c1.id });
+    expect(ok.parentId).toBe(c1.id);
+    // 清除后是普通题组，可再关联
+    const cleared = await service.update({ id: other.id, parentId: null });
+    expect(cleared.parentId).toBeNull();
+    // 非题组不能改关联；关联对象必须是 contest
+    await expect(service.update({ id: c1.id, parentId: null })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.update({ id: set.id, parentId: other.id })).rejects.toMatchObject({ kind: 'invalid' });
+  });
+
+  it('生命周期独立：归档 / 回收比赛不影响题组；旧 problem 归档继承不变', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    const problem = await service.create({ kind: 'problem', title: 'Cherry', parentId: contest.id });
+
+    await service.update({ id: contest.id, archived: true });
+    let tree = await service.tree();
+    const setRow = tree.objects.find((o) => o.id === set.id)!;
+    expect(setRow.archived).toBe(false);
+    expect(setRow.effectiveArchived).toBe(false);
+    // 旧 problem 继承归档 → 活动视图里隐藏，归档视图可见
+    expect(tree.objects.some((o) => o.id === problem.id)).toBe(false);
+    const archivedTree = await service.tree({ archived: true });
+    expect(archivedTree.objects.find((o) => o.id === problem.id)!.effectiveArchived).toBe(true);
+
+    await service.update({ id: contest.id, archived: false });
+    await service.trash(contest.id);
+    tree = await service.tree();
+    expect(tree.objects.some((o) => o.id === set.id)).toBe(true);
+    expect(tree.errors.some((e) => e.relPath === set.relPath && e.kind === 'parent-missing')).toBe(true);
+    // 关联仍在 meta 里，不自动清空
+    expect(tree.objects.find((o) => o.id === set.id)!.parentId).toBe(contest.id);
+  });
+
+  it('扫描：多个题组关联同一个比赛 → 全部报错；解除后消失', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const a = await service.create({ kind: 'problemset', title: 'A' });
+    const b = await service.create({ kind: 'problemset', title: 'B' });
+    // update 层会拒绝 0..1 违规；这里是外部改文件 / 旧数据造成的既有双关联
+    for (const set of [a, b]) {
+      const metaPath = join(absOf(set.relPath), '.anvil.json');
+      const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+      meta.parentId = contest.id;
+      writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    }
+    let tree = await service.tree({ rescan: true });
+    const dupErrors = tree.errors.filter((e) => e.message.includes('同一个比赛'));
+    expect(dupErrors).toHaveLength(2);
+    expect(tree.objects.filter((o) => o.kind === 'problemset')).toHaveLength(2);
+
+    // 解除其中一个（直接改回 meta），错误消失
+    const metaPath = join(absOf(b.relPath), '.anvil.json');
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    meta.parentId = null;
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    tree = await service.tree({ rescan: true });
+    expect(tree.errors.some((e) => e.message.includes('同一个比赛'))).toBe(false);
+  });
+});
+
+describe('角色迁移（契约 26 §3）', () => {
+  /** 手工写一份带 sourcePath 的 contest meta（模拟 5a-3 导入产物） */
+  async function seedSourcedContest(id: string, relPath: string, title: string, createdAt: string, updatedAt: string): Promise<void> {
+    writeFileSync(
+      join(absOf(relPath), '.anvil.json'),
+      JSON.stringify(
+        {
+          schema: 1,
+          id,
+          kind: 'contest',
+          title,
+          createdAt,
+          updatedAt,
+          parentId: null,
+          tags: { primary: null, related: [] },
+          labels: [],
+          links: {},
+          archived: false,
+          sourcePath: '2026/10/10.ptc',
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  it('preview 只读：record / arenaPath / sourcePath / 无证据分别命中规则', async () => {
+    await initRoot();
+    const withRecord = await service.create({ kind: 'contest', title: '有成绩', arenaPath: 'official/icpc/x/y.srk.json' });
+    writeFileSync(join(absOf(withRecord.relPath), 'record.json'), '{}');
+    await service.create({ kind: 'contest', title: '只有榜单', arenaPath: 'official/icpc/x/z.srk.json' });
+    const imported = await service.create({ kind: 'contest', title: '导入题组' });
+    await seedSourcedContest(imported.id, imported.relPath, '导入题组', imported.createdAt, imported.updatedAt);
+    await service.create({ kind: 'contest', title: '手写旧题组' });
+    const note = await service.create({ kind: 'note', title: '笔记' });
+
+    const preview = service.migratePreview();
+    // preview 是只读的：对象数不变、meta 未被改写
+    expect((await service.tree()).objects).toHaveLength(5);
+    expect(JSON.parse(readFileSync(join(absOf(imported.relPath), '.anvil.json'), 'utf8')).kind).toBe('contest');
+
+    expect(preview.counts).toEqual({ contest: 4, keep: 2, toProblemset: 1, ambiguous: 1 });
+    const byTitle = new Map(preview.items.map((item) => [item.title, item]));
+    expect(byTitle.get('有成绩')?.proposal).toBe('keep-contest');
+    expect(byTitle.get('只有榜单')?.proposal).toBe('keep-contest');
+    expect(byTitle.get('导入题组')).toMatchObject({ proposal: 'to-problemset', ambiguous: false });
+    expect(byTitle.get('导入题组')?.evidence.hasSourcePath).toBe(true);
+    expect(byTitle.get('手写旧题组')).toMatchObject({ proposal: 'ambiguous', ambiguous: true });
+    expect(byTitle.has('笔记')).toBe(false);
+    expect(note.kind).toBe('note');
+  });
+
+  it('apply 只改 kind：路径 / updatedAt / sourcePath 不动；歧义项不自动应用；非 contest 拒绝', async () => {
+    await initRoot();
+    const imported = await service.create({ kind: 'contest', title: '导入题组' });
+    await seedSourcedContest(imported.id, imported.relPath, '导入题组', imported.createdAt, imported.updatedAt);
+    const bare = await service.create({ kind: 'contest', title: '手写旧题组' });
+    const before = JSON.parse(readFileSync(join(absOf(imported.relPath), '.anvil.json'), 'utf8'));
+
+    // confirm 缺失直接拒绝
+    await expect(service.migrateApply({ ids: [imported.id], confirm: false })).rejects.toMatchObject({ kind: 'invalid' });
+    const result = await service.migrateApply({ ids: [imported.id], confirm: true });
+    expect(result.applied).toEqual([{ id: imported.id, relPath: imported.relPath }]);
+    expect(result.failed).toEqual([]);
+
+    const after = JSON.parse(readFileSync(join(absOf(imported.relPath), '.anvil.json'), 'utf8'));
+    expect(after.kind).toBe('problemset');
+    expect(after.sourcePath).toBe('2026/10/10.ptc');
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(after.createdAt).toBe(before.createdAt);
+    expect(service.object(imported.id).relPath).toBe(imported.relPath);
+
+    // 未选中的 bare 仍是 contest；选它才迁移
+    expect((await service.tree()).objects.find((o) => o.id === bare.id)!.kind).toBe('contest');
+    const second = await service.migrateApply({ ids: [bare.id], confirm: true });
+    expect(second.applied).toHaveLength(1);
+
+    // kind 迁移后不可变：再跑一次失败；模板 / 笔记不可迁移
+    const again = await service.migrateApply({ ids: [imported.id], confirm: true });
+    expect(again.applied).toHaveLength(0);
+    expect(again.failed[0]!.message).toContain('problemset');
+    const note = await service.create({ kind: 'note', title: '笔记' });
+    const third = await service.migrateApply({ ids: [note.id], confirm: true });
+    expect(third.applied).toHaveLength(0);
+    expect(third.failed[0]!.message).toContain('note');
+
+    // 部分 ID 不存在 → 该项失败，其他成功
+    const fresh = await service.create({ kind: 'contest', title: 'Fresh' });
+    const fourth = await service.migrateApply({ ids: ['obj_0000000099', fresh.id], confirm: true });
+    expect(fourth.applied).toEqual([{ id: fresh.id, relPath: fresh.relPath }]);
+    expect(fourth.failed).toEqual([{ id: 'obj_0000000099', message: '对象不存在' }]);
+  });
+});

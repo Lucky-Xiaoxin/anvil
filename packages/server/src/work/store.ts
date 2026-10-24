@@ -23,6 +23,7 @@ import {
   unregisteredKindHint,
   workIdOk,
   workMetaToJson,
+  workMigrateProposalOf,
   WORK_TEMPLATE_CONTENT_MAX,
   type WorkArenaGhost,
   type WorkArenaRecordDto,
@@ -37,6 +38,9 @@ import {
   type WorkOpenApp,
   type WorkMeta,
   type WorkMetaRecord,
+  type WorkMigrateApplyResultDto,
+  type WorkMigratePreviewDto,
+  type WorkMigratePreviewItemDto,
   type WorkObjectDetailDto,
   type WorkObjectDto,
   type WorkScanErrorDto,
@@ -93,6 +97,8 @@ export interface WorkAdoptInput {
   relPath: string;
   kind: WorkKind;
   title?: string;
+  /** 仅 problemset：可选关联的比赛（逻辑 parentId，不搬目录） */
+  parentId?: string | null;
 }
 
 export interface WorkUpdateInput {
@@ -101,6 +107,8 @@ export interface WorkUpdateInput {
   tags?: { primary?: string | null; related?: string[] };
   labels?: unknown;
   archived?: boolean;
+  /** 仅 problemset：null = 清除关联 */
+  parentId?: string | null;
 }
 
 export interface WorkInitInput {
@@ -475,6 +483,15 @@ export class WorkService {
     return this.enqueue(() => this.updateNow(input));
   }
 
+  /** 5a-4 角色迁移预览：只读，不改任何文件（契约 26 §3.1） */
+  migratePreview(): WorkMigratePreviewDto {
+    return this.migratePreviewOf(this.ensureIndex());
+  }
+
+  migrateApply(input: { ids: string[]; confirm: boolean }): Promise<WorkMigrateApplyResultDto> {
+    return this.enqueue(() => this.migrateApplyNow(input));
+  }
+
   trash(id: string): Promise<{ id: string; trashName: string }> {
     return this.enqueue(() => this.trashNow(id));
   }
@@ -515,7 +532,9 @@ export class WorkService {
     const root = idx.root;
     const kind = input.kind;
     if (!isWorkKind(kind)) throw new WorkError('invalid', 'kind 不合法');
-    if (kind !== 'problem' && input.parentId !== undefined) throw new WorkError('invalid', '只有 problem 可以指定 parentId');
+    if (kind !== 'problem' && kind !== 'problemset' && input.parentId !== undefined) {
+      throw new WorkError('invalid', '只有 problemset / problem 可以指定 parentId');
+    }
     if (kind !== 'problem' && (input.problemKey !== undefined || input.templateId !== undefined)) {
       throw new WorkError('invalid', 'problemKey / templateId 只属于 problem');
     }
@@ -530,9 +549,20 @@ export class WorkService {
     let parent: IndexedObject | null = null;
     if (input.parentId !== undefined && input.parentId !== '') {
       parent = idx.byId.get(input.parentId) ?? null;
-      if (parent === null) throw new WorkError('parent-missing', '父比赛不存在');
-      if (parent.record.meta.kind !== 'contest') throw new WorkError('invalid', '父对象必须是 contest');
-      if (parent.effectiveArchived) throw new WorkError('invalid', '父比赛已归档，不能往里建题');
+      if (parent === null) {
+        throw new WorkError('parent-missing', kind === 'problemset' ? '关联的比赛不存在' : '父比赛不存在');
+      }
+      if (parent.record.meta.kind !== 'contest') {
+        throw new WorkError('invalid', kind === 'problemset' ? '关联对象必须是 contest' : '父对象必须是 contest');
+      }
+      if (kind === 'problem' && parent.effectiveArchived) throw new WorkError('invalid', '父比赛已归档，不能往里建题');
+      if (kind === 'problemset') {
+        // 0..1：一个比赛最多被一个题组关联（26 §2.3）
+        const taken = idx.objects.some(
+          (obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.parentId === parent!.record.meta.id,
+        );
+        if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+      }
     }
 
     let title = input.title === undefined ? '' : input.title.trim();
@@ -760,6 +790,19 @@ export class WorkService {
     const idx = this.ensureIndex();
     const root = idx.root;
     if (!isWorkKind(input.kind)) throw new WorkError('invalid', 'kind 不合法');
+    // 关联比赛是显式选择（26 §4.2），不根据目标目录位置推断
+    if (input.parentId !== undefined && input.parentId !== null && input.parentId !== '' && input.kind !== 'problemset') {
+      throw new WorkError('invalid', '只有 problemset 可以指定关联比赛');
+    }
+    let linkParentId: string | null = null;
+    if (input.kind === 'problemset' && input.parentId !== undefined && input.parentId !== null && input.parentId !== '') {
+      const linked = idx.byId.get(input.parentId) ?? null;
+      if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
+      if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
+      const taken = idx.objects.some((obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.parentId === linked.record.meta.id);
+      if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+      linkParentId = linked.record.meta.id;
+    }
     const abs = resolveInside(root, input.relPath);
     const st = lstatOrNull(abs);
     if (st === null) throw new WorkError('not-found', '要登记的目标不存在');
@@ -801,7 +844,7 @@ export class WorkService {
       title,
       createdAt: now,
       updatedAt: now,
-      parentId: parent === null ? null : parent.record.meta.id,
+      parentId: input.kind === 'problemset' ? linkParentId : parent === null ? null : parent.record.meta.id,
       tags: { primary: null, related: [] },
       labels: [],
       links: {},
@@ -885,6 +928,28 @@ export class WorkService {
       }
     }
 
+    if (input.parentId !== undefined) {
+      // 只有题组能改关联（26 §4.2）；旧 problem 的物理父子不改，比赛 / 模板 / 笔记没有关联
+      if (current.kind !== 'problemset') throw new WorkError('invalid', '只有题组可以修改关联比赛');
+      let nextParentId: string | null = null;
+      if (input.parentId !== null && input.parentId !== '') {
+        if (!workIdOk(input.parentId)) throw new WorkError('invalid', 'parentId 形状不合法');
+        if (input.parentId === current.id) throw new WorkError('invalid', '题组不能关联自己');
+        const linked = idx.byId.get(input.parentId) ?? null;
+        if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
+        if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
+        const taken = idx.objects.some(
+          (obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.id !== current.id && obj.record.meta.parentId === linked.record.meta.id,
+        );
+        if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+        nextParentId = linked.record.meta.id;
+      }
+      if (next.parentId !== nextParentId) {
+        next.parentId = nextParentId;
+        changed = true;
+      }
+    }
+
     if (!changed) return this.detailOf(obj);
     next.updatedAt = this.nowDate().toISOString();
     const record: WorkMetaRecord = { meta: next, raw: obj.record.raw };
@@ -893,6 +958,84 @@ export class WorkService {
     const updated = fresh.byId.get(next.id);
     if (updated === undefined) throw new WorkError('internal', '更新后对象没有进入索引');
     return this.detailOf(updated);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 5a-4：角色迁移（契约 26 §3）                                          */
+  /* ------------------------------------------------------------------ */
+
+  private migratePreviewOf(idx: WorkIndex): WorkMigratePreviewDto {
+    const items: WorkMigratePreviewItemDto[] = [];
+    for (const obj of idx.objects) {
+      const meta = obj.record.meta;
+      if (meta.kind !== 'contest') continue; // 只迁移 contest（26 §3.1）
+      const evidence = {
+        hasRecord: lstatOrNull(join(obj.absPath, 'record.json')) !== null,
+        hasArenaPath: meta.links.arenaPath !== undefined,
+        hasChildProblem: idx.objects.some((o) => o.record.meta.kind === 'problem' && o.record.meta.parentId === meta.id),
+        hasSourcePath: meta.sourcePath !== undefined,
+      };
+      const { proposal, rule } = workMigrateProposalOf(evidence);
+      items.push({
+        id: meta.id,
+        title: meta.title,
+        relPath: obj.relPath,
+        kind: meta.kind,
+        proposal,
+        rule,
+        ambiguous: proposal === 'ambiguous',
+        evidence,
+      });
+    }
+    return {
+      items,
+      counts: {
+        contest: items.length,
+        keep: items.filter((item) => item.proposal === 'keep-contest').length,
+        toProblemset: items.filter((item) => item.proposal === 'to-problemset').length,
+        ambiguous: items.filter((item) => item.proposal === 'ambiguous').length,
+      },
+    };
+  }
+
+  private migrateApplyNow(input: { ids: string[]; confirm: boolean }): WorkMigrateApplyResultDto {
+    if (input.confirm !== true) throw new WorkError('invalid', '迁移必须显式确认（confirm: true）');
+    if (!Array.isArray(input.ids)) throw new WorkError('invalid', 'ids 必须是数组');
+    const idx = this.ensureIndex();
+    const applied: WorkMigrateApplyResultDto['applied'] = [];
+    const failed: WorkMigrateApplyResultDto['failed'] = [];
+    const seen = new Set<string>();
+    for (const id of input.ids) {
+      if (typeof id !== 'string' || !workIdOk(id)) {
+        failed.push({ id: String(id), message: 'id 形状不合法' });
+        continue;
+      }
+      if (seen.has(id)) {
+        failed.push({ id, message: 'id 重复' });
+        continue;
+      }
+      seen.add(id);
+      const obj = idx.byId.get(id);
+      if (obj === undefined) {
+        failed.push({ id, message: '对象不存在' });
+        continue;
+      }
+      const currentKind = obj.record.meta.kind;
+      if (currentKind !== 'contest') {
+        failed.push({ id, message: `只允许 contest → problemset，当前是 ${currentKind}` });
+        continue;
+      }
+      try {
+        // 只改 meta 的 kind：路径 / 文件名 / updatedAt / sourcePath 全部保持（26 §3.1）
+        const record: WorkMetaRecord = { meta: { ...obj.record.meta, kind: 'problemset' }, raw: obj.record.raw };
+        writeFileAtomic(join(obj.absPath, '.anvil.json'), `${JSON.stringify(workMetaToJson(record), null, 2)}\n`);
+        applied.push({ id, relPath: obj.relPath });
+      } catch (err) {
+        failed.push({ id, message: `写入失败：${asError(err).message}` });
+      }
+    }
+    if (applied.length > 0) this.refreshIndex();
+    return { applied, failed };
   }
 
   private trashNow(id: string): { id: string; trashName: string } {
@@ -1109,10 +1252,28 @@ export class WorkService {
       if (parentId === null) continue;
       const parent = byId.get(parentId);
       if (parent === undefined) {
-        errors.push({ relPath: obj.relPath, kind: 'parent-missing', message: `parentId 指向不存在的对象：${parentId}` });
+        // 题组的关联比赛缺失（被回收 / 外部删除）只警告：对象保留，可继续使用（26 §2.3）
+        const message =
+          obj.record.meta.kind === 'problemset'
+            ? `关联的比赛不存在（对象保留）：${parentId}`
+            : `parentId 指向不存在的对象：${parentId}`;
+        errors.push({ relPath: obj.relPath, kind: 'parent-missing', message });
       } else if (parent.record.meta.kind !== 'contest') {
         errors.push({ relPath: obj.relPath, kind: 'meta-invalid', message: 'parentId 指向的对象不是 contest' });
         dropped.add(obj.relPath);
+      }
+    }
+
+    // 0..1：多个题组关联同一个比赛 → 全部报错，不自动选择（26 §4.4）
+    const linkedCount = new Map<string, number>();
+    for (const obj of objects) {
+      if (obj.record.meta.kind !== 'problemset' || obj.record.meta.parentId === null || dropped.has(obj.relPath)) continue;
+      linkedCount.set(obj.record.meta.parentId, (linkedCount.get(obj.record.meta.parentId) ?? 0) + 1);
+    }
+    for (const obj of objects) {
+      if (obj.record.meta.kind !== 'problemset' || obj.record.meta.parentId === null || dropped.has(obj.relPath)) continue;
+      if ((linkedCount.get(obj.record.meta.parentId) ?? 0) > 1) {
+        errors.push({ relPath: obj.relPath, kind: 'meta-invalid', message: '多个题组关联了同一个比赛（一个比赛最多关联一个题组）' });
       }
     }
 
@@ -1131,6 +1292,8 @@ export class WorkService {
       for (const obj of objects) {
         const parentId = obj.record.meta.parentId;
         if (parentId === null) continue;
+        // 生命周期独立（26 §5.1）：只有旧 problem 继承父对象归档；题组只看自己
+        if (obj.record.meta.kind !== 'problem') continue;
         const parent = byId.get(parentId);
         if (parent !== undefined && parent.effectiveArchived) obj.effectiveArchived = true;
       }

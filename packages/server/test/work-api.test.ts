@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -301,7 +301,8 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(result.units[0].objects).toHaveLength(1);
     const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
     expect(tree.objects).toHaveLength(1);
-    expect(tree.objects[0].kind).toBe('contest');
+    // 5a-4：导入生成 problemset（契约 26 §4.3）
+    expect(tree.objects[0].kind).toBe('problemset');
 
     res = await post('/api/work/import/commit', {
       planId: plan.planId,
@@ -379,7 +380,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().units.filter((unit: { status: string }) => unit.status === 'success')).toHaveLength(2);
 
     const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
-    const contests = tree.objects.filter((obj: { kind: string }) => obj.kind === 'contest');
+    const contests = tree.objects.filter((obj: { kind: string }) => obj.kind === 'problemset');
     expect(contests.map((obj: { sourcePath: string }) => obj.sourcePath).sort()).toEqual(['2026/feb', '2026/jan']);
 
     const conflictPlan = (await post('/api/work/import/scan', { sourceRoot: src })).json();
@@ -458,5 +459,81 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
       view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('题组 API：create / adopt / update 的 kind 与 parentId 校验；关联 / 清除（契约 26 §9.3）', async () => {
+    await boot();
+    await initApi();
+    const contest = await create('contest', 'Shanghai');
+
+    // create 带关联；arenaPath 拒绝
+    let res = await post('/api/work/create', { kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(200);
+    const set = res.json();
+    expect(set.kind).toBe('problemset');
+    expect(set.parentId).toBe(contest.id);
+    res = await post('/api/work/create', { kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' });
+    expect(res.statusCode).toBe(400);
+
+    // adopt：明确登记为题组（practice 未登记目录现在 hint problemset）
+    const dir = join(root, 'practice', '2026-10', 'adopted');
+    mkdirSync(dir, { recursive: true });
+    res = await post('/api/work/adopt', { relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(409); // 比赛已被第一个题组占用（0..1）
+
+    const contest2 = await create('contest', 'Nanjing');
+    res = await post('/api/work/adopt', { relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest2.id });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().kind).toBe('problemset');
+    expect(res.json().parentId).toBe(contest2.id);
+
+    // update 关联 / 清除；非题组拒绝
+    res = await post('/api/work/update', { id: contest.id, parentId: null });
+    expect(res.statusCode).toBe(400);
+    res = await post('/api/work/update', { id: set.id, parentId: null });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().parentId).toBeNull();
+    res = await post('/api/work/update', { id: set.id, parentId: contest2.id });
+    expect(res.statusCode).toBe(409); // 已被 adopted 占用
+  });
+
+  it('migrate：preview 只读 / apply 只改 kind / 部分成功 / 非法 body（契约 26 §9.3）', async () => {
+    await boot();
+    await initApi();
+    const imported = await create('contest', '导入题组');
+    const keep = await create('contest', '有成绩', { arenaPath: 'official/icpc/x/y.srk.json' });
+    writeFileSync(join(root, ...keep.relPath.split('/'), 'record.json'), '{}');
+    const importedMeta = join(root, ...imported.relPath.split('/'), '.anvil.json');
+    const raw = JSON.parse(readFileSync(importedMeta, 'utf8'));
+    raw.sourcePath = '2026/10/10.ptc';
+    writeFileSync(importedMeta, JSON.stringify(raw, null, 2));
+    await app.inject({ method: 'POST', url: '/api/work/rescan' });
+
+    let res = await app.inject({ method: 'GET', url: '/api/work/migrate/preview' });
+    expect(res.statusCode, res.body).toBe(200);
+    const preview = res.json();
+    expect(preview.counts).toEqual({ contest: 2, keep: 1, toProblemset: 1, ambiguous: 0 });
+    // preview 后 meta 未动
+    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).kind).toBe('contest');
+
+    res = await post('/api/work/migrate/apply', { ids: [imported.id], confirm: false });
+    expect(res.statusCode).toBe(400);
+
+    res = await post('/api/work/migrate/apply', { ids: [imported.id, 'obj_0000000099'], confirm: true });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().applied).toEqual([{ id: imported.id, relPath: imported.relPath }]);
+    expect(res.json().failed).toEqual([{ id: 'obj_0000000099', message: '对象不存在' }]);
+
+    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).kind).toBe('problemset');
+    expect(JSON.parse(readFileSync(importedMeta, 'utf8')).sourcePath).toBe('2026/10/10.ptc');
+
+    // kind 不可逆：再跑该项失败
+    res = await post('/api/work/migrate/apply', { ids: [imported.id], confirm: true });
+    expect(res.json().applied).toHaveLength(0);
+    expect(res.json().failed[0].message).toContain('problemset');
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    expect(tree.objects.find((obj: { id: string }) => obj.id === imported.id).relPath).toBe(imported.relPath);
+    expect(tree.objects.find((obj: { id: string }) => obj.id === keep.id).kind).toBe('contest');
   });
 });

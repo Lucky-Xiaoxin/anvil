@@ -259,9 +259,10 @@ describe('提交：整目录发布成一个题组', () => {
     const tree = await service.tree();
     expect(tree.objects).toHaveLength(1);
     const contest = tree.objects[0]!;
-    expect(contest.kind).toBe('contest');
+    // 5a-4：批量导入生成 problemset，落在 practice/<YYYY-MM>/（契约 26 §4.3 / §2.1）
+    expect(contest.kind).toBe('problemset');
     expect(contest.title).toBe('old-code');
-    expect(contest.relPath).toBe('contests/2026-10-22_old-code');
+    expect(contest.relPath).toBe('practice/2026-10/old-code');
     expect(contest.fileCount).toBe(5);
     expect(contest.sourceCount).toBe(2);
     expect(contest.parentId).toBeNull();
@@ -280,7 +281,7 @@ describe('提交：整目录发布成一个题组', () => {
     expect((units[0]!.targetRelPaths as string[]).length).toBe(1);
     const items = manifest.items as Array<Record<string, unknown>>;
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ action: 'import', status: 'success', kind: 'contest', targetRelPath: contest.relPath });
+    expect(items[0]).toMatchObject({ action: 'import', status: 'success', kind: 'problemset', targetRelPath: contest.relPath });
     expect((items[0]!.fingerprint as string)).toHaveLength(64);
   });
 
@@ -403,8 +404,8 @@ describe('提交：整目录发布成一个题组', () => {
     });
     expect(result.units[0]!.status).toBe('success');
     expect((await service.tree()).objects.map((obj) => obj.relPath).sort()).toEqual([
-      'contests/2026-10-22_old-code',
-      'contests/2026-10-22_old-code-2',
+      'practice/2026-10/old-code',
+      'practice/2026-10/old-code-2',
     ]);
   });
 
@@ -547,7 +548,7 @@ describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
     ]);
   });
 
-  it('一次提交多个叶子题组：平铺在 contests/，sourcePath 写进 meta 并在重扫后保留', async () => {
+  it('一次提交多个叶子题组：平铺在 practice/，kind=problemset，sourcePath 写进 meta 并在重扫后保留', async () => {
     seedBatch();
     const plan = await scan();
     const result = await commitDefault(plan);
@@ -556,7 +557,7 @@ describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
     expect(result.skipped.every((item) => item.kind === 'user')).toBe(true);
 
     const tree = await service.tree({ rescan: true });
-    const contests = tree.objects.filter((obj) => obj.kind === 'contest');
+    const contests = tree.objects.filter((obj) => obj.kind === 'problemset');
     expect(contests).toHaveLength(5);
     expect(contests.every((obj) => obj.parentId === null)).toBe(true);
     expect(tree.objects.some((obj) => obj.kind === 'problem')).toBe(false);
@@ -567,7 +568,8 @@ describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
       '2026/7',
       '2026_ICPC_1',
     ]);
-    expect(contests.every((obj) => obj.relPath.startsWith('contests/'))).toBe(true);
+    // 扁平落盘：只在 practice/<YYYY-MM>/ 下，不复制来源目录结构（契约 25 §1.4 / 26 §2.1）
+    expect(contests.every((obj) => obj.relPath.startsWith('practice/'))).toBe(true);
     expect(contests.every((obj) => !/\/2026\//.test(obj.relPath))).toBe(true);
 
     const contest = contests.find((obj) => obj.sourcePath === '2026/10/10.ptc')!;
@@ -779,8 +781,8 @@ describe('批量题组导入（5a-3 契约 §4 / §5 / §7）', () => {
     const tree = await service.tree({ rescan: true });
     expect(tree.objects.map((obj) => obj.sourcePath).sort()).toEqual(['2026/1/A', '2026/2/A']);
     expect(tree.objects.map((obj) => obj.relPath).sort()).toEqual([
-      'contests/2026-10-22_a',
-      'contests/2026-10-22_a-2',
+      'practice/2026-10/a',
+      'practice/2026-10/a-2',
     ]);
   });
 
@@ -846,11 +848,11 @@ describe('目标路径安全边界（junction 不得写去受管根外）', () =
     }
   }
 
-  it('contests 桶是 junction：提交拒绝，根外零写入', async () => {
+  it('practice 桶（5a-4 起导入目标）是 junction：提交拒绝，根外零写入', async () => {
     seedGroup();
-    const contestsAbs = join(root, 'contests');
-    rmSync(contestsAbs, { recursive: true, force: true });
-    const outside = linkOutside('outside-contests', contestsAbs);
+    const practiceAbs = join(root, 'practice');
+    rmSync(practiceAbs, { recursive: true, force: true });
+    const outside = linkOutside('outside-practice', practiceAbs);
     if (outside === null) return;
 
     const plan = await scan();
