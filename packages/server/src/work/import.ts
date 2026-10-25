@@ -34,7 +34,6 @@ import {
   WORK_IMPORT_PLAN_TTL_MS,
   type BatchImportCandidatePlan,
   type BatchImportSelectableCandidate,
-  type ImportCandidatePlan,
   type ResolvedBatchImportItem,
   type ImportFingerprintEntry,
   type ImportTree,
@@ -94,7 +93,6 @@ interface PlanItem {
   confidence: 'high' | 'low';
   reasons: string[];
   parentItemId: string | null;
-  childItemIds: string[];
   importScope: WorkImportScope;
   sourceParentRelPath: string | null;
   isContainer: boolean;
@@ -125,23 +123,18 @@ interface ImportPlan {
 interface PreparedObject {
   itemId: string;
   objectId: string;
-  /** 5a-4 起批量导入生成 problemset（26 §4.3）；旧 manifest 里的历史 kind 不重写 */
-  kind: 'contest' | 'problemset' | 'problem';
   title: string;
-  sourceRelPath: string;
   /** 导入来源（源根相对 POSIX）；源根自身 / 手动对象没有 */
   sourcePath?: string;
   targetRelPath: string;
-  parentObjectId: string | null;
   ownedFiles: ImportFile[];
 }
 
 interface PreparedUnit {
   unitId: string;
-  contestItemId: string | null;
   items: PlanItem[];
   objects: PreparedObject[];
-  /** 单个对象的目标相对路径（contest 为比赛根） */
+  /** 单个对象的目标相对路径 */
   targetRelPath: string;
   skip: { objectId?: string; reason: string } | null;
 }
@@ -378,7 +371,6 @@ export class WorkImportService {
         confidence: candidate.confidence,
         reasons: [...candidate.reasons],
         parentItemId: candidate.parentItemId,
-        childItemIds: [],
         importScope: candidate.importScope,
         sourceParentRelPath: candidate.sourceParentRelPath,
         isContainer: candidate.isContainer,
@@ -643,7 +635,6 @@ export class WorkImportService {
         const objectId = committedSame?.objectId ?? planItem.duplicate?.objectId;
         prepared.push({
           unitId: unitPlan.unitId,
-          contestItemId: null,
           items: [planItem],
           objects: [],
           targetRelPath: '',
@@ -652,22 +643,18 @@ export class WorkImportService {
         continue;
       }
 
-      const rel = this.allocateTarget(plan.root, usedTargets, 'problemset', { title: resolvedItem.title, date: now });
+      const rel = this.allocateTarget(plan.root, usedTargets, { title: resolvedItem.title, date: now });
       const sourcePath = sourcePathOf(planItem.sourceRelPath);
       prepared.push({
         unitId: unitPlan.unitId,
-        contestItemId: null,
         items: [planItem],
         objects: [
           {
             itemId: planItem.itemId,
             objectId: this.newObjectId(usedObjectIds),
-            kind: 'problemset',
             title: resolvedItem.title,
-            sourceRelPath: planItem.sourceRelPath,
             ...(sourcePath === undefined ? {} : { sourcePath }),
             targetRelPath: rel,
-            parentObjectId: null,
             ownedFiles: planItem.ownedFiles,
           },
         ],
@@ -893,7 +880,7 @@ export class WorkImportService {
 
     for (const object of unit.objects) {
       if (!isSafeRelRelPath(object.targetRelPath)) throw new WorkError('import-conflict', '目标路径不合法');
-      const objectDir = this.objectStagingDir(unitDir, unit, object);
+      const objectDir = unitDir;
       mkdirSync(objectDir, { recursive: true });
       for (const file of object.ownedFiles) {
         if (!isSafeRelRelPath(file.targetPath)) throw new WorkError('import-conflict', '文件相对路径不合法');
@@ -916,28 +903,21 @@ export class WorkImportService {
     }
 
     for (const object of unit.objects) {
-      const objectDir = this.objectStagingDir(unitDir, unit, object);
+      const objectDir = unitDir;
       const meta = this.metaOf(object, createdIso);
       writeFileAtomic(join(objectDir, '.anvil.json'), `${JSON.stringify(workMetaToJson(meta), null, 2)}\n`);
     }
-  }
-
-  private objectStagingDir(unitDir: string, unit: PreparedUnit, object: PreparedObject): string {
-    if (unit.contestItemId === null || object.kind === 'contest') return unitDir;
-    const name = basename(object.targetRelPath);
-    if (!/^[a-z0-9_-]+$/.test(name)) throw new WorkError('import-conflict', '子题目录名不合法');
-    return join(unitDir, name);
   }
 
   private metaOf(object: PreparedObject, iso: string): WorkMetaRecord {
     const meta: WorkMeta = {
       schema: 1,
       id: object.objectId,
-      kind: object.kind,
+      kind: 'problemset',
       title: object.title,
       createdAt: iso,
       updatedAt: iso,
-      parentId: object.parentObjectId,
+      parentId: null,
       tags: { primary: null, related: [] },
       labels: [],
       links: {},
@@ -1418,13 +1398,12 @@ export class WorkImportService {
   private allocateTarget(
     root: string,
     used: Set<string>,
-    kind: 'contest' | 'problemset' | 'problem',
-    input: { title: string; parentRelPath?: string; date: Date },
+    input: { title: string; date: Date },
   ): string {
-    const base = buildWorkRelPath(kind, input);
+    const base = buildWorkRelPath('problemset', input);
     if (!base.ok) throw new WorkError('import-conflict', base.message);
     const trySlug = (slug: string): string | null => {
-      const built = buildWorkRelPath(kind, { ...input, slugOverride: slug });
+      const built = buildWorkRelPath('problemset', { ...input, slugOverride: slug });
       if (!built.ok) return null;
       const rel = built.value.relPath;
       if (used.has(rel)) return null;

@@ -188,8 +188,6 @@ describe('扫描：一个目录 = 一个题组', () => {
     expect(plan.totals).toMatchObject({ files: 5, candidates: 1, ignored: 0 });
     expect(plan.items).toHaveLength(1);
     const item = plan.items[0]!;
-    expect(item.shape).toBe('contest-group');
-    expect(item.role).toBe('contest');
     expect(item.sourceRelPath).toBe('');
     expect(item.suggestedTitle).toBe('old-code');
     expect(item.files).toBe(5);
