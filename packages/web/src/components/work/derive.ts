@@ -21,6 +21,7 @@ export const WORK_SECTION = {
   notes: '笔记',
   problemBadge: '题目',
   linkMissing: '关联比赛不可用',
+  linkArchived: '关联比赛已归档',
 } as const;
 
 export interface FlatNode {
@@ -285,41 +286,51 @@ export function folderActionsOf(kind: WorkKind): WorkFolderAction[] {
   return [{ app: 'auto', label: '打开文件夹' }];
 }
 
-/** 比赛行的源码计数（26 §6.1）：不再叫「题组」，有旧子题时仍显示题数 */
-export function contestCountLabel(contest: WorkObjectDto, childCount: number): string {
-  if (childCount > 0) return `${childCount} 题`;
-  if (contest.sourceCount > 0) return `${contest.sourceCount} 个源码`;
-  return '';
+/** 比赛行的行尾摘要（27 §2.2）：旧子题数 + 关联题组数，都为 0 时退回源码计数 */
+export function contestCountLabel(contest: WorkObjectDto, childCount: number, setCount: number): string {
+  const parts: string[] = [];
+  if (childCount > 0) parts.push(`${childCount} 题`);
+  if (setCount > 0) parts.push(`题组 ${setCount}`);
+  if (parts.length === 0 && contest.sourceCount > 0) return `${contest.sourceCount} 个源码`;
+  return parts.join(' · ');
 }
 
-/* ---------- 5a-4：关联比赛（0..1，逻辑 parentId） ---------- */
+/* ---------- 5a-4 / 5a-5：关联比赛（题组 0..1 → 比赛，比赛侧 0..n，逻辑 parentId） ---------- */
 
 export interface ProblemsetLink {
-  state: 'none' | 'ok' | 'missing';
+  state: 'none' | 'ok' | 'archived' | 'missing';
   contest: WorkObjectDto | null;
 }
 
-/** 题组 → 关联比赛；父对象不在索引（被回收 / 删除）时是 missing，题组照常可用 */
+/**
+ * 题组 → 关联比赛（27 §2.3）。父对象不在索引（被回收 / 删除）时是 missing；
+ * 父对象归档时是 archived——不是缺失，题组照常可用，关联只读。
+ */
 export function problemsetLinkOf(obj: WorkObjectDto, byId: ReadonlyMap<string, WorkObjectDto>): ProblemsetLink {
   if (obj.kind !== 'problemset' || obj.parentId === null) return { state: 'none', contest: null };
   const contest = byId.get(obj.parentId) ?? null;
   if (contest === null || contest.kind !== 'contest') return { state: 'missing', contest: null };
+  if (contest.effectiveArchived) return { state: 'archived', contest };
   return { state: 'ok', contest };
 }
 
-/** 比赛 → 关联题组（0..1）；重复关联由扫描报错，这里只取第一个 */
-export function linkedProblemsetOf(contest: WorkObjectDto, objects: readonly WorkObjectDto[]): WorkObjectDto | null {
-  return objects.find((obj) => obj.kind === 'problemset' && obj.parentId === contest.id) ?? null;
+/** 比赛 → 关联题组（0..n，27 §2.2）：按 effectiveArchived 拆成活动 / 已归档两组 */
+export function linkedProblemsetsOf(
+  contest: WorkObjectDto,
+  objects: readonly WorkObjectDto[],
+): { active: WorkObjectDto[]; archived: WorkObjectDto[] } {
+  const active: WorkObjectDto[] = [];
+  const archived: WorkObjectDto[] = [];
+  for (const obj of objects) {
+    if (obj.kind !== 'problemset' || obj.parentId !== contest.id) continue;
+    (obj.effectiveArchived ? archived : active).push(obj);
+  }
+  return { active, archived };
 }
 
-/** 关联比赛选择器候选：未被其它题组占用的 contest（26 §5.2）；自己已关联的比赛保留在列 */
-export function availableContests(objects: readonly WorkObjectDto[], selfId: string | null): WorkObjectDto[] {
-  const takenBy = new Set<string>();
-  for (const obj of objects) {
-    if (obj.kind !== 'problemset' || obj.parentId === null || obj.id === selfId) continue;
-    takenBy.add(obj.parentId);
-  }
-  return objects.filter((obj) => obj.kind === 'contest' && !takenBy.has(obj.id)).sort(byRelPath);
+/** 关联比赛选择器候选（27 §2.3）：只列活动比赛；比赛侧 0..n，不排除被占用者 */
+export function availableContests(objects: readonly WorkObjectDto[]): WorkObjectDto[] {
+  return objects.filter((obj) => obj.kind === 'contest' && !obj.effectiveArchived).sort(byRelPath);
 }
 
 /**

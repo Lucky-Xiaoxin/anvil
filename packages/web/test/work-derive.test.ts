@@ -12,7 +12,7 @@ import {
   groupWorkObjects,
   groupWorkObjectsBySource,
   kindCounts,
-  linkedProblemsetOf,
+  linkedProblemsetsOf,
   matchesTag,
   pathBreadcrumb,
   primaryName,
@@ -125,12 +125,15 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     }
   });
 
-  it('比赛行不再叫题组（26 §6.1）：源码显示「含源码」计数，旧子题仍显示题数', () => {
+  it('比赛行摘要（27 §2.2）：旧子题数 + 关联题组数；都没有时退回源码计数', () => {
     const emptyContest = obj({ id: 'obj_0000000020', kind: 'contest', title: 'Empty', relPath: 'contests/x', sourceCount: 0, parentId: null });
-    expect(contestCountLabel(emptyContest, 0)).toBe('');
+    expect(contestCountLabel(emptyContest, 0, 0)).toBe('');
     const sourcedContest = obj({ ...emptyContest, sourceCount: 3 });
-    expect(contestCountLabel(sourcedContest, 0)).toBe('3 个源码');
-    expect(contestCountLabel(emptyContest, 2)).toBe('2 题');
+    expect(contestCountLabel(sourcedContest, 0, 0)).toBe('3 个源码');
+    expect(contestCountLabel(emptyContest, 2, 0)).toBe('2 题');
+    // 0..n：没有旧子题的比赛行也要显示关联题组数（27 §1.8）
+    expect(contestCountLabel(emptyContest, 0, 3)).toBe('题组 3');
+    expect(contestCountLabel(emptyContest, 2, 3)).toBe('2 题 · 题组 3');
   });
 });
 
@@ -183,44 +186,52 @@ describe('中间列表分区（26 §6.1：kind 分区，不读 arenaPath / sourc
   });
 });
 
-describe('关联比赛（26 §2.3 / §5.2：0..1 逻辑关联）', () => {
-  const contest = (id: string, title: string): WorkObjectDto =>
-    obj({ id, kind: 'contest', title, relPath: `contests/${title}`, parentId: null, links: {} });
-  const problemset = (id: string, title: string, parentId: string | null): WorkObjectDto =>
-    obj({ id, kind: 'problemset', title, relPath: `practice/2026-10/${title}`, parentId });
+describe('关联比赛（27 §2：题组 0..1 → 比赛，比赛侧 0..n）', () => {
+  const contest = (id: string, title: string, patch: Partial<WorkObjectDto> = {}): WorkObjectDto =>
+    obj({ id, kind: 'contest', title, relPath: `contests/${title}`, parentId: null, links: {}, ...patch });
+  const problemset = (id: string, title: string, parentId: string | null, patch: Partial<WorkObjectDto> = {}): WorkObjectDto =>
+    obj({ id, kind: 'problemset', title, relPath: `practice/2026-10/${title}`, parentId, ...patch });
 
-  it('题组行显示关联比赛；父对象缺失时是 missing 而不是报错', () => {
+  it('题组行显示关联比赛；父对象缺失是 missing，父对象归档是 archived（27 §1.6）', () => {
     const c1 = contest('obj_0000000040', 'Shanghai');
+    const cArchived = contest('obj_0000000047', 'Old', { archived: true, effectiveArchived: true });
     const linked = problemset('obj_0000000041', 'TreeDP', c1.id);
     const free = problemset('obj_0000000042', 'Free', null);
     const broken = problemset('obj_0000000043', 'Broken', 'obj_0000000099');
-    const all = [c1, linked, free, broken];
+    const crossArchived = problemset('obj_0000000048', 'Cross', cArchived.id);
+    const all = [c1, cArchived, linked, free, broken, crossArchived];
     const byId = new Map(all.map((o) => [o.id, o]));
 
     expect(problemsetLinkOf(linked, byId)).toEqual({ state: 'ok', contest: c1 });
     expect(problemsetLinkOf(free, byId)).toEqual({ state: 'none', contest: null });
     expect(problemsetLinkOf(broken, byId)).toEqual({ state: 'missing', contest: null });
     expect(problemsetLinkOf(c1, byId)).toEqual({ state: 'none', contest: null });
+    // 活动题组关联归档比赛：显示「已归档」，不是「不可用 / 缺失」
+    expect(problemsetLinkOf(crossArchived, byId)).toEqual({ state: 'archived', contest: cArchived });
   });
 
-  it('比赛行显示关联题组（0..1）', () => {
+  it('比赛 → 关联题组 0..n：无关联 / 一个 / 多个；按归档拆组（27 §1.3）', () => {
     const c1 = contest('obj_0000000040', 'Shanghai');
     const c2 = contest('obj_0000000044', 'Nanjing');
-    const linked = problemset('obj_0000000041', 'TreeDP', c1.id);
-    expect(linkedProblemsetOf(c1, [c1, c2, linked])).toEqual(linked);
-    expect(linkedProblemsetOf(c2, [c1, c2, linked])).toBeNull();
+    const a = problemset('obj_0000000041', 'A', c1.id);
+    const b = problemset('obj_0000000045', 'B', c1.id);
+    const c = problemset('obj_0000000046', 'C', c1.id, { archived: true, effectiveArchived: true });
+    const elsewhere = problemset('obj_0000000042', 'D', c2.id);
+
+    expect(linkedProblemsetsOf(c1, [c1, c2, a, b, c, elsewhere])).toEqual({ active: [a, b], archived: [c] });
+    expect(linkedProblemsetsOf(c2, [c1, c2, a, b, c, elsewhere])).toEqual({ active: [elsewhere], archived: [] });
+    expect(linkedProblemsetsOf(c1, [c1])).toEqual({ active: [], archived: [] });
   });
 
-  it('关联选择器排除已被其它题组占用的比赛；自己已关联的保留', () => {
+  it('关联选择器只列活动比赛（27 §1.5）：归档比赛不进候选，也不再看占用', () => {
     const c1 = contest('obj_0000000040', 'Shanghai');
     const c2 = contest('obj_0000000044', 'Nanjing');
+    const cArchived = contest('obj_0000000047', 'Old', { archived: true, effectiveArchived: true });
     const mine = problemset('obj_0000000041', 'TreeDP', c1.id);
     const other = problemset('obj_0000000045', 'Other', c2.id);
-    const free = contest('obj_0000000046', 'Xian');
-    // 自己（mine）已占用 c1，不排除；other 占用 c2，要排除
-    expect(availableContests([c1, c2, free, mine, other], mine.id).map((o) => o.id)).toEqual([c1.id, free.id]);
-    // 从旁观者角度：c1 / c2 都被占用
-    expect(availableContests([c1, c2, free, mine, other], null).map((o) => o.id)).toEqual([free.id]);
+    // 0..n：c1 / c2 已被题组关联仍可再挂；只有归档比赛被排除（relPath 排序：Nanjing 在前）
+    expect(availableContests([c1, c2, cArchived, mine, other]).map((o) => o.id)).toEqual([c2.id, c1.id]);
+    expect(availableContests([cArchived])).toEqual([]);
   });
 });
 

@@ -3,14 +3,25 @@ import type { WorkObjectDetailDto, WorkObjectDto, WorkOpenApp, WorkTaxonomyDto }
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { TemplateEditor } from './TemplateEditor.tsx';
-import { KIND_NAME, WORK_SECTION, availableContests, fileSize, flatNodes, folderActionsOf, isoDate, linkedProblemsetOf, nodeNameMap, problemsetLinkOf } from './derive.ts';
+import {
+  KIND_NAME,
+  WORK_SECTION,
+  availableContests,
+  fileSize,
+  flatNodes,
+  folderActionsOf,
+  isoDate,
+  linkedProblemsetsOf,
+  nodeNameMap,
+  problemsetLinkOf,
+} from './derive.ts';
 
 interface Props {
   detail: WorkObjectDetailDto;
   taxonomy: WorkTaxonomyDto | null;
   taxonomyError: string | null;
   parentTitle: string | null;
-  /** 全量对象：关联比赛选择器与「关联题组」展示用 */
+  /** 全量对象（活动 + 归档，27 §5.3）：关联比赛选择器与「关联题组」展示统一从这里派生 */
   objects: WorkObjectDto[];
   busy: string | null;
   onRetitle: (title: string) => void;
@@ -37,6 +48,9 @@ export function WorkDetail(props: Props) {
   const trashTimer = useRef<number | null>(null);
   const titleInput = useRef<HTMLInputElement | null>(null);
 
+  // 归档定格（27 §3.2）：详情只读，只保留取消归档；旧 problem 被父对象带着归档时同样冻结
+  const frozen = detail.archived || detail.effectiveArchived;
+
   useEffect(() => {
     setTitle(detail.title);
     setEditing(false);
@@ -61,6 +75,7 @@ export function WorkDetail(props: Props) {
   const related = detail.tags.related;
   const objectsById = new Map(props.objects.map((obj) => [obj.id, obj]));
   const parentLink = detail.kind === 'problemset' ? problemsetLinkOf(detail, objectsById) : null;
+  const linkedSets = detail.kind === 'contest' ? linkedProblemsetsOf(detail, props.objects) : null;
 
   const saveTitle = (): void => {
     const next = title.trim();
@@ -133,6 +148,10 @@ export function WorkDetail(props: Props) {
               aria-label="对象标题"
             />
           </div>
+        ) : frozen ? (
+          <div className="wk-detail__title">
+            <span>{detail.title}</span>
+          </div>
         ) : (
           <button className="wk-detail__title" onClick={() => setEditing(true)} title="点击改标题（目录不动）">
             <span>{detail.title}</span>
@@ -143,6 +162,7 @@ export function WorkDetail(props: Props) {
           <span className="wk-kind">{KIND_NAME[detail.kind]}</span>
           {detail.archived ? <span className="wk-badge">已归档</span> : null}
           {!detail.archived && detail.effectiveArchived ? <span className="wk-badge">父对象归档</span> : null}
+          {frozen ? <span className="wk-muted">只读</span> : null}
           <span className="wk-dot" />
           <span>创建 {isoDate(detail.createdAt)}</span>
           <span className="wk-dot" />
@@ -168,17 +188,28 @@ export function WorkDetail(props: Props) {
             回到回放
           </button>
         ) : null}
-        <button className="btn btn--sm" onClick={() => props.onArchive(!detail.archived)}>
-          <Icon id="i-archive" />
-          {detail.archived ? '取消归档' : '归档'}
-        </button>
-        <button className={`btn btn--sm${confirmTrash ? ' btn--danger' : ''}`} onClick={askTrash}>
-          <Icon id="i-trash" />
-          {confirmTrash ? '再点一次确认' : '移入回收站'}
-        </button>
+        {frozen ? (
+          detail.archived ? (
+            <button className="btn btn--sm" onClick={() => props.onArchive(false)}>
+              <Icon id="i-archive" />
+              取消归档
+            </button>
+          ) : null
+        ) : (
+          <>
+            <button className="btn btn--sm" onClick={() => props.onArchive(true)}>
+              <Icon id="i-archive" />
+              归档
+            </button>
+            <button className={`btn btn--sm${confirmTrash ? ' btn--danger' : ''}`} onClick={askTrash}>
+              <Icon id="i-trash" />
+              {confirmTrash ? '再点一次确认' : '移入回收站'}
+            </button>
+          </>
+        )}
       </div>
 
-      {detail.kind === 'template' ? (
+      {detail.kind === 'template' && !frozen ? (
         <TemplateEditor objectId={detail.id} busy={props.busy !== null} onSaved={props.onTemplateSaved} />
       ) : null}
 
@@ -195,7 +226,7 @@ export function WorkDetail(props: Props) {
             id="wk-primary"
             className="wk-select"
             value={primary ?? ''}
-            disabled={props.busy !== null || props.taxonomyError !== null}
+            disabled={frozen || props.busy !== null || props.taxonomyError !== null}
             onChange={(e) => setPrimary(e.target.value)}
           >
             <option value="">未分类</option>
@@ -218,7 +249,7 @@ export function WorkDetail(props: Props) {
                 <button
                   className="wk-chip__x"
                   aria-label={`移除 ${names.get(id) ?? id}`}
-                  disabled={props.busy !== null || props.taxonomyError !== null}
+                  disabled={frozen || props.busy !== null || props.taxonomyError !== null}
                   onClick={() => removeRelated(id)}
                 >
                   ×
@@ -228,7 +259,7 @@ export function WorkDetail(props: Props) {
             <select
               className="wk-select wk-select--inline"
               value=""
-              disabled={props.busy !== null || props.taxonomyError !== null}
+              disabled={frozen || props.busy !== null || props.taxonomyError !== null}
               aria-label="添加关联标签"
               onChange={(e) => {
                 addRelated(e.target.value);
@@ -262,7 +293,7 @@ export function WorkDetail(props: Props) {
               <button
                 className="wk-chip__x"
                 aria-label={`移除标签 ${label}`}
-                disabled={props.busy !== null}
+                disabled={frozen || props.busy !== null}
                 onClick={() => props.onLabels(detail.labels.filter((x) => x !== label))}
               >
                 ×
@@ -274,7 +305,7 @@ export function WorkDetail(props: Props) {
             value={labelInput}
             placeholder="＋ 标签，回车添加"
             maxLength={24}
-            disabled={props.busy !== null || detail.labels.length >= 20}
+            disabled={frozen || props.busy !== null || detail.labels.length >= 20}
             onChange={(e) => setLabelInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -296,6 +327,7 @@ export function WorkDetail(props: Props) {
           <div className="wk-sec__title">
             <span>关联</span>
             {parentLink?.state === 'missing' ? <span className="wk-sec__note">{WORK_SECTION.linkMissing}；题组不受影响</span> : null}
+            {parentLink?.state === 'archived' ? <span className="wk-sec__note">{WORK_SECTION.linkArchived}；先取消比赛归档再调整</span> : null}
           </div>
           <div className="wk-kv">
             {detail.kind === 'problem' && props.parentTitle !== null ? (
@@ -304,42 +336,74 @@ export function WorkDetail(props: Props) {
                 <b>{props.parentTitle}</b>
               </>
             ) : null}
-            {detail.kind === 'contest' ? (
+            {detail.kind === 'contest' && linkedSets !== null ? (
               <>
                 <span>关联题组</span>
-                <b>
-                  {(() => {
-                    const linked = linkedProblemsetOf(detail, props.objects);
-                    return linked === null ? (
-                      <span className="wk-muted">无</span>
-                    ) : (
-                      <button className="wk-chip wk-chip--tag" title="跳到关联题组详情" onClick={() => props.onSelectObject(linked.id)}>
-                        {linked.title}
+                {frozen ? (
+                  <span className="wk-kv__chips">
+                    {linkedSets.active.length + linkedSets.archived.length === 0 ? <span className="wk-muted">无</span> : null}
+                    {[...linkedSets.active, ...linkedSets.archived].map((set) => (
+                      <span className="wk-chip" key={set.id}>
+                        {set.title}
+                        {set.effectiveArchived ? '（已归档）' : ''}
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="wk-kv__chips">
+                    {linkedSets.active.length + linkedSets.archived.length === 0 ? <span className="wk-muted">无</span> : null}
+                    {linkedSets.active.map((set) => (
+                      <button className="wk-chip wk-chip--tag" key={set.id} title="跳到题组详情" onClick={() => props.onSelectObject(set.id)}>
+                        {set.title}
                       </button>
-                    );
-                  })()}
-                </b>
+                    ))}
+                    {linkedSets.archived.length > 0 ? (
+                      <span className="wk-muted">已归档 {linkedSets.archived.length} 个，在归档列表管理</span>
+                    ) : null}
+                  </span>
+                )}
               </>
             ) : null}
             {detail.kind === 'problemset' ? (
               <>
                 <span>关联比赛</span>
-                <b>
-                  <select
-                    className="wk-select wk-select--inline"
-                    value={parentLink?.state === 'ok' && detail.parentId !== null ? detail.parentId : ''}
-                    disabled={props.busy !== null}
-                    aria-label="关联比赛"
-                    onChange={(e) => props.onSetParent(e.target.value === '' ? null : e.target.value)}
-                  >
-                    <option value="">无关联</option>
-                    {availableContests(props.objects, detail.id).map((contest) => (
-                      <option value={contest.id} key={contest.id}>
-                        {contest.title}
-                      </option>
-                    ))}
-                  </select>
-                </b>
+                {frozen ? (
+                  <span className="wk-kv__chips">
+                    {parentLink === null || parentLink.state === 'none' ? (
+                      <span className="wk-muted">无关联</span>
+                    ) : parentLink.contest !== null ? (
+                      <span className="wk-chip">
+                        {parentLink.contest.title}
+                        {parentLink.state === 'archived' ? '（已归档）' : ''}
+                      </span>
+                    ) : (
+                      <span className="wk-muted">{WORK_SECTION.linkMissing}</span>
+                    )}
+                  </span>
+                ) : parentLink !== null && parentLink.state === 'archived' && parentLink.contest !== null ? (
+                  // 跨归档（27 §2.3）：关联的比赛已归档 → 只读状态，不提供跳转 / 清除 / 改选
+                  <span className="wk-kv__chips">
+                    <span className="wk-chip">{parentLink.contest.title}</span>
+                    <span className="wk-muted">{WORK_SECTION.linkArchived}</span>
+                  </span>
+                ) : (
+                  <b>
+                    <select
+                      className="wk-select wk-select--inline"
+                      value={parentLink?.state === 'ok' && detail.parentId !== null ? detail.parentId : ''}
+                      disabled={props.busy !== null}
+                      aria-label="关联比赛"
+                      onChange={(e) => props.onSetParent(e.target.value === '' ? null : e.target.value)}
+                    >
+                      <option value="">无关联</option>
+                      {availableContests(props.objects).map((contest) => (
+                        <option value={contest.id} key={contest.id}>
+                          {contest.title}
+                        </option>
+                      ))}
+                    </select>
+                  </b>
+                )}
               </>
             ) : null}
             {detail.sourcePath !== undefined ? (

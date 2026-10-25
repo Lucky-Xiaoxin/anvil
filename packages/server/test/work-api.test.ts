@@ -461,7 +461,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('题组 API：create / adopt / update 的 kind 与 parentId 校验；关联 / 清除（契约 26 §9.3）', async () => {
+  it('题组 API：create / adopt / update 的 kind 与 parentId 校验；关联 / 清除（契约 26 §9.3；0..n 见契约 27）', async () => {
     await boot();
     await initApi();
     const contest = await create('contest', 'Shanghai');
@@ -475,25 +475,57 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     res = await post('/api/work/create', { kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' });
     expect(res.statusCode).toBe(400);
 
-    // adopt：明确登记为题组（practice 未登记目录现在 hint problemset）
+    // adopt：明确登记为题组；同一比赛可以被第二个题组关联（0..n）
     const dir = join(root, 'practice', '2026-10', 'adopted');
     mkdirSync(dir, { recursive: true });
     res = await post('/api/work/adopt', { relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest.id });
-    expect(res.statusCode, res.body).toBe(409); // 比赛已被第一个题组占用（0..1）
-
-    const contest2 = await create('contest', 'Nanjing');
-    res = await post('/api/work/adopt', { relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest2.id });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().kind).toBe('problemset');
-    expect(res.json().parentId).toBe(contest2.id);
+    expect(res.json().parentId).toBe(contest.id);
 
-    // update 关联 / 清除；非题组拒绝
+    // update 清除 / 再关联；非题组拒绝
     res = await post('/api/work/update', { id: contest.id, parentId: null });
     expect(res.statusCode).toBe(400);
     res = await post('/api/work/update', { id: set.id, parentId: null });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().parentId).toBeNull();
-    res = await post('/api/work/update', { id: set.id, parentId: contest2.id });
-    expect(res.statusCode).toBe(409); // 已被 adopted 占用
+    res = await post('/api/work/update', { id: set.id, parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(200); // 0..n：不再看占用
+    expect(res.json().parentId).toBe(contest.id);
+  });
+
+  it('归档冻结 API：归档对象 retitle / tags / labels / parentId / trash 全拒绝，取消归档是唯一写操作（契约 27 §4）', async () => {
+    await boot();
+    await initApi();
+    const contest = await create('contest', 'Shanghai');
+    const set = await create('problemset', 'TreeDP', { parentId: contest.id });
+    let res = await post('/api/work/update', { id: set.id, archived: true });
+    expect(res.statusCode, res.body).toBe(200);
+
+    res = await post('/api/work/update', { id: set.id, title: 'Renamed' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+    res = await post('/api/work/update', { id: set.id, tags: { primary: null, related: [] } });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/update', { id: set.id, labels: ['x'] });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/update', { id: set.id, parentId: null });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/trash', { id: set.id });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+
+    // 活动比赛被归档后，不能再被关联（跨归档不可编辑）
+    res = await post('/api/work/update', { id: contest.id, archived: true });
+    expect(res.statusCode).toBe(200);
+    res = await post('/api/work/create', { kind: 'problemset', title: 'Blocked', parentId: contest.id });
+    expect(res.statusCode).toBe(400);
+
+    // 取消归档后可编辑
+    res = await post('/api/work/update', { id: set.id, archived: false });
+    expect(res.statusCode, res.body).toBe(200);
+    res = await post('/api/work/update', { id: set.id, title: 'Renamed' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().title).toBe('Renamed');
   });
 });

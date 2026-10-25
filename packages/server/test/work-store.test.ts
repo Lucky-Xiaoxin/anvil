@@ -759,7 +759,7 @@ describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
   });
 });
 
-describe('题组对象与关联（契约 26 §2 / §4 / §5）', () => {
+describe('题组对象与关联（契约 26 §2 / §4 / §5；0..n 见契约 27）', () => {
   it('problemset 落 practice/<YYYY-MM>/，可带关联比赛；arenaPath / templateId 拒绝', async () => {
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai', arenaPath: 'official/icpc/x/y.srk.json' });
@@ -770,13 +770,56 @@ describe('题组对象与关联（契约 26 §2 / §4 / §5）', () => {
     await expect(service.create({ kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' })).rejects.toMatchObject({ kind: 'invalid' });
     await expect(service.create({ kind: 'problemset', title: 'Bad', templateId: null })).rejects.toMatchObject({ kind: 'invalid' });
     await expect(service.create({ kind: 'problemset', title: 'Bad', parentId: 'obj_0000000099' })).rejects.toMatchObject({ kind: 'parent-missing' });
-    // 0..1：同一比赛不能被第二个题组关联
-    await expect(service.create({ kind: 'problemset', title: 'Second', parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });
     // 比赛不能带 parentId
     await expect(service.create({ kind: 'contest', title: 'Bad', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
   });
 
-  it('update 关联 / 换关联 / 清除关联；重复关联与非题组拒绝', async () => {
+  it('0..n：同一比赛可以被多个题组关联；adopt 也一样（27 §2.1）', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const a = await service.create({ kind: 'problemset', title: 'A', parentId: contest.id });
+    const b = await service.create({ kind: 'problemset', title: 'B', parentId: contest.id });
+    const c = await service.create({ kind: 'problemset', title: 'C', parentId: contest.id });
+    for (const set of [a, b, c]) expect(set.parentId).toBe(contest.id);
+
+    // adopt 同一个比赛也不再被占用拦截
+    mkdirSync(join(absOf('practice/2026-10/adopted')), { recursive: true });
+    const adopted = await service.adopt({ relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest.id });
+    expect(adopted.parentId).toBe(contest.id);
+
+    // 题组侧仍只能一个比赛：换关联可以，但不能挂两个
+    const moved = await service.update({ id: a.id, parentId: null });
+    expect(moved.parentId).toBeNull();
+    const relinked = await service.update({ id: a.id, parentId: contest.id });
+    expect(relinked.parentId).toBe(contest.id);
+    // 非题组不能改关联；关联对象必须是 contest
+    await expect(service.update({ id: contest.id, parentId: null })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.update({ id: a.id, parentId: b.id })).rejects.toMatchObject({ kind: 'invalid' });
+  });
+
+  it('扫描不再把多个题组关联同一比赛报为冲突；父缺失仍警告', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const a = await service.create({ kind: 'problemset', title: 'A', parentId: contest.id });
+    const b = await service.create({ kind: 'problemset', title: 'B', parentId: contest.id });
+    const tree = await service.tree({ rescan: true });
+    expect(tree.errors.some((e) => e.message.includes('同一个比赛'))).toBe(false);
+    expect(tree.objects.filter((o) => o.kind === 'problemset')).toHaveLength(2);
+    expect(tree.objects.find((o) => o.id === a.id)!.parentId).toBe(contest.id);
+    expect(tree.objects.find((o) => o.id === b.id)!.parentId).toBe(contest.id);
+
+    // 外部把一个题组的 parentId 改成不存在的对象 → 仍只警告，不报冲突
+    const metaPath = join(absOf(b.relPath), '.anvil.json');
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    meta.parentId = 'obj_0000000099';
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    const rescanned = await service.tree({ rescan: true });
+    expect(rescanned.errors.some((e) => e.relPath === b.relPath && e.kind === 'parent-missing')).toBe(true);
+    expect(rescanned.errors.some((e) => e.message.includes('同一个比赛'))).toBe(false);
+    expect(rescanned.objects.some((o) => o.id === b.id)).toBe(true);
+  });
+
+  it('update 关联 / 换关联 / 清除关联；非题组拒绝', async () => {
     await initRoot();
     const c1 = await service.create({ kind: 'contest', title: 'Shanghai' });
     const c2 = await service.create({ kind: 'contest', title: 'Nanjing' });
@@ -787,17 +830,14 @@ describe('题组对象与关联（契约 26 §2 / §4 / §5）', () => {
     expect(linked.parentId).toBe(c1.id);
     const moved = await service.update({ id: set.id, parentId: c2.id });
     expect(moved.parentId).toBe(c2.id);
-    // c1 已空出来，第二个题组可以关联；c2 被占用则拒绝
-    const other = await service.create({ kind: 'problemset', title: 'Other' });
-    await expect(service.update({ id: other.id, parentId: c2.id })).rejects.toMatchObject({ kind: 'conflict' });
-    const ok = await service.update({ id: other.id, parentId: c1.id });
-    expect(ok.parentId).toBe(c1.id);
+    // c1 空出来后可以再被别的题组关联（0..n 本来就允许并存）
+    const other = await service.create({ kind: 'problemset', title: 'Other', parentId: c1.id });
+    expect(other.parentId).toBe(c1.id);
     // 清除后是普通题组，可再关联
     const cleared = await service.update({ id: other.id, parentId: null });
     expect(cleared.parentId).toBeNull();
-    // 非题组不能改关联；关联对象必须是 contest
-    await expect(service.update({ id: c1.id, parentId: null })).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(service.update({ id: set.id, parentId: other.id })).rejects.toMatchObject({ kind: 'invalid' });
+    const again = await service.update({ id: other.id, parentId: c2.id });
+    expect(again.parentId).toBe(c2.id);
   });
 
   it('生命周期独立：归档 / 回收比赛不影响题组；旧 problem 归档继承不变', async () => {
@@ -824,30 +864,105 @@ describe('题组对象与关联（契约 26 §2 / §4 / §5）', () => {
     // 关联仍在 meta 里，不自动清空
     expect(tree.objects.find((o) => o.id === set.id)!.parentId).toBe(contest.id);
   });
+});
 
-  it('扫描：多个题组关联同一个比赛 → 全部报错；解除后消失', async () => {
+describe('归档冻结与跨归档关联（契约 27 §1 / §3 / §4）', () => {
+  it('归档对象只出现在归档列表；活动列表 / 计数不包含它', async () => {
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
-    const a = await service.create({ kind: 'problemset', title: 'A' });
-    const b = await service.create({ kind: 'problemset', title: 'B' });
-    // update 层会拒绝 0..1 违规；这里是外部改文件 / 旧数据造成的既有双关联
-    for (const set of [a, b]) {
-      const metaPath = join(absOf(set.relPath), '.anvil.json');
-      const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
-      meta.parentId = contest.id;
-      writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-    }
-    let tree = await service.tree({ rescan: true });
-    const dupErrors = tree.errors.filter((e) => e.message.includes('同一个比赛'));
-    expect(dupErrors).toHaveLength(2);
-    expect(tree.objects.filter((o) => o.kind === 'problemset')).toHaveLength(2);
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    await service.update({ id: set.id, archived: true });
 
-    // 解除其中一个（直接改回 meta），错误消失
-    const metaPath = join(absOf(b.relPath), '.anvil.json');
-    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
-    meta.parentId = null;
-    writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-    tree = await service.tree({ rescan: true });
-    expect(tree.errors.some((e) => e.message.includes('同一个比赛'))).toBe(false);
+    const active = await service.tree();
+    expect(active.objects.some((o) => o.id === set.id)).toBe(false);
+    expect(active.objects.some((o) => o.id === contest.id)).toBe(true);
+    const archived = await service.tree({ archived: true });
+    expect(archived.objects.some((o) => o.id === set.id)).toBe(true);
+    // 归档计数只按归档视图
+    expect(active.taxonomy).not.toBeNull();
+  });
+
+  it('归档冻结：retitle / tags / labels / parentId 被拒绝；取消归档后可编辑', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    await service.update({ id: set.id, archived: true });
+
+    await expect(service.update({ id: set.id, title: 'Renamed' })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, tags: { primary: null, related: [] } })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, labels: ['x'] })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, parentId: null })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });
+    // 取消归档是唯一允许的写操作；其余字段即便一起带上也拒绝
+    await expect(service.update({ id: set.id, archived: false, title: 'Renamed' })).rejects.toMatchObject({ kind: 'conflict' });
+    const unarchived = await service.update({ id: set.id, archived: false });
+    expect(unarchived.archived).toBe(false);
+    expect(unarchived.parentId).toBe(contest.id);
+
+    const renamed = await service.update({ id: set.id, title: 'Renamed' });
+    expect(renamed.title).toBe('Renamed');
+    const cleared = await service.update({ id: set.id, parentId: null });
+    expect(cleared.parentId).toBeNull();
+  });
+
+  it('归档对象不能直接移入回收站；取消归档后可以', async () => {
+    await initRoot();
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP' });
+    await service.update({ id: set.id, archived: true });
+    await expect(service.trash(set.id)).rejects.toMatchObject({ kind: 'conflict' });
+    await service.update({ id: set.id, archived: false });
+    const trashed = await service.trash(set.id);
+    expect(trashed.id).toBe(set.id);
+  });
+
+  it('跨归档关联：活动题组关联归档比赛被拒；清除也拒；取消归档后恢复可编辑（27 §1.7 / §2.4）', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const free = await service.create({ kind: 'contest', title: 'Nanjing' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    await service.update({ id: contest.id, archived: true });
+
+    // 新建关联到归档比赛：create / adopt / update 一律拒绝
+    await expect(service.create({ kind: 'problemset', title: 'New', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
+    mkdirSync(join(absOf('practice/2026-10/adopted-2')), { recursive: true });
+    await expect(
+      service.adopt({ relPath: 'practice/2026-10/adopted-2', kind: 'problemset', title: 'Adopted2', parentId: contest.id }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.update({ id: set.id, parentId: free.id })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.update({ id: set.id, parentId: null })).rejects.toMatchObject({ kind: 'invalid' });
+
+    // 关联不自动清空；取消归档后恢复可编辑，可改挂到活动比赛
+    const stillLinked = await service.object(set.id);
+    expect(stillLinked.parentId).toBe(contest.id);
+    await service.update({ id: contest.id, archived: false });
+    const moved = await service.update({ id: set.id, parentId: free.id });
+    expect(moved.parentId).toBe(free.id);
+  });
+
+  it('跨归档关联：归档题组关联活动比赛 → 对方保留、可只读查看；互不传播（27 §2.4）', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    await service.update({ id: set.id, archived: true });
+
+    // 归档题组不在活动视图；比赛仍在且未受影响
+    const active = await service.tree();
+    expect(active.objects.some((o) => o.id === set.id)).toBe(false);
+    expect(active.objects.find((o) => o.id === contest.id)!.archived).toBe(false);
+    // 归档视图里题组的关联保留
+    const archived = await service.tree({ archived: true });
+    expect(archived.objects.find((o) => o.id === set.id)!.parentId).toBe(contest.id);
+    // 比赛归档 / 回收互不影响题组的 meta
+    await service.update({ id: set.id, archived: false });
+    await service.update({ id: contest.id, archived: true });
+    await service.update({ id: contest.id, archived: false });
+    expect((await service.object(set.id)).parentId).toBe(contest.id);
+  });
+
+  it('旧 problem 兼容不回归：归档父比赛拒绝往里建题（26 §4.2 沿用）', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    await service.update({ id: contest.id, archived: true });
+    await expect(service.create({ kind: 'problem', title: 'Cherry', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
   });
 });

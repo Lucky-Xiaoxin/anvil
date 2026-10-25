@@ -543,12 +543,9 @@ export class WorkService {
         throw new WorkError('invalid', kind === 'problemset' ? '关联对象必须是 contest' : '父对象必须是 contest');
       }
       if (kind === 'problem' && parent.effectiveArchived) throw new WorkError('invalid', '父比赛已归档，不能往里建题');
-      if (kind === 'problemset') {
-        // 0..1：一个比赛最多被一个题组关联（26 §2.3）
-        const taken = idx.objects.some(
-          (obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.parentId === parent!.record.meta.id,
-        );
-        if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+      // 0..n（27 §2.1）：一个比赛可以被任意多个题组关联；只挡「目标已归档」（27 §1.7）
+      if (kind === 'problemset' && parent.effectiveArchived) {
+        throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
       }
     }
 
@@ -786,8 +783,8 @@ export class WorkService {
       const linked = idx.byId.get(input.parentId) ?? null;
       if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
       if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
-      const taken = idx.objects.some((obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.parentId === linked.record.meta.id);
-      if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+      // 0..n（27 §2.1）：不再检查占用；目标已归档则拒绝（27 §1.7）
+      if (linked.effectiveArchived) throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
       linkParentId = linked.record.meta.id;
     }
     const abs = resolveInside(root, input.relPath);
@@ -850,6 +847,11 @@ export class WorkService {
     const obj = idx.byId.get(input.id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
     const current = obj.record.meta;
+    // 归档冻结（27 §4）：已归档对象只允许取消归档，其余字段一律拒绝
+    if (current.archived) {
+      const frozenFields = [input.title, input.tags, input.labels, input.parentId].some((field) => field !== undefined);
+      if (frozenFields) throw new WorkError('conflict', '已归档的对象是只读的；先取消归档再修改');
+    }
     const next: WorkMeta = {
       ...current,
       tags: { primary: current.tags.primary, related: [...current.tags.related] },
@@ -918,6 +920,14 @@ export class WorkService {
     if (input.parentId !== undefined) {
       // 只有题组能改关联（26 §4.2）；旧 problem 的物理父子不改，比赛 / 模板 / 笔记没有关联
       if (current.kind !== 'problemset') throw new WorkError('invalid', '只有题组可以修改关联比赛');
+      // 跨归档不可编辑（27 §1.7）：当前关联的比赛已归档时，改挂 / 清除都不允许，先取消它的归档。
+      // 关联比赛缺失（被回收 / 删除）不算归档，仍可改挂或清除来修复悬空
+      if (current.parentId !== null) {
+        const currentParent = idx.byId.get(current.parentId) ?? null;
+        if (currentParent !== null && currentParent.record.meta.kind === 'contest' && currentParent.effectiveArchived) {
+          throw new WorkError('invalid', '关联的比赛已归档，先取消归档再调整关联');
+        }
+      }
       let nextParentId: string | null = null;
       if (input.parentId !== null && input.parentId !== '') {
         if (!workIdOk(input.parentId)) throw new WorkError('invalid', 'parentId 形状不合法');
@@ -925,10 +935,8 @@ export class WorkService {
         const linked = idx.byId.get(input.parentId) ?? null;
         if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
         if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
-        const taken = idx.objects.some(
-          (obj) => obj.record.meta.kind === 'problemset' && obj.record.meta.id !== current.id && obj.record.meta.parentId === linked.record.meta.id,
-        );
-        if (taken) throw new WorkError('conflict', '这场比赛已经关联了另一个题组');
+        // 0..n（27 §2.1）：不再检查占用；跨归档不可编辑——目标已归档时不能新建这条关联
+        if (linked.effectiveArchived) throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
         nextParentId = linked.record.meta.id;
       }
       if (next.parentId !== nextParentId) {
@@ -951,6 +959,8 @@ export class WorkService {
     const idx = this.ensureIndex();
     const obj = idx.byId.get(id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
+    // 归档对象不能直接进回收站（27 §3.3）：先取消归档回到活动，再按回收站规则操作
+    if (obj.effectiveArchived) throw new WorkError('conflict', '已归档的对象不能移入回收站；先取消归档');
     const trashRoot = join(idx.root, '.anvil', 'trash');
     mkdirSync(trashRoot, { recursive: true });
     const stamp = localStamp(this.nowDate());
@@ -1173,18 +1183,7 @@ export class WorkService {
       }
     }
 
-    // 0..1：多个题组关联同一个比赛 → 全部报错，不自动选择（26 §4.4）
-    const linkedCount = new Map<string, number>();
-    for (const obj of objects) {
-      if (obj.record.meta.kind !== 'problemset' || obj.record.meta.parentId === null || dropped.has(obj.relPath)) continue;
-      linkedCount.set(obj.record.meta.parentId, (linkedCount.get(obj.record.meta.parentId) ?? 0) + 1);
-    }
-    for (const obj of objects) {
-      if (obj.record.meta.kind !== 'problemset' || obj.record.meta.parentId === null || dropped.has(obj.relPath)) continue;
-      if ((linkedCount.get(obj.record.meta.parentId) ?? 0) > 1) {
-        errors.push({ relPath: obj.relPath, kind: 'meta-invalid', message: '多个题组关联了同一个比赛（一个比赛最多关联一个题组）' });
-      }
-    }
+    // 0..n（27 §2.1）：多个题组关联同一个比赛不再算冲突；父缺失 / 父不是 contest 的检查保持上面不变
 
     if (taxonomy !== null) {
       const nodeIds = new Set(flattenTaxonomy(taxonomy.nodes).map((n) => n.id));

@@ -374,7 +374,7 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
     if (!workIdOk(input.parentId)) return { ok: false, message: 'parentId 形状不合法' };
     parentId = input.parentId;
   }
-  // parentId 是逻辑关联：problemset 关联一个比赛（0..1）；旧 problem 是物理父子。
+  // parentId 是逻辑关联：problemset 关联一个比赛（比赛侧 0..n，27 §2.1）；旧 problem 是物理父子。
   // 「父必须是 contest」这一条要等扫描拿到父对象，见 WorkService
   if (parentId !== null && input.kind !== 'problem' && input.kind !== 'problemset') {
     return { ok: false, message: '只有 problemset / problem 可以有 parentId' };

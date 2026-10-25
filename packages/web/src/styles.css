@@ -1527,6 +1527,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-labelinput::placeholder{color:var(--text-mute)}
 .wk-kv{display:grid;grid-template-columns:70px minmax(0,1fr);gap:5px 10px;font-size:11px;color:var(--text-mute)}
 .wk-kv b{font-weight:500;color:var(--text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* 关联题组等多值单元格：chip 换行排，不被单行省略截断（5a-5 §5.1） */
+.wk-kv__chips{display:flex;flex-wrap:wrap;gap:4px;min-width:0;font-weight:500;color:var(--text-dim);align-items:center}
 .wk-kv code{font-size:10.5px;color:var(--text-dim);overflow-wrap:anywhere}
 .wk-sec--files{margin-top:2px}
 /* 模板详情内联编辑（切片 5a.1） */

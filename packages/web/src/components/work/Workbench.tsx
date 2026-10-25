@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { WorkKind, WorkObjectDetailDto, WorkTreeDto } from '@anvil/shared';
+import type { WorkKind, WorkObjectDetailDto, WorkObjectDto, WorkTreeDto } from '@anvil/shared';
 import {
   ApiError,
   getWorkObject,
@@ -121,6 +121,8 @@ function RootSetup({ setup, onReady }: { setup: SetupState; onReady: (tree: Work
 
 export function Workbench() {
   const [tree, setTree] = useState<WorkTreeDto | null>(null);
+  /** 全量对象（活动 + 归档两个视图合并，27 §5.3）：关联状态 / 关联展示统一走这一份派生 */
+  const [allObjects, setAllObjects] = useState<WorkObjectDto[]>([]);
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -166,8 +168,13 @@ export function Workbench() {
     async (archivedNext: boolean, rescan: boolean, selectId?: string | null): Promise<WorkTreeDto | null> => {
       setLoading(true);
       try {
-        const next = await getWorkTree({ archived: archivedNext, rescan });
+        // 当前视图带 rescan（首次进入）；对面视图只读一份，用来拼全量 byId（27 §5.3）
+        const [next, other] = await Promise.all([
+          getWorkTree({ archived: archivedNext, rescan }),
+          getWorkTree({ archived: !archivedNext }),
+        ]);
         setTree(next);
+        setAllObjects([...next.objects, ...other.objects]);
         setSetup(null);
         setNotice(null);
         if (selectId !== undefined) {
@@ -280,7 +287,10 @@ export function Workbench() {
     [tree, kindFilter, nodeFilter, labelFilter, query],
   );
   const counts = useMemo(() => kindCounts(tree?.objects ?? []), [tree]);
-  const parentTitle = detail?.parentId === undefined || detail?.parentId === null ? null : (tree?.objects.find((o) => o.id === detail.parentId)?.title ?? null);
+  const allById = useMemo(() => new Map(allObjects.map((obj) => [obj.id, obj])), [allObjects]);
+  /** 活动比赛（跨视图口径）：新建 / 登记对话框的关联选择器只列活动比赛（27 §5.2） */
+  const activeContests = useMemo(() => allObjects.filter((obj) => obj.kind === 'contest' && !obj.effectiveArchived), [allObjects]);
+  const parentTitle = detail === null || detail.parentId === null ? null : (allById.get(detail.parentId)?.title ?? null);
 
   if (setup !== null) {
     return (
@@ -289,6 +299,7 @@ export function Workbench() {
           setup={setup}
           onReady={(next) => {
             setTree(next);
+            setAllObjects(next.objects);
             setSetup(null);
             setArchived(false);
             setNotice({ kind: 'ok', text: '工作区已初始化' });
@@ -458,6 +469,7 @@ export function Workbench() {
             <WorkList
               objects={filtered}
               allObjects={tree.objects}
+              allById={allById}
               taxonomy={tree.taxonomy}
               selectedId={selectedId}
               onSelect={selectObject}
@@ -496,7 +508,7 @@ export function Workbench() {
                 taxonomy={tree.taxonomy}
                 taxonomyError={tree.taxonomyError}
                 parentTitle={parentTitle}
-                objects={tree.objects}
+                objects={allObjects}
                 busy={busy}
                 onRetitle={(title) => {
                   if (detail !== null) void afterMutation('retitle', () => updateWork({ id: detail.id, title }));
@@ -564,6 +576,7 @@ export function Workbench() {
       {dialog !== null ? (
         <WorkCreate
           tree={tree}
+          contests={activeContests}
           dialog={dialog}
           onDone={(title, id) => {
             setDialog(null);

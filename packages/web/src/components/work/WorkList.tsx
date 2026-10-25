@@ -10,7 +10,6 @@ import {
   groupWorkObjects,
   groupWorkObjectsBySource,
   isoDate,
-  linkedProblemsetOf,
   pathBreadcrumb,
   primaryName,
   problemsetLinkOf,
@@ -21,8 +20,10 @@ import {
 
 interface Props {
   objects: WorkObjectDto[];
-  /** 未筛选全集：kind=题目 时仍能补出父比赛标题；关联展示也用它查父对象 */
+  /** 未筛选全集（当前视图）：kind=题目 时仍能补出父比赛标题；比赛行的题组计数也按本视图统计 */
   allObjects: WorkObjectDto[];
+  /** 全量 byId（活动 + 归档，27 §5.3）：关联状态解析统一走这一份 */
+  allById: ReadonlyMap<string, WorkObjectDto>;
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -52,15 +53,17 @@ function ObjectRow(props: {
   onSelect: (id: string) => void;
   child?: boolean;
   breadcrumb?: boolean;
-  /** 传了才显示题组的关联比赛 / 比赛的关联题组 */
-  allObjects?: WorkObjectDto[];
+  /** 全量 byId：题组行解析关联比赛状态（含跨归档） */
+  allById?: ReadonlyMap<string, WorkObjectDto>;
+  /** 比赛行的关联题组数（当前视图口径，27 §5.1） */
+  setCount?: number;
 }) {
   const { obj, taxonomy, selected, child = false, breadcrumb = false } = props;
   const primary = primaryName(obj, taxonomy);
   const crumbs = breadcrumb ? pathBreadcrumb(obj.relPath) : [];
   const link =
-    obj.kind === 'problemset' && props.allObjects !== undefined
-      ? problemsetLinkOf(obj, new Map(props.allObjects.map((o) => [o.id, o])))
+    obj.kind === 'problemset' && props.allById !== undefined
+      ? problemsetLinkOf(obj, props.allById)
       : { state: 'none' as const, contest: null };
   return (
     <button
@@ -98,11 +101,27 @@ function ObjectRow(props: {
           ) : null}
           <span className="wk-dot" />
           <span>{fmtInt(obj.fileCount)} 个文件</span>
+          {obj.kind === 'contest' && (props.setCount ?? 0) > 0 ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title="关联题组数">
+                题组 {props.setCount}
+              </span>
+            </>
+          ) : null}
           {link.state === 'ok' && link.contest !== null ? (
             <>
               <span className="wk-dot" />
               <span className="wk-row__tag" title={`关联比赛：${link.contest.title}`}>
                 比赛 · {link.contest.title}
+              </span>
+            </>
+          ) : null}
+          {link.state === 'archived' && link.contest !== null ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title={`关联比赛：${link.contest.title}（已归档，只读）`}>
+                {WORK_SECTION.linkArchived}
               </span>
             </>
           ) : null}
@@ -129,32 +148,24 @@ function ObjectRow(props: {
   );
 }
 
-function LinkedProblemsetLink(props: { contest: WorkObjectDto; allObjects: WorkObjectDto[]; onSelect: (id: string) => void }) {
-  const linked = linkedProblemsetOf(props.contest, props.allObjects);
-  if (linked === null) return null;
-  return (
-    <button className="wk-chip wk-chip--tag" title={`跳到关联题组：${linked.title}`} onClick={() => props.onSelect(linked.id)}>
-      关联题组 · {linked.title}
-    </button>
-  );
-}
-
 function ContestGroupItems(props: {
   groups: WorkContestGroup[];
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allObjects: WorkObjectDto[];
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  setCountByContest: ReadonlyMap<string, number>;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
-  const { groups, taxonomy, selectedId, collapsed, allObjects } = props;
+  const { groups, taxonomy, selectedId, collapsed, allById, setCountByContest } = props;
   return (
     <>
       {groups.map((group) => {
         const contest = group.contest;
         const folded = collapsed.has(contest.id);
         const primary = primaryName(contest, taxonomy);
+        const setCount = setCountByContest.get(contest.id) ?? 0;
         if (group.problems.length === 0) {
           return (
             <ObjectRow
@@ -163,6 +174,8 @@ function ContestGroupItems(props: {
               taxonomy={taxonomy}
               selected={selectedId === contest.id}
               onSelect={props.onSelect}
+              allById={allById}
+              setCount={setCount}
             />
           );
         }
@@ -187,8 +200,7 @@ function ContestGroupItems(props: {
                     <span className="wk-group__title wk-group__title--static">{contest.title}</span>
                   )}
                   {contest.effectiveArchived ? <span className="wk-badge">归档</span> : null}
-                  {group.included ? <LinkedProblemsetLink contest={contest} allObjects={allObjects} onSelect={props.onSelect} /> : null}
-                  <span className="wk-group__count">{contestCountLabel(contest, group.problems.length)}</span>
+                  <span className="wk-group__count">{contestCountLabel(contest, group.problems.length, setCount)}</span>
                 </div>
                 <div className="wk-group__meta">
                   <span>{isoDate(contest.createdAt)}</span>
@@ -229,7 +241,8 @@ function ContestGroups(props: {
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allObjects: WorkObjectDto[];
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  setCountByContest: ReadonlyMap<string, number>;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
@@ -249,7 +262,7 @@ function SourceGroupNode(props: {
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allObjects: WorkObjectDto[];
+  allById: ReadonlyMap<string, WorkObjectDto>;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
@@ -285,7 +298,7 @@ function SourceGroupNode(props: {
               taxonomy={props.taxonomy}
               selected={props.selectedId === obj.id}
               onSelect={props.onSelect}
-              allObjects={props.allObjects}
+              allById={props.allById}
             />
           ))}
           {node.children.map((child) => (
@@ -295,7 +308,7 @@ function SourceGroupNode(props: {
               taxonomy={props.taxonomy}
               selectedId={props.selectedId}
               onSelect={props.onSelect}
-              allObjects={props.allObjects}
+              allById={props.allById}
               collapsed={collapsed}
               onToggle={props.onToggle}
             />
@@ -311,7 +324,7 @@ function ProblemsetRows(props: {
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allObjects: WorkObjectDto[];
+  allById: ReadonlyMap<string, WorkObjectDto>;
 }) {
   return (
     <>
@@ -322,7 +335,7 @@ function ProblemsetRows(props: {
           taxonomy={props.taxonomy}
           selected={props.selectedId === obj.id}
           onSelect={props.onSelect}
-          allObjects={props.allObjects}
+          allById={props.allById}
         />
       ))}
     </>
@@ -334,7 +347,7 @@ function ProblemsetGroups(props: {
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  allObjects: WorkObjectDto[];
+  allById: ReadonlyMap<string, WorkObjectDto>;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
@@ -351,21 +364,30 @@ function ProblemsetGroups(props: {
           taxonomy={props.taxonomy}
           selectedId={props.selectedId}
           onSelect={props.onSelect}
-          allObjects={props.allObjects}
+          allById={props.allById}
           collapsed={props.collapsed}
           onToggle={props.onToggle}
         />
       ) : null}
-      {model.unsourced.length > 0 ? <ProblemsetRows objects={model.unsourced} taxonomy={props.taxonomy} selectedId={props.selectedId} onSelect={props.onSelect} allObjects={props.allObjects} /> : null}
+      {model.unsourced.length > 0 ? <ProblemsetRows objects={model.unsourced} taxonomy={props.taxonomy} selectedId={props.selectedId} onSelect={props.onSelect} allById={props.allById} /> : null}
     </div>
   );
 }
 
 export function WorkList(props: Props) {
-  const { objects, allObjects, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
+  const { objects, allObjects, allById, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const model = useMemo(() => groupWorkObjects(objects, allObjects), [objects, allObjects]);
   const sourceModel = useMemo(() => groupWorkObjectsBySource(model.problemSets), [model.problemSets]);
+  /** 本视图口径的比赛 → 关联题组数（27 §5.1）：活动视图数活动题组，归档视图数归档题组 */
+  const setCountByContest = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const obj of allObjects) {
+      if (obj.kind !== 'problemset' || obj.parentId === null) continue;
+      counts.set(obj.parentId, (counts.get(obj.parentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [allObjects]);
 
   useEffect(() => {
     setCollapsed(new Set());
@@ -439,7 +461,8 @@ export function WorkList(props: Props) {
           taxonomy={taxonomy}
           selectedId={selectedId}
           onSelect={props.onSelect}
-          allObjects={allObjects}
+          allById={allById}
+          setCountByContest={setCountByContest}
           collapsed={collapsed}
           onToggle={toggleGroup}
         />
@@ -452,7 +475,7 @@ export function WorkList(props: Props) {
             taxonomy={taxonomy}
             selectedId={selectedId}
             onSelect={props.onSelect}
-            allObjects={allObjects}
+            allById={allById}
             collapsed={collapsed}
             onToggle={toggleGroup}
           />
@@ -467,7 +490,7 @@ export function WorkList(props: Props) {
               taxonomy={taxonomy}
               selectedId={selectedId}
               onSelect={props.onSelect}
-              allObjects={allObjects}
+              allById={allById}
             />
           </div>
         )

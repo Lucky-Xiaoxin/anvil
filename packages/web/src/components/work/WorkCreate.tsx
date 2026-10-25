@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { WorkKind, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
+import type { WorkKind, WorkObjectDto, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
 import { ApiError, createWork, adoptWork } from '../../api.ts';
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
@@ -11,7 +11,7 @@ export type WorkDialog =
 
 /**
  * 5a-4（契约 26）：比赛 = contest、题组 = problemset 是两个对象。
- * 新建比赛不再产生题组；新建题组可选题组类型与关联比赛（0..1）。
+ * 新建比赛不再产生题组；新建题组可选关联比赛（比赛侧 0..n，27 §2.1）。
  */
 type CreateMode = 'contest' | 'problemset' | 'template' | 'note';
 
@@ -24,6 +24,8 @@ const MODES: ReadonlyArray<{ mode: CreateMode; label: string; hint: string }> = 
 
 interface Props {
   tree: WorkTreeDto;
+  /** 活动比赛（27 §5.2）：关联选择器只列活动对象 */
+  contests: WorkObjectDto[];
   dialog: WorkDialog;
   onDone: (title: string, id: string) => void;
   onClose: () => void;
@@ -37,7 +39,7 @@ function modeOfHint(kind: WorkKind | null): CreateMode {
   return 'problemset';
 }
 
-export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
+export function WorkCreate({ tree, contests, dialog, onDone, onClose }: Props) {
   const adopting = dialog.mode === 'adopt';
   const target = adopting ? dialog.target : null;
   const [mode, setMode] = useState<CreateMode>(target === null ? 'problemset' : modeOfHint(target.kindHint));
@@ -49,7 +51,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   const topNodes = tree.taxonomy?.nodes ?? [];
-  const parentOptions = availableContests(tree.objects, null);
+  const parentOptions = availableContests(contests);
   const current = MODES.find((item) => item.mode === mode) ?? MODES[0]!;
   const canSubmit = adopting || title.trim() !== '';
 
@@ -162,7 +164,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
                   </option>
                 ))}
               </select>
-              <span className="wk-hint">一个比赛最多关联一个题组；关联不移动文件夹。</span>
+              <span className="wk-hint">关联不移动文件夹；一个比赛可以关联多个题组（27 §2.1）。</span>
             </label>
           ) : null}
 
