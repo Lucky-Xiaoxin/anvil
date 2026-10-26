@@ -772,7 +772,6 @@ export class WorkService {
     if (solution !== null) {
       copyFileSync(join(sourceAbs, solution), join(targetAbs, 'solution.cpp'));
     }
-    if (entries.includes('test.cpp')) copyFileSync(join(sourceAbs, 'test.cpp'), join(targetAbs, 'test.cpp'));
   }
 
   private adoptNow(input: WorkAdoptInput): WorkObjectDetailDto {

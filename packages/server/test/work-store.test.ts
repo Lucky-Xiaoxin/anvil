@@ -206,7 +206,7 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
     expect(withoutName.title).toBe('cf:9999:Z');
   });
 
-  it('templateId 只复制 template.cpp / 第一个 .cpp 与 test.cpp', async () => {
+  it('templateId 只复制模板主文件，test.cpp 与其它文件都不带', async () => {
     await initRoot();
     const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
     const templateUrl = absOf(template.relPath);
@@ -218,7 +218,7 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
     const detail = service.object(problem.id);
     const paths = detail.files.map((f) => f.path);
     expect(paths).toContain('solution.cpp');
-    expect(paths).toContain('test.cpp');
+    expect(paths).not.toContain('test.cpp');
     expect(paths).not.toContain('notes.txt');
     expect(readFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'utf8')).toBe('// template');
   });
@@ -377,7 +377,7 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
     expect(readFileSync(join(absOf(fallback.relPath), 'solution.cpp'), 'utf8')).toBe('// alpha\n');
   });
 
-  it('新建题组同样用默认模板（5a-2 起题组是唯一可建单元）：solution.cpp 与 test.cpp 一并放入', async () => {
+  it('新建题组同样用默认模板（5a-2 起题组是唯一可建单元）：只放 solution.cpp', async () => {
     await initRoot();
     const bare = await service.create({ kind: 'problemset', title: 'Bare' });
     expect(service.object(bare.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
@@ -388,7 +388,7 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
 
     const set = await service.create({ kind: 'problemset', title: 'TreeDP' });
     expect(readFileSync(join(absOf(set.relPath), 'solution.cpp'), 'utf8')).toBe('// base\n');
-    expect(readFileSync(join(absOf(set.relPath), 'test.cpp'), 'utf8')).toBe('int main() { return 0; }\n');
+    expect(service.object(set.id).files.some((f) => f.path === 'test.cpp')).toBe(false);
   });
 
   it('题组也接受显式 templateId / null（不复制）；比赛仍拒绝 templateId', async () => {
