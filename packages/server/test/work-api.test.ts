@@ -515,11 +515,12 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error.kind).toBe('conflict');
 
-    // 活动比赛被归档后，不能再被关联（跨归档不可编辑）
+    // 活动比赛被归档后，不能再被关联（跨归档不可编辑）：与冻结 / 回收同一口径，409 conflict
     res = await post('/api/work/update', { id: contest.id, archived: true });
     expect(res.statusCode).toBe(200);
     res = await post('/api/work/create', { kind: 'problemset', title: 'Blocked', parentId: contest.id });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
 
     // 取消归档后可编辑
     res = await post('/api/work/update', { id: set.id, archived: false });

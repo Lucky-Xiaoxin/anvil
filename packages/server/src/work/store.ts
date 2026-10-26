@@ -542,10 +542,11 @@ export class WorkService {
       if (parent.record.meta.kind !== 'contest') {
         throw new WorkError('invalid', kind === 'problemset' ? '关联对象必须是 contest' : '父对象必须是 contest');
       }
-      if (kind === 'problem' && parent.effectiveArchived) throw new WorkError('invalid', '父比赛已归档，不能往里建题');
+      // 归档类拒绝统一用 conflict（409）：请求本身合法，是「当前状态挡路」，取消归档后重试即可
+      if (kind === 'problem' && parent.effectiveArchived) throw new WorkError('conflict', '父比赛已归档，不能往里建题');
       // 0..n（27 §2.1）：一个比赛可以被任意多个题组关联；只挡「目标已归档」（27 §1.7）
       if (kind === 'problemset' && parent.effectiveArchived) {
-        throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
+        throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
       }
     }
 
@@ -784,7 +785,7 @@ export class WorkService {
       if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
       if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
       // 0..n（27 §2.1）：不再检查占用；目标已归档则拒绝（27 §1.7）
-      if (linked.effectiveArchived) throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
+      if (linked.effectiveArchived) throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
       linkParentId = linked.record.meta.id;
     }
     const abs = resolveInside(root, input.relPath);
@@ -847,8 +848,9 @@ export class WorkService {
     const obj = idx.byId.get(input.id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
     const current = obj.record.meta;
-    // 归档冻结（27 §4）：已归档对象只允许取消归档，其余字段一律拒绝
-    if (current.archived) {
+    // 归档冻结（27 §4）：已归档对象只允许取消归档，其余字段一律拒绝。
+    // 判据用 effectiveArchived，与 trash / create 同一词：旧 problem 随父比赛定格时也读。
+    if (obj.effectiveArchived) {
       const frozenFields = [input.title, input.tags, input.labels, input.parentId].some((field) => field !== undefined);
       if (frozenFields) throw new WorkError('conflict', '已归档的对象是只读的；先取消归档再修改');
     }
@@ -925,7 +927,7 @@ export class WorkService {
       if (current.parentId !== null) {
         const currentParent = idx.byId.get(current.parentId) ?? null;
         if (currentParent !== null && currentParent.record.meta.kind === 'contest' && currentParent.effectiveArchived) {
-          throw new WorkError('invalid', '关联的比赛已归档，先取消归档再调整关联');
+          throw new WorkError('conflict', '关联的比赛已归档，先取消归档再调整关联');
         }
       }
       let nextParentId: string | null = null;
@@ -936,7 +938,7 @@ export class WorkService {
         if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
         if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
         // 0..n（27 §2.1）：不再检查占用；跨归档不可编辑——目标已归档时不能新建这条关联
-        if (linked.effectiveArchived) throw new WorkError('invalid', '关联的比赛已归档，先取消归档再关联');
+        if (linked.effectiveArchived) throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
         nextParentId = linked.record.meta.id;
       }
       if (next.parentId !== nextParentId) {

@@ -922,14 +922,14 @@ describe('归档冻结与跨归档关联（契约 27 §1 / §3 / §4）', () => 
     const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
     await service.update({ id: contest.id, archived: true });
 
-    // 新建关联到归档比赛：create / adopt / update 一律拒绝
-    await expect(service.create({ kind: 'problemset', title: 'New', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
+    // 新建关联到归档比赛：create / adopt / update 一律拒绝（归档类拒绝统一 conflict，27 §4）
+    await expect(service.create({ kind: 'problemset', title: 'New', parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });
     mkdirSync(join(absOf('practice/2026-10/adopted-2')), { recursive: true });
     await expect(
       service.adopt({ relPath: 'practice/2026-10/adopted-2', kind: 'problemset', title: 'Adopted2', parentId: contest.id }),
-    ).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(service.update({ id: set.id, parentId: free.id })).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(service.update({ id: set.id, parentId: null })).rejects.toMatchObject({ kind: 'invalid' });
+    ).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, parentId: free.id })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: set.id, parentId: null })).rejects.toMatchObject({ kind: 'conflict' });
 
     // 关联不自动清空；取消归档后恢复可编辑，可改挂到活动比赛
     const stillLinked = await service.object(set.id);
@@ -963,6 +963,27 @@ describe('归档冻结与跨归档关联（契约 27 §1 / §3 / §4）', () => 
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
     await service.update({ id: contest.id, archived: true });
-    await expect(service.create({ kind: 'problem', title: 'Cherry', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.create({ kind: 'problem', title: 'Cherry', parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });
+  });
+
+  it('继承归档同样冻结：父比赛归档时旧 problem 的 retitle / labels / trash 一律拒绝（判据 = effectiveArchived）', async () => {
+    await initRoot();
+    const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
+    const problem = await service.create({ kind: 'problem', title: 'Cherry', parentId: contest.id, templateId: null });
+    await service.update({ id: contest.id, archived: true });
+
+    // 它自己的 archived 仍是 false，但列表按继承把它当归档显示：服务端必须同一口径
+    const before = await service.object(problem.id);
+    expect(before.archived).toBe(false);
+    expect((await service.tree({ archived: true })).objects.some((o) => o.id === problem.id)).toBe(true);
+
+    await expect(service.update({ id: problem.id, title: 'Renamed' })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.update({ id: problem.id, labels: ['x'] })).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.trash(problem.id)).rejects.toMatchObject({ kind: 'conflict' });
+
+    // 解冻入口在父对象上：取消归档比赛后，旧 problem 才回到可编辑
+    await service.update({ id: contest.id, archived: false });
+    const renamed = await service.update({ id: problem.id, title: 'Renamed' });
+    expect(renamed.title).toBe('Renamed');
   });
 });
