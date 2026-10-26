@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { WorkArenaRecordDto } from '@anvil/shared';
 import type { LeafRow } from '../src/components/arena/catalog.ts';
-import { arenaTitleOf, ghostToRecord, recordToGhost, viewOfRow } from '../src/components/arena/record.ts';
+import { arenaTitleOf, ghostToRecord, overwriteHintOf, recordToGhost, viewOfRow } from '../src/components/arena/record.ts';
 import { saveSession, type Store } from '../src/components/arena/session.ts';
 
 const row: LeafRow = {
@@ -64,5 +65,26 @@ describe('VP 成绩存档映射', () => {
     });
     expect(viewOfRow(store, row, null)).toEqual({ mode: 'review', viewMs: 0, paused: false, frozenView: false });
     expect(viewOfRow(memoryStore(), row, null)).toEqual({ mode: 'review', viewMs: 0, paused: false, frozenView: false });
+  });
+});
+
+const savedRecord: WorkArenaRecordDto = {
+  schema: 1,
+  arenaPath: row.path,
+  title: '2025-11-23 上海站',
+  savedAt: '2026-10-20T06:32:00.000Z',
+  ghost: { show: false, subs: [{ p: 0, t: 113, r: 'AC' }, { p: 2, t: 200, r: 'WA' }] },
+  view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
+};
+
+describe('保存成绩的覆盖确认', () => {
+  it('第一次点击只点名会被整份替换的那份存档：上海时间到分钟 + 发数', () => {
+    expect(overwriteHintOf(savedRecord, Date.parse('2026-10-26T02:00:00Z'))).toBe('已有 10-20 14:32 的存档 · 2 发');
+  });
+
+  it('跨年存档补年份，不把去年的写成今年的', () => {
+    expect(overwriteHintOf({ ...savedRecord, savedAt: '2025-10-20T06:32:00.000Z' }, Date.parse('2026-10-26T02:00:00Z'))).toContain(
+      '2025-10-20 14:32',
+    );
   });
 });

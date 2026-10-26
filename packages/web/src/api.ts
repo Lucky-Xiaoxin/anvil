@@ -146,7 +146,7 @@ export const createWork = (body: {
   templateId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/create', post(body), 30_000);
 
-export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string }): Promise<WorkObjectDetailDto> =>
+export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: string; parentId?: string | null }): Promise<WorkObjectDetailDto> =>
   request<WorkObjectDetailDto>('/api/work/adopt', post(body), 30_000);
 
 export const updateWork = (body: {
@@ -155,6 +155,8 @@ export const updateWork = (body: {
   tags?: { primary?: string | null; related?: string[] };
   labels?: string[];
   archived?: boolean;
+  /** 仅题组：关联 / 清除关联比赛（26 §4.2） */
+  parentId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/update', post(body), 30_000);
 
 export const trashWork = (id: string): Promise<{ id: string; trashName: string }> =>

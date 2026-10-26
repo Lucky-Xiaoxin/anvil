@@ -43,7 +43,7 @@ import {
 import type { LeafRow } from './catalog.ts';
 import { GhostPanel } from './GhostPanel.tsx';
 import { Popover, PopShell, resClass, type Anchor } from './pops.tsx';
-import { arenaTitleOf, ghostToRecord, recordToGhost } from './record.ts';
+import { arenaTitleOf, ghostToRecord, overwriteHintOf, probeSavedRecord, recordToGhost } from './record.ts';
 import { clearGhost, clearSession, loadGhost, loadSession, saveGhost, saveSession, type GhostData, type Store } from './session.ts';
 
 interface Props {
@@ -89,6 +89,8 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
   const restoredRef = useRef(initialRecord !== null);
   const [saveState, setSaveState] = useState<'idle' | 'busy' | 'saved' | 'error'>('idle');
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  /** 覆盖确认：一场只有一份 record.json，第一次点击只点名会被整份替换的那份 */
+  const [armHint, setArmHint] = useState<string | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   /** 榜体滚动容器：顶栏读数「跳到自己」用它定位那一行 */
   const boardBox = useRef<HTMLDivElement | null>(null);
@@ -309,6 +311,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
       saveGhost(store, row.path, next);
       setSaveState('idle');
       setSaveErr(null);
+      setArmHint(null);
     },
     [row.path, store],
   );
@@ -323,8 +326,22 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
   /** 把这份「我的成绩 + 当前回放位置」写进工坊：服务端按 arenaPath 找/建 contest，再写 record.json */
   const saveRecord = useCallback(async (): Promise<void> => {
     if (ghost === null || ghost.subs.length === 0 || session === null) return;
+    if (armHint === null) {
+      try {
+        const existing = await probeSavedRecord(row.path);
+        if (existing !== null) {
+          setArmHint(overwriteHintOf(existing));
+          return;
+        }
+      } catch (err) {
+        setSaveState('error');
+        setSaveErr(messageOf(err));
+        return;
+      }
+    }
     setSaveState('busy');
     setSaveErr(null);
+    setArmHint(null);
     try {
       await saveWorkArenaRecord({
         arenaPath: row.path,
@@ -342,7 +359,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
       setSaveState('error');
       setSaveErr(messageOf(err));
     }
-  }, [ghost, session, row, review, viewMs, elapsed, frozenView]);
+  }, [ghost, session, row, review, viewMs, elapsed, frozenView, armHint]);
 
   const openGhostPop = (ev: React.MouseEvent): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
@@ -495,12 +512,22 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
           <button
             className="btn btn--sm"
             disabled={saveState === 'busy'}
-            title="保存到工坊 · 写入比赛对象的 record.json（逐发成绩 + 当前回放位置）"
+            title={
+              armHint !== null
+                ? '再点一次会把这场已有的 record.json 整份替换；点到别处取消'
+                : '保存到工坊 · 写入比赛对象的 record.json（逐发成绩 + 当前回放位置）'
+            }
+            onBlur={() => setArmHint(null)}
             onClick={() => void saveRecord()}
           >
             <Icon id="i-save" />
-            {saveState === 'busy' ? '保存中…' : saveState === 'saved' ? '已保存' : '保存'}
+            {saveState === 'busy' ? '保存中…' : armHint !== null ? '确认覆盖' : saveState === 'saved' ? '已保存' : '保存'}
           </button>
+        ) : null}
+        {armHint !== null ? (
+          <span className="tb-arm" title={armHint}>
+            {armHint}
+          </span>
         ) : null}
         {saveErr !== null ? (
           <span className="tb-err" title={saveErr}>

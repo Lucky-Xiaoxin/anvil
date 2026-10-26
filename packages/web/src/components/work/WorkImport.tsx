@@ -10,26 +10,28 @@ import { fmtInt, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { fileSize } from './derive.ts';
 import {
+  batchDisabledMap,
+  batchImportSummary,
+  buildBatchImportTree,
   buildCommitItems,
-  buildImportPreview,
   duplicateLabel,
-  importSummary,
-  initialImportState,
+  importScopeLabel,
+  initialBatchImportState,
   isAutoSkipDuplicate,
   middleEllipsis,
   setImportKeepDuplicate,
-  setImportParent,
-  setImportSelected,
   setImportTitle,
-  validateImportState,
+  setBatchImportSelected,
+  validateBatchImportState,
+  type BatchImportTreeNode,
   type ImportItemState,
   type ImportState,
 } from './import-derive.ts';
 
 interface Props {
   onClose: () => void;
-  /** 成功后回工坊：有成功项时默认选中第一件 */
-  onImported: (objectId: string | null) => void;
+  /** 成功后回工坊：有成功项时默认选中第一件；result 用于工坊提示完整结果 */
+  onImported: (objectId: string | null, result: WorkImportResultDto) => void;
 }
 
 type Phase = 'source' | 'preview' | 'result';
@@ -45,8 +47,9 @@ function Badges({ item }: { item: WorkImportCandidateDto }) {
   const duplicate = duplicateLabel(item);
   return (
     <span className="wk-import__badges">
-      {item.role === 'undecided' ? <span className="wk-badge">未判定</span> : null}
-      {item.role === 'problem' ? <span className="wk-kindbadge">题目</span> : null}
+      <span className={item.scope === 'direct' ? 'wk-badge' : item.isContainer ? 'wk-badge wk-badge--warn' : 'wk-badge wk-badge--contest'}>
+        {importScopeLabel(item)}
+      </span>
       {item.confidence === 'low' ? (
         <span className="wk-import__flag">
           <Icon id="i-warn" />
@@ -65,11 +68,10 @@ function Badges({ item }: { item: WorkImportCandidateDto }) {
 
 function FilePreview({ item }: { item: WorkImportCandidateDto }) {
   if (item.files === 0) return null;
-  const label = item.role === 'contest' ? '题组文件' : '文件';
   return (
     <details className="wk-import__files">
       <summary>
-        {label} {fmtInt(item.files)} 个 · {fileSize(item.bytes)}
+        文件 {fmtInt(item.files)} 个 · {fileSize(item.bytes)}
         {item.filesTruncated ? `（预览前 ${item.filePreview.length} 条）` : ''}
       </summary>
       <div className="wk-import__filelist">
@@ -84,25 +86,45 @@ function FilePreview({ item }: { item: WorkImportCandidateDto }) {
   );
 }
 
-function CandidateRow(props: {
+function ImportRow(props: {
   item: WorkImportCandidateDto;
   state: ImportItemState;
-  parentContest: WorkImportCandidateDto | null;
-  child: boolean;
+  depth: number;
+  disabledReason: string | undefined;
+  expanded: boolean | null;
+  onToggle: (() => void) | null;
   onSelect: (selected: boolean) => void;
   onTitle: (title: string) => void;
-  onParent: (parentItemId: string | null) => void;
   onKeepDuplicate: (keep: boolean) => void;
 }) {
-  const { item, state, parentContest, child } = props;
+  const { item, state, depth, disabledReason, expanded, onToggle } = props;
   const autoSkip = isAutoSkipDuplicate(item);
+  const disabled = autoSkip || disabledReason !== undefined;
   return (
-    <div className={`wk-import__row${child ? ' wk-import__row--child' : ''}${state.selected ? ' is-on' : ''}`}>
+    <div
+      className={`wk-import__row${depth > 0 ? ' wk-import__row--child' : ''}${state.selected ? ' is-on' : ''}${
+        item.scope === 'direct' ? ' wk-import__row--scatter' : ''
+      }`}
+      style={depth > 0 ? { paddingLeft: `${12 + Math.min(depth, 8) * 18}px` } : undefined}
+    >
+      {onToggle !== null ? (
+        <button
+          className={`wk-group__toggle${expanded === true ? ' is-open' : ''}`}
+          aria-expanded={expanded === true}
+          aria-label={expanded === true ? `收起 ${item.suggestedTitle}` : `展开 ${item.suggestedTitle}`}
+          onClick={onToggle}
+        >
+          <Icon id="i-chev" />
+        </button>
+      ) : (
+        <span className="wk-import__chevspace" aria-hidden="true" />
+      )}
       <input
         type="checkbox"
         className="wk-import__check"
         checked={state.selected}
-        disabled={autoSkip}
+        disabled={disabled}
+        title={disabledReason ?? undefined}
         aria-label={`导入 ${item.suggestedTitle || item.sourceRelPath}`}
         onChange={(e) => props.onSelect(e.target.checked)}
       />
@@ -118,43 +140,107 @@ function CandidateRow(props: {
           <Badges item={item} />
         </div>
         <div className="wk-import__meta">
-          <span title={item.sourceRelPath || '（源根）'}>{middleEllipsis(item.sourceRelPath || '（源根）')}</span>
+          <span title={item.sourceRelPath || '（源根）'}>{middleEllipsis(item.sourceRelPath || '（源根）', 72)}</span>
           <span className="wk-dot" />
           <span>{fmtInt(item.files)} 个文件</span>
           <span className="wk-dot" />
           <span>{fileSize(item.bytes)}</span>
+          <span className="wk-dot" />
+          <span>{fmtInt(item.sourceCount)} 个源码</span>
         </div>
         <div className="wk-import__reasons" title={item.reasons.join('；')}>
           {item.reasons.join('；')}
         </div>
         <FilePreview item={item} />
-        {parentContest !== null ? (
-          <label className="wk-import__parent">
-            <span>题组归属</span>
-            <select
-              className="wk-select wk-select--inline"
-              value={state.parentItemId ?? ''}
-              onChange={(e) => props.onParent(e.target.value === '' ? null : e.target.value)}
-            >
-              <option value="">未分组题目</option>
-              <option value={parentContest.itemId}>{parentContest.suggestedTitle}</option>
-            </select>
-          </label>
-        ) : null}
         {item.duplicate?.kind === 'same-content' && state.selected ? (
           <label className="wk-import__dup">
-            <input
-              type="checkbox"
-              checked={state.keepDuplicate}
-              onChange={(e) => props.onKeepDuplicate(e.target.checked)}
-            />
+            <input type="checkbox" checked={state.keepDuplicate} onChange={(e) => props.onKeepDuplicate(e.target.checked)} />
             仍导入副本（默认不合并）
           </label>
         ) : null}
-        {item.role === 'undecided' && !state.selected ? (
-          <div className="wk-import__hintline">勾选后按下方的「确认导入」会按目录题创建，可在左侧改标题。</div>
-        ) : null}
+        {disabledReason !== undefined ? <div className="wk-import__hintline">{disabledReason}</div> : null}
       </div>
+    </div>
+  );
+}
+
+function ImportTreeNodeView(props: {
+  node: BatchImportTreeNode;
+  state: ImportState;
+  disabled: Map<string, string>;
+  collapsed: Set<string>;
+  onToggle: (key: string) => void;
+  onSelect: (itemId: string, selected: boolean) => void;
+  onTitle: (itemId: string, title: string) => void;
+  onKeepDuplicate: (itemId: string, keep: boolean) => void;
+}) {
+  const { node, state, disabled, collapsed } = props;
+  const expanded = !collapsed.has(node.key);
+  const hasChildren = node.children.length > 0 || node.scatter !== null;
+  const toggle = hasChildren ? () => props.onToggle(node.key) : null;
+
+  const renderItem = (item: WorkImportCandidateDto, depth: number, withToggle: boolean) => {
+    const itemState = state[item.itemId];
+    if (itemState === undefined) return null;
+    return (
+      <ImportRow
+        key={item.itemId}
+        item={item}
+        state={itemState}
+        depth={depth}
+        disabledReason={disabled.get(item.itemId)}
+        expanded={withToggle ? expanded : null}
+        onToggle={withToggle ? toggle : null}
+        onSelect={(selected) => props.onSelect(item.itemId, selected)}
+        onTitle={(title) => props.onTitle(item.itemId, title)}
+        onKeepDuplicate={(keep) => props.onKeepDuplicate(item.itemId, keep)}
+      />
+    );
+  };
+
+  return (
+    <div className="wk-import__group">
+      {node.candidate !== null ? (
+        renderItem(node.candidate, node.depth, hasChildren)
+      ) : (
+        <div className="wk-import__grouphead" style={node.depth > 0 ? { marginLeft: `${node.depth * 18}px` } : undefined}>
+          {toggle !== null ? (
+            <button
+              className={`wk-group__toggle${expanded ? ' is-open' : ''}`}
+              aria-expanded={expanded}
+              aria-label={expanded ? `收起 ${node.name}` : `展开 ${node.name}`}
+              onClick={toggle}
+            >
+              <Icon id="i-chev" />
+            </button>
+          ) : (
+            <span className="wk-import__chevspace" aria-hidden="true" />
+          )}
+          <div className="wk-import__main">
+            <div className="wk-import__titlerow">
+              <span className="wk-import__titleinput">{node.name}</span>
+            </div>
+          </div>
+        </div>
+      )}
+      {expanded ? (
+        <>
+          {node.children.map((child) => (
+            <ImportTreeNodeView
+              key={child.key}
+              node={child}
+              state={state}
+              disabled={disabled}
+              collapsed={collapsed}
+              onToggle={props.onToggle}
+              onSelect={props.onSelect}
+              onTitle={props.onTitle}
+              onKeepDuplicate={props.onKeepDuplicate}
+            />
+          ))}
+          {node.scatter !== null ? renderItem(node.scatter, node.depth + 1, false) : null}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -169,10 +255,11 @@ export function WorkImport({ onClose, onImported }: Props) {
   const [result, setResult] = useState<WorkImportResultDto | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
-  const preview = useMemo(() => (plan === null ? null : buildImportPreview(plan)), [plan]);
-  const issues = useMemo(() => (plan === null ? [] : validateImportState(plan, state)), [plan, state]);
+  const preview = useMemo(() => (plan === null ? [] : buildBatchImportTree(plan)), [plan]);
+  const disabled = useMemo(() => (plan === null ? new Map<string, string>() : batchDisabledMap(plan, state)), [plan, state]);
+  const issues = useMemo(() => (plan === null ? [] : validateBatchImportState(plan, state)), [plan, state]);
   const summary = useMemo(
-    () => (plan === null ? { objects: 0, units: 0, contests: 0, problems: 0, autoSkipped: 0, issues: [] } : importSummary(plan, state)),
+    () => (plan === null ? { objects: 0, units: 0, autoSkipped: 0, issues: [] } : batchImportSummary(plan, state)),
     [plan, state],
   );
 
@@ -188,7 +275,7 @@ export function WorkImport({ onClose, onImported }: Props) {
     try {
       const next = await scanWorkImport(value);
       setPlan(next);
-      setState(initialImportState(next));
+      setState(initialBatchImportState(next));
       setResult(null);
       setCollapsed(new Set());
       setPhase('preview');
@@ -231,11 +318,11 @@ export function WorkImport({ onClose, onImported }: Props) {
     setCollapsed(new Set());
   };
 
-  const toggleGroup = (id: string): void => {
+  const toggleGroup = (key: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -243,7 +330,7 @@ export function WorkImport({ onClose, onImported }: Props) {
   /** 结果页离开时刷新工坊；预览 / 选源阶段只关闭，不丢未提交 plan 之外的东西 */
   const leave = (): void => {
     if (phase === 'result' && result !== null) {
-      onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null);
+      onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null, result);
       return;
     }
     onClose();
@@ -261,7 +348,7 @@ export function WorkImport({ onClose, onImported }: Props) {
         <div className="wk-import__headmain">
           <span className="label label--accent">Legacy import</span>
           <h3>导入旧代码</h3>
-          <p>只复制、不移动、不持续同步；源目录原件永不改写或删除。判不准的项停在预览，不写入受管根。</p>
+          <p>只复制、不移动、不持续同步；源目录原件永不改写或删除。可一次扫描多个比赛目录，勾选后批量导入。</p>
         </div>
         <button className="btn btn--sm" onClick={leave} disabled={busy !== null}>
           返回工坊
@@ -298,8 +385,9 @@ export function WorkImport({ onClose, onImported }: Props) {
           </label>
           <ul className="wk-import__rules">
             <li>扫描只读：不创建锁文件、缓存或标记文件。</li>
+            <li>一个含主源码的目录 = 一个题组；一次可导入多个叶子目录，全部平铺在 `contests/`。</li>
+            <li>容器默认不选，可改选下级叶子；容器里直接散落的文件可单独导入为「散题」。</li>
             <li>执行时先复制到 `.anvil/import-staging/`，校验后再原子发布；绝不覆盖已有目录。</li>
-            <li>整个目录生成一个题组；题目就是其中的 .cpp / .py 等源码文件，不单独建对象。</li>
           </ul>
           {error !== null ? (
             <div className="alert alert--err" role="status">
@@ -316,7 +404,7 @@ export function WorkImport({ onClose, onImported }: Props) {
         </div>
       ) : null}
 
-      {phase === 'preview' && plan !== null && preview !== null ? (
+      {phase === 'preview' && plan !== null ? (
         <div className="wk-import__panel">
           <div className="wk-import__bar">
             <code title={plan.sourceRoot}>{middleEllipsis(plan.sourceRoot, 90)}</code>
@@ -355,145 +443,36 @@ export function WorkImport({ onClose, onImported }: Props) {
           ) : null}
 
           {plan.items.length === 0 ? (
-            <div className="wk-empty">没有可预览的文件。换一个来源再试。</div>
+            <div className="wk-empty">没有找到含主源码的目录。换一个来源再试。</div>
           ) : (
             <div className="wk-import__tree">
-              {preview.contests.map(({ contest, children }) => {
-                const folded = collapsed.has(contest.itemId);
-                const contestState = state[contest.itemId];
-                if (contestState === undefined) return null;
-                return (
-                  <div className="wk-import__group" key={contest.itemId}>
-                    <div className={`wk-import__grouphead${contestState.selected ? ' is-on' : ''}`}>
-                      {children.length > 0 ? (
-                        <button
-                          className={`wk-group__toggle${folded ? '' : ' is-open'}`}
-                          aria-expanded={!folded}
-                          aria-label={folded ? `展开 ${contest.suggestedTitle}` : `收起 ${contest.suggestedTitle}`}
-                          onClick={() => toggleGroup(contest.itemId)}
-                        >
-                          <Icon id="i-chev" />
-                        </button>
-                      ) : (
-                        <span className="wk-import__chevspace" aria-hidden="true" />
-                      )}
-                      <input
-                        type="checkbox"
-                        className="wk-import__check"
-                        checked={contestState.selected}
-                        disabled={isAutoSkipDuplicate(contest)}
-                        aria-label={`导入 ${contest.suggestedTitle}`}
-                        onChange={(e) => setState((prev) => setImportSelected(plan, prev, contest.itemId, e.target.checked))}
-                      />
-                      <div className="wk-import__main">
-                        <div className="wk-import__titlerow">
-                          <input
-                            className="input wk-import__titleinput"
-                            value={contestState.title}
-                            maxLength={120}
-                            aria-label="题组标题"
-                            onChange={(e) => setState((prev) => setImportTitle(prev, contest.itemId, e.target.value))}
-                          />
-                          <span className="wk-badge wk-badge--contest">题组</span>
-                          <Badges item={contest} />
-                          <span className="wk-group__count">{fmtInt(contest.files)} 个文件</span>
-                        </div>
-                        <div className="wk-import__meta">
-                          <span title={contest.sourceRelPath || '（源根）'}>
-                            {middleEllipsis(contest.sourceRelPath || '（源根）')}
-                          </span>
-                          <span className="wk-dot" />
-                          <span>{fmtInt(contest.files)} 个文件</span>
-                          <span className="wk-dot" />
-                          <span>{fileSize(contest.bytes)}</span>
-                        </div>
-                        <div className="wk-import__reasons" title={contest.reasons.join('；')}>
-                          {contest.reasons.join('；')}
-                        </div>
-                        <FilePreview item={contest} />
-                        {children.length === 0 ? (
-                          <div className="wk-import__hintline">整个目录作为一个题组导入；题目就是其中的源码文件。</div>
-                        ) : null}
-                        {contest.duplicate?.kind === 'same-content' && contestState.selected ? (
-                          <label className="wk-import__dup">
-                            <input
-                              type="checkbox"
-                              checked={contestState.keepDuplicate}
-                              onChange={(e) =>
-                                setState((prev) => setImportKeepDuplicate(prev, contest.itemId, e.target.checked))
-                              }
-                            />
-                            仍导入副本（默认不合并）
-                          </label>
-                        ) : null}
-                      </div>
-                    </div>
-                    {children.length > 0 && !folded ? (
-                      <div className="wk-import__children">
-                        {children.map((child) => {
-                            const childState = state[child.itemId];
-                            if (childState === undefined) return null;
-                            return (
-                              <CandidateRow
-                                key={child.itemId}
-                                item={child}
-                                state={childState}
-                                parentContest={contest}
-                                child
-                                onSelect={(selected) => setState((prev) => setImportSelected(plan, prev, child.itemId, selected))}
-                                onTitle={(title) => setState((prev) => setImportTitle(prev, child.itemId, title))}
-                                onParent={(parentItemId) => setState((prev) => setImportParent(prev, child.itemId, parentItemId))}
-                                onKeepDuplicate={(keep) => setState((prev) => setImportKeepDuplicate(prev, child.itemId, keep))}
-                              />
-                            );
-                          })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-
-              {preview.loose.length > 0 ? (
-                <div className="wk-sec">
-                  <div className="wk-sec__title">
-                    <span>未分组题目</span>
-                    <b className="num">{preview.loose.length}</b>
-                  </div>
-                  {preview.loose.map((item) => {
-                    const itemState = state[item.itemId];
-                    if (itemState === undefined) return null;
-                    return (
-                      <CandidateRow
-                        key={item.itemId}
-                        item={item}
-                        state={itemState}
-                        parentContest={null}
-                        child={false}
-                        onSelect={(selected) => setState((prev) => setImportSelected(plan, prev, item.itemId, selected))}
-                        onTitle={(title) => setState((prev) => setImportTitle(prev, item.itemId, title))}
-                        onParent={(parentItemId) => setState((prev) => setImportParent(prev, item.itemId, parentItemId))}
-                        onKeepDuplicate={(keep) => setState((prev) => setImportKeepDuplicate(prev, item.itemId, keep))}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
+              {preview.map((node) => (
+                <ImportTreeNodeView
+                  key={node.key}
+                  node={node}
+                  state={state}
+                  disabled={disabled}
+                  collapsed={collapsed}
+                  onToggle={toggleGroup}
+                  onSelect={(itemId, selected) => setState((prev) => setBatchImportSelected(plan, prev, itemId, selected))}
+                  onTitle={(itemId, title) => setState((prev) => setImportTitle(prev, itemId, title))}
+                  onKeepDuplicate={(itemId, keep) => setState((prev) => setImportKeepDuplicate(prev, itemId, keep))}
+                />
+              ))}
             </div>
           )}
 
           <div className="wk-import__foot">
             <div className="wk-import__summary">
-              <b className="num">{summary.objects}</b> 个对象
+              <b className="num">{summary.objects}</b> 个题组
               <span className="wk-dot" />
-              题组 {summary.contests}
-              {summary.problems > 0 ? ` · 题目 ${summary.problems}` : ''}
+              {summary.units} 个原子单元
               {summary.autoSkipped > 0 ? (
                 <>
                   <span className="wk-dot" />
                   自动跳过 {summary.autoSkipped}
                 </>
               ) : null}
-              <span className="wk-muted">（{summary.units} 个原子单元）</span>
               {summary.objects === 0 && summary.autoSkipped > 0 ? (
                 <div className="wk-import__hintline">全部是已导入过的同一来源项；提交只会记录跳过，不会重复复制。</div>
               ) : null}
@@ -532,8 +511,8 @@ export function WorkImport({ onClose, onImported }: Props) {
           plan={plan}
           result={result}
           titleOf={titleOf}
-          onClose={() => onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null)}
-          onSelectObject={(objectId) => onImported(objectId)}
+          onClose={() => onImported(result.units.flatMap((unit) => unit.objects)[0]?.objectId ?? null, result)}
+          onSelectObject={(objectId) => onImported(objectId, result)}
           onContinue={reset}
         />
       ) : null}
@@ -554,14 +533,21 @@ function ResultView(props: {
   const failed = result.units.filter((unit) => unit.status === 'failed');
   const autoSkipped = result.skipped.filter((item) => item.kind === 'duplicate');
   const userSkipped = result.skipped.filter((item) => item.kind === 'user');
+  const partial = created.length > 0 && failed.length > 0;
   const byItem = new Map(plan.items.map((item) => [item.itemId, item]));
 
   return (
     <div className="wk-import__panel">
+      {partial ? (
+        <div className="alert alert--warn" role="status">
+          <Icon id="i-warn" />
+          <div>部分成功：{created.length} 个题组已导入，{failed.length} 个单元失败；失败单元未留下半成品。</div>
+        </div>
+      ) : null}
       <div className="wk-import__stats">
         <div className="wk-import__stat">
           <b className="num">{fmtInt(created.length)}</b>
-          <span>成功对象</span>
+          <span>成功题组</span>
         </div>
         <div className="wk-import__stat">
           <b className="num">{fmtInt(failed.length)}</b>
@@ -573,7 +559,7 @@ function ResultView(props: {
         </div>
         <div className="wk-import__stat">
           <b className="num">{fmtInt(userSkipped.length)}</b>
-          <span>用户跳过</span>
+          <span>未选中</span>
         </div>
       </div>
 
@@ -590,7 +576,6 @@ function ResultView(props: {
           <div className="wk-import__created">
             {created.map((object) => {
               const item = byItem.get(object.itemId);
-              const isContest = item?.role === 'contest';
               return (
                 <button
                   className="wk-import__createdrow"
@@ -598,8 +583,8 @@ function ResultView(props: {
                   title={`查看 ${object.relPath}`}
                   onClick={() => props.onSelectObject(object.objectId)}
                 >
-                  <span className={isContest ? 'wk-badge wk-badge--contest' : 'wk-kindbadge'}>
-                    {isContest ? '题组' : '题目'}
+                  <span className={item?.scope === 'direct' ? 'wk-badge' : 'wk-badge wk-badge--contest'}>
+                    {item?.scope === 'direct' ? '散题' : '题组'}
                   </span>
                   <span className="wk-import__createdtitle">{titleOf(object.itemId)}</span>
                   <code title={object.relPath}>{middleEllipsis(object.relPath, 72)}</code>

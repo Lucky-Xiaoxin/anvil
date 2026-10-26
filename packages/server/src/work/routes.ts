@@ -5,7 +5,7 @@ import { life } from '../life.ts';
 import { WorkError } from './errors.ts';
 import type { WorkService } from './store.ts';
 
-const kindSchema = z.enum(['contest', 'problem', 'template', 'note']);
+const kindSchema = z.enum(['contest', 'problemset', 'problem', 'template', 'note']);
 
 const initBody = z.object({
   path: z.string().max(500),
@@ -26,6 +26,7 @@ const adoptBody = z.object({
   relPath: z.string().max(400),
   kind: kindSchema,
   title: z.string().max(200).optional(),
+  parentId: z.union([z.string().max(40), z.null()]).optional(),
 });
 
 const updateBody = z.object({
@@ -39,6 +40,7 @@ const updateBody = z.object({
     .optional(),
   labels: z.array(z.string()).max(50).optional(),
   archived: z.boolean().optional(),
+  parentId: z.union([z.string().max(40), z.null()]).optional(),
 });
 
 const idBody = z.object({ id: z.string().max(40) });

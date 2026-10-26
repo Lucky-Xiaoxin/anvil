@@ -12,7 +12,7 @@ import { clockHMS, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNode, type LeafRow } from './catalog.ts';
 import { elapsedOf } from './engine.ts';
-import { arenaTitleOf, ghostToRecord, viewOfRow } from './record.ts';
+import { arenaTitleOf, ghostToRecord, overwriteHintOf, probeSavedRecord, viewOfRow } from './record.ts';
 import {
   loadGhost,
   loadOpenGroups,
@@ -54,7 +54,10 @@ interface SaveState {
   savingPath: string | null;
   savedNow: Set<string>;
   saveErr: { path: string; text: string } | null;
+  /** 覆盖确认：一次保存整份替换 record.json，第一次点击只挂出这一行小字 */
+  arm: { path: string; hint: string } | null;
   onSaveGhost: (row: LeafRow, live: { elapsed: number; paused: boolean } | null) => void;
+  onDisarm: () => void;
 }
 
 const subLabel = (node: GroupNode): string =>
@@ -77,6 +80,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   const [savingPath, setSavingPath] = useState<string | null>(null);
   const [savedNow, setSavedNow] = useState<Set<string>>(() => new Set());
   const [saveErr, setSaveErr] = useState<{ path: string; text: string } | null>(null);
+  const [arm, setArm] = useState<{ path: string; hint: string } | null>(null);
   const [restoreErr, setRestoreErr] = useState<string | null>(null);
   const restoredRef = useRef(false);
 
@@ -136,12 +140,27 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
 
   useEffect(() => {
     setSavedNow(new Set());
+    setArm(null);
   }, [sessionEpoch]);
 
   const saveGhost = useCallback(
     async (row: LeafRow, live: { elapsed: number; paused: boolean } | null): Promise<void> => {
       const ghost = loadGhost(store, row.path);
       if (ghost === null || ghost.subs.length === 0) return;
+      // 一场只有一份存档：这一行还没被确认过就先探一次，已有存档则只挂出覆盖确认
+      if (arm === null || arm.path !== row.path) {
+        setArm(null);
+        try {
+          const existing = await probeSavedRecord(row.path);
+          if (existing !== null) {
+            setArm({ path: row.path, hint: overwriteHintOf(existing) });
+            return;
+          }
+        } catch (err) {
+          setSaveErr({ path: row.path, text: messageOf(err) });
+          return;
+        }
+      }
       setSavingPath(row.path);
       setSaveErr(null);
       try {
@@ -156,9 +175,10 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
         setSaveErr({ path: row.path, text: messageOf(err) });
       } finally {
         setSavingPath(null);
+        setArm(null);
       }
     },
-    [store],
+    [store, arm],
   );
 
   const save = useMemo<SaveState>(
@@ -167,11 +187,13 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
       savingPath,
       savedNow,
       saveErr,
+      arm,
       onSaveGhost: (row, live) => {
         void saveGhost(row, live);
       },
+      onDisarm: () => setArm(null),
     }),
-    [ghostPaths, savingPath, savedNow, saveErr, saveGhost],
+    [ghostPaths, savingPath, savedNow, saveErr, arm, saveGhost],
   );
 
   /* 工坊「回到回放」：目录就绪后按路径找行，读 record.json，再进回放 */
@@ -524,6 +546,7 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter, save, cac
   const hasGhost = save.ghostPaths.has(row.path);
   const saving = save.savingPath === row.path;
   const saved = save.savedNow.has(row.path);
+  const armed = save.arm?.path === row.path;
   const errText = err !== '' ? err : save.saveErr?.path === row.path ? save.saveErr.text : '';
   return (
     <div className={`crow${alt ? ' is-alt' : ''}${live ? ' is-live' : ''}`}>
@@ -578,14 +601,24 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter, save, cac
           <button
             className="btn btn--xs"
             disabled={saving}
-            title="把「我的成绩」与当前回放位置存到工坊的比赛对象（record.json）"
+            title={
+              armed
+                ? '再点一次会把这场已有的 record.json 整份替换；点到别处取消'
+                : '把「我的成绩」与当前回放位置存到工坊的比赛对象（record.json）'
+            }
+            onBlur={save.onDisarm}
             onClick={() => save.onSaveGhost(row, live)}
           >
             <Icon id="i-save" />
-            {saving ? '保存中…' : saved ? '已保存' : '保存'}
+            {saving ? '保存中…' : saved ? '已保存' : armed ? '确认覆盖' : '保存'}
           </button>
         ) : null}
       </span>
+      {armed ? (
+        <span className="crow__arm" title={save.arm?.hint ?? ''}>
+          {save.arm?.hint ?? ''}
+        </span>
+      ) : null}
       {errText === '' ? null : (
         <span className="crow__err" title={errText}>
           {errText}

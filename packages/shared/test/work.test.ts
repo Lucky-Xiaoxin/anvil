@@ -63,11 +63,15 @@ describe('slugify / 路径分配（契约 §5）', () => {
   });
 });
 
-describe('受管路径（契约 §5.1）', () => {
-  it('四类对象的物理容器', () => {
+describe('受管路径（契约 §5.1 / 26 §2.1）', () => {
+  it('五类对象的物理容器；题组落 practice/<YYYY-MM>，parentId 不进路径', () => {
     expect(buildWorkRelPath('contest', { title: 'Shanghai', date: D })).toEqual({
       ok: true,
       value: { slug: 'shanghai', relPath: 'contests/2026-10-21_shanghai' },
+    });
+    expect(buildWorkRelPath('problemset', { title: 'TreeDP', date: D })).toEqual({
+      ok: true,
+      value: { slug: 'treedp', relPath: 'practice/2026-10/treedp' },
     });
     expect(buildWorkRelPath('problem', { title: 'Cherry Tree', date: D })).toEqual({
       ok: true,
@@ -116,9 +120,9 @@ describe('受管路径（契约 §5.1）', () => {
     expect(localDateParts(D)).toEqual({ date: '2026-10-21', month: '2026-10', year: '2026', monthNum: '10' });
   });
 
-  it('未登记候选位置 → kindHint', () => {
+  it('未登记候选位置 → kindHint（practice 自 5a-4 起提议题组）', () => {
     expect(unregisteredKindHint('contests/2026-10-21_x')).toBe('contest');
-    expect(unregisteredKindHint('practice/2026-10/x')).toBe('problem');
+    expect(unregisteredKindHint('practice/2026-10/x')).toBe('problemset');
     expect(unregisteredKindHint('templates/ds/x')).toBe('template');
     expect(unregisteredKindHint('templates')).toBeNull();
     expect(unregisteredKindHint('notes/2026/10/x')).toBe('note');
@@ -156,9 +160,11 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(parseWorkMeta({ ...base, archived: 'yes' }).ok).toBe(false);
   });
 
-  it('parentId 只有 problem 可以非空', () => {
+  it('parentId 只有 problemset / problem 可以非空（26 §2.3）', () => {
     expect(parseWorkMeta(meta({ parentId: 'obj_1a2b3c4d5e' })).ok).toBe(true);
+    expect(parseWorkMeta(meta({ kind: 'problemset', parentId: 'obj_1a2b3c4d5e', links: {} })).ok).toBe(true);
     expect(parseWorkMeta(meta({ kind: 'contest', parentId: 'obj_1a2b3c4d5e' })).ok).toBe(false);
+    expect(parseWorkMeta(meta({ kind: 'template', parentId: 'obj_1a2b3c4d5e', links: {} })).ok).toBe(false);
   });
 
   it('related 去重、不得含 primary；labels 清洗与上限', () => {
@@ -172,9 +178,25 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(cleanLabels(['a'.repeat(25)]).ok).toBe(false);
   });
 
-  it('links.arenaPath 走榜单白名单', () => {
+  it('links.arenaPath 走榜单白名单；arenaPath 只属于 contest（26 §2.4）', () => {
     expect(parseWorkMeta(meta({ kind: 'contest', links: { arenaPath: 'official/icpc/x/y.srk.json' } })).ok).toBe(true);
     expect(parseWorkMeta(meta({ kind: 'contest', links: { arenaPath: '../y.srk.json' } })).ok).toBe(false);
+    expect(parseWorkMeta(meta({ kind: 'problemset', links: { arenaPath: 'official/icpc/x/y.srk.json' } })).ok).toBe(false);
+  });
+
+  it('sourcePath 可选、清洗后写回，不合法拒绝', () => {
+    const parsed = parseWorkMeta(meta({ sourcePath: '2026/10/10.ptc' }));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.record.meta.sourcePath).toBe('2026/10/10.ptc');
+    expect(workMetaToJson(parsed.record).sourcePath).toBe('2026/10/10.ptc');
+
+    for (const bad of ['', '/abs', 'a\\b', 'a/../b', 'a//b']) {
+      expect(parseWorkMeta(meta({ sourcePath: bad })), bad).toMatchObject({ ok: false });
+    }
+    const absent = parseWorkMeta(meta());
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect(absent.record.meta.sourcePath).toBeUndefined();
   });
 
   it('未知顶层字段写回时保留', () => {

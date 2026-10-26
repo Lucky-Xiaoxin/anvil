@@ -5,19 +5,25 @@ import { Icon } from '../ui.tsx';
 import {
   KIND_NAME,
   WORK_SECTION,
-  contestBadgeOf,
   contestCountLabel,
+  expandKeysForSelection,
   groupWorkObjects,
+  groupWorkObjectsBySource,
   isoDate,
   pathBreadcrumb,
   primaryName,
+  problemsetLinkOf,
   type WorkContestGroup,
+  type WorkSourceGroup,
+  type WorkSourceModel,
 } from './derive.ts';
 
 interface Props {
   objects: WorkObjectDto[];
-  /** 未筛选全集：kind=题目 时仍能补出父比赛标题 */
+  /** 未筛选全集（当前视图）：kind=题目 时仍能补出父比赛标题；比赛行的题组计数也按本视图统计 */
   allObjects: WorkObjectDto[];
+  /** 全量 byId（活动 + 归档，27 §5.3）：关联状态解析统一走这一份 */
+  allById: ReadonlyMap<string, WorkObjectDto>;
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -47,10 +53,18 @@ function ObjectRow(props: {
   onSelect: (id: string) => void;
   child?: boolean;
   breadcrumb?: boolean;
+  /** 全量 byId：题组行解析关联比赛状态（含跨归档） */
+  allById?: ReadonlyMap<string, WorkObjectDto>;
+  /** 比赛行的关联题组数（当前视图口径，27 §5.1） */
+  setCount?: number;
 }) {
   const { obj, taxonomy, selected, child = false, breadcrumb = false } = props;
   const primary = primaryName(obj, taxonomy);
   const crumbs = breadcrumb ? pathBreadcrumb(obj.relPath) : [];
+  const link =
+    obj.kind === 'problemset' && props.allById !== undefined
+      ? problemsetLinkOf(obj, props.allById)
+      : { state: 'none' as const, contest: null };
   return (
     <button
       className={`wk-row${selected ? ' is-on' : ''}${child ? ' wk-row--child' : ''}`}
@@ -60,9 +74,6 @@ function ObjectRow(props: {
       <div className="wk-row__main">
         <div className="wk-row__title">
           {obj.kind === 'problem' ? <span className="wk-kindbadge">{WORK_SECTION.problemBadge}</span> : null}
-          {obj.kind === 'contest' && obj.sourceCount > 0 ? (
-            <span className="wk-kindbadge">{WORK_SECTION.contestBadge}</span>
-          ) : null}
           <span className="wk-row__titletext">{obj.title}</span>
           {obj.effectiveArchived ? <span className="wk-badge">归档</span> : null}
         </div>
@@ -90,6 +101,38 @@ function ObjectRow(props: {
           ) : null}
           <span className="wk-dot" />
           <span>{fmtInt(obj.fileCount)} 个文件</span>
+          {obj.kind === 'contest' && (props.setCount ?? 0) > 0 ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title="关联题组数">
+                题组 {props.setCount}
+              </span>
+            </>
+          ) : null}
+          {link.state === 'ok' && link.contest !== null ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title={`关联比赛：${link.contest.title}`}>
+                比赛 · {link.contest.title}
+              </span>
+            </>
+          ) : null}
+          {link.state === 'archived' && link.contest !== null ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title={`关联比赛：${link.contest.title}（已归档，只读）`}>
+                {WORK_SECTION.linkArchived}
+              </span>
+            </>
+          ) : null}
+          {link.state === 'missing' ? (
+            <>
+              <span className="wk-dot" />
+              <span className="wk-row__tag" title="关联的比赛在回收站或已不存在；题组本身不受影响">
+                {WORK_SECTION.linkMissing}
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
       {obj.labels.length > 0 ? (
@@ -105,26 +148,24 @@ function ObjectRow(props: {
   );
 }
 
-function ContestGroups(props: {
+function ContestGroupItems(props: {
   groups: WorkContestGroup[];
   taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  setCountByContest: ReadonlyMap<string, number>;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
-  const { groups, taxonomy, selectedId, collapsed } = props;
+  const { groups, taxonomy, selectedId, collapsed, allById, setCountByContest } = props;
   return (
-    <div className="wk-sec">
-      <div className="wk-sec__title">
-        <span>{WORK_SECTION.groups}</span>
-        <b className="num">{groups.length}</b>
-      </div>
+    <>
       {groups.map((group) => {
         const contest = group.contest;
         const folded = collapsed.has(contest.id);
         const primary = primaryName(contest, taxonomy);
-        const badge = contestBadgeOf(contest, group.problems.length);
+        const setCount = setCountByContest.get(contest.id) ?? 0;
         if (group.problems.length === 0) {
           return (
             <ObjectRow
@@ -133,6 +174,8 @@ function ContestGroups(props: {
               taxonomy={taxonomy}
               selected={selectedId === contest.id}
               onSelect={props.onSelect}
+              allById={allById}
+              setCount={setCount}
             />
           );
         }
@@ -156,9 +199,8 @@ function ContestGroups(props: {
                   ) : (
                     <span className="wk-group__title wk-group__title--static">{contest.title}</span>
                   )}
-                  {badge !== null ? <span className="wk-badge wk-badge--contest">{badge}</span> : null}
                   {contest.effectiveArchived ? <span className="wk-badge">归档</span> : null}
-                  <span className="wk-group__count">{contestCountLabel(contest, group.problems.length)}</span>
+                  <span className="wk-group__count">{contestCountLabel(contest, group.problems.length, setCount)}</span>
                 </div>
                 <div className="wk-group__meta">
                   <span>{isoDate(contest.createdAt)}</span>
@@ -190,14 +232,162 @@ function ContestGroups(props: {
           </div>
         );
       })}
+    </>
+  );
+}
+
+function ContestGroups(props: {
+  groups: WorkContestGroup[];
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  setCountByContest: ReadonlyMap<string, number>;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="wk-sec">
+      <div className="wk-sec__title">
+        <span>{WORK_SECTION.contests}</span>
+        <b className="num">{props.groups.length}</b>
+      </div>
+      <ContestGroupItems {...props} />
+    </div>
+  );
+}
+
+function SourceGroupNode(props: {
+  node: WorkSourceGroup;
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const { node, collapsed } = props;
+  const foldKey = `src:${node.key}`;
+  const folded = collapsed.has(foldKey);
+  return (
+    <div className="wk-source">
+      <div className="wk-source__head">
+        <button
+          className={`wk-group__toggle${folded ? '' : ' is-open'}`}
+          aria-expanded={!folded}
+          aria-label={folded ? `展开来源 ${node.label}` : `收起来源 ${node.label}`}
+          onClick={() => props.onToggle(foldKey)}
+        >
+          <Icon id="i-chev" />
+        </button>
+        <div className="wk-source__main">
+          <span className="wk-source__title" title={node.key || '（根）'}>
+            {node.label}
+          </span>
+          <span className="wk-source__meta">
+            {fmtInt(node.count)} 个题组 · {fmtInt(node.fileCount)} 个文件
+          </span>
+        </div>
+      </div>
+      {folded ? null : (
+        <div className="wk-source__body">
+          {node.objects.map((obj) => (
+            <ObjectRow
+              key={obj.id}
+              obj={obj}
+              taxonomy={props.taxonomy}
+              selected={props.selectedId === obj.id}
+              onSelect={props.onSelect}
+              allById={props.allById}
+            />
+          ))}
+          {node.children.map((child) => (
+            <SourceGroupNode
+              key={child.key}
+              node={child}
+              taxonomy={props.taxonomy}
+              selectedId={props.selectedId}
+              onSelect={props.onSelect}
+              allById={props.allById}
+              collapsed={collapsed}
+              onToggle={props.onToggle}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProblemsetRows(props: {
+  objects: WorkObjectDto[];
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  allById: ReadonlyMap<string, WorkObjectDto>;
+}) {
+  return (
+    <>
+      {props.objects.map((obj) => (
+        <ObjectRow
+          key={obj.id}
+          obj={obj}
+          taxonomy={props.taxonomy}
+          selected={props.selectedId === obj.id}
+          onSelect={props.onSelect}
+          allById={props.allById}
+        />
+      ))}
+    </>
+  );
+}
+
+function ProblemsetGroups(props: {
+  model: WorkSourceModel;
+  taxonomy: WorkTaxonomyDto | null;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  allById: ReadonlyMap<string, WorkObjectDto>;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const { model } = props;
+  return (
+    <div className="wk-sec">
+      <div className="wk-sec__title">
+        <span>{WORK_SECTION.problemSets}</span>
+        <b className="num">{model.root!.count + model.unsourced.length}</b>
+      </div>
+      {model.root !== null ? (
+        <SourceGroupNode
+          node={model.root}
+          taxonomy={props.taxonomy}
+          selectedId={props.selectedId}
+          onSelect={props.onSelect}
+          allById={props.allById}
+          collapsed={props.collapsed}
+          onToggle={props.onToggle}
+        />
+      ) : null}
+      {model.unsourced.length > 0 ? <ProblemsetRows objects={model.unsourced} taxonomy={props.taxonomy} selectedId={props.selectedId} onSelect={props.onSelect} allById={props.allById} /> : null}
     </div>
   );
 }
 
 export function WorkList(props: Props) {
-  const { objects, allObjects, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
+  const { objects, allObjects, allById, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const model = useMemo(() => groupWorkObjects(objects, allObjects), [objects, allObjects]);
+  const sourceModel = useMemo(() => groupWorkObjectsBySource(model.problemSets), [model.problemSets]);
+  /** 本视图口径的比赛 → 关联题组数（27 §5.1）：活动视图数活动题组，归档视图数归档题组 */
+  const setCountByContest = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const obj of allObjects) {
+      if (obj.kind !== 'problemset' || obj.parentId === null) continue;
+      counts.set(obj.parentId, (counts.get(obj.parentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [allObjects]);
 
   useEffect(() => {
     setCollapsed(new Set());
@@ -205,15 +395,17 @@ export function WorkList(props: Props) {
 
   useEffect(() => {
     if (selectedId === null) return;
-    const group = model.groups.find((g) => g.problems.some((p) => p.id === selectedId));
-    if (group === undefined) return;
+    const keys = expandKeysForSelection(selectedId, allObjects, model);
+    if (keys.length === 0) return;
+    // 只在选中项变化时展开祖先；依赖里没有 collapsed / model，手动收起的组不会被自动弹回
     setCollapsed((prev) => {
-      if (!prev.has(group.contest.id)) return prev;
+      if (!keys.some((key) => prev.has(key))) return prev;
       const next = new Set(prev);
-      next.delete(group.contest.id);
+      for (const key of keys) next.delete(key);
       return next;
     });
-  }, [model, selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const toggleGroup = (id: string): void => {
     setCollapsed((prev) => {
@@ -269,9 +461,39 @@ export function WorkList(props: Props) {
           taxonomy={taxonomy}
           selectedId={selectedId}
           onSelect={props.onSelect}
+          allById={allById}
+          setCountByContest={setCountByContest}
           collapsed={collapsed}
           onToggle={toggleGroup}
         />
+      ) : null}
+
+      {model.problemSets.length > 0 ? (
+        sourceModel.hasSourcePath ? (
+          <ProblemsetGroups
+            model={sourceModel}
+            taxonomy={taxonomy}
+            selectedId={selectedId}
+            onSelect={props.onSelect}
+            allById={allById}
+            collapsed={collapsed}
+            onToggle={toggleGroup}
+          />
+        ) : (
+          <div className="wk-sec">
+            <div className="wk-sec__title">
+              <span>{WORK_SECTION.problemSets}</span>
+              <b className="num">{model.problemSets.length}</b>
+            </div>
+            <ProblemsetRows
+              objects={model.problemSets}
+              taxonomy={taxonomy}
+              selectedId={selectedId}
+              onSelect={props.onSelect}
+              allById={allById}
+            />
+          </div>
+        )
       ) : null}
 
       {model.ungrouped.length > 0 ? (
@@ -349,7 +571,7 @@ export function WorkList(props: Props) {
                   <code>{item.relPath}</code>
                 </div>
                 <div className="wk-row__meta">
-                  <span>推断：{item.kindHint === null ? '未定' : item.kindHint === 'problem' ? '题组' : KIND_NAME[item.kindHint]}</span>
+                  <span>推断：{item.kindHint === null ? '未定' : KIND_NAME[item.kindHint]}</span>
                 </div>
               </div>
               <button className="btn btn--xs" disabled={props.busyId !== null} onClick={() => props.onAdopt(item)}>

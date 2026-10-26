@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -301,7 +301,8 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(result.units[0].objects).toHaveLength(1);
     const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
     expect(tree.objects).toHaveLength(1);
-    expect(tree.objects[0].kind).toBe('contest');
+    // 5a-4：导入生成 problemset（契约 26 §4.3）
+    expect(tree.objects[0].kind).toBe('problemset');
 
     res = await post('/api/work/import/commit', {
       planId: plan.planId,
@@ -343,6 +344,60 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     res = await post('/api/work/import/commit', {
       planId: invalidPlan.planId,
       items: [{ itemId: 'item_999', selected: true }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.kind).toBe('import-conflict');
+  });
+
+  it('import 5a-3：多候选 / 多单元 / sourcePath DTO / 父子选择冲突', async () => {
+    await boot();
+    await initApi();
+    const src = join(base, 'batch-code');
+    mkdirSync(join(src, '2026', 'jan'), { recursive: true });
+    mkdirSync(join(src, '2026', 'feb'), { recursive: true });
+    writeFileSync(join(src, '2026', 'jan', 'A.cpp'), 'int a;');
+    writeFileSync(join(src, '2026', 'feb', 'B.cpp'), 'int b;');
+
+    let res = await post('/api/work/import/scan', { sourceRoot: src });
+    expect(res.statusCode, res.body).toBe(200);
+    const plan = res.json();
+    const leaves = plan.items.filter(
+      (item: { scope: string; isContainer: boolean; selectedByDefault: boolean }) =>
+        item.scope === 'subtree' && !item.isContainer && item.selectedByDefault,
+    );
+    expect(leaves.map((item: { sourceRelPath: string }) => item.sourceRelPath).sort()).toEqual(['2026/feb', '2026/jan']);
+    expect(leaves.every((item: { sourceCount: number }) => item.sourceCount === 1)).toBe(true);
+    expect(plan.items.some((item: { isContainer: boolean }) => item.isContainer)).toBe(true);
+
+    res = await post('/api/work/import/commit', {
+      planId: plan.planId,
+      items: plan.items.map((item: { itemId: string; selectedByDefault: boolean }) => ({
+        itemId: item.itemId,
+        selected: item.selectedByDefault,
+      })),
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().units.filter((unit: { status: string }) => unit.status === 'success')).toHaveLength(2);
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    const contests = tree.objects.filter((obj: { kind: string }) => obj.kind === 'problemset');
+    expect(contests.map((obj: { sourcePath: string }) => obj.sourcePath).sort()).toEqual(['2026/feb', '2026/jan']);
+
+    const conflictPlan = (await post('/api/work/import/scan', { sourceRoot: src })).json();
+    const container = conflictPlan.items.find(
+      (item: { sourceRelPath: string; scope: string }) => item.sourceRelPath === '2026' && item.scope === 'subtree',
+    );
+    const leaf = conflictPlan.items.find(
+      (item: { sourceRelPath: string; scope: string }) => item.sourceRelPath === '2026/jan' && item.scope === 'subtree',
+    );
+    expect(container).toBeDefined();
+    expect(leaf).toBeDefined();
+    res = await post('/api/work/import/commit', {
+      planId: conflictPlan.planId,
+      items: [
+        { itemId: container!.itemId, selected: true },
+        { itemId: leaf!.itemId, selected: true },
+      ],
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.kind).toBe('import-conflict');
@@ -404,5 +459,74 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
       view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('题组 API：create / adopt / update 的 kind 与 parentId 校验；关联 / 清除（契约 26 §9.3；0..n 见契约 27）', async () => {
+    await boot();
+    await initApi();
+    const contest = await create('contest', 'Shanghai');
+
+    // create 带关联；arenaPath 拒绝
+    let res = await post('/api/work/create', { kind: 'problemset', title: 'TreeDP', parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(200);
+    const set = res.json();
+    expect(set.kind).toBe('problemset');
+    expect(set.parentId).toBe(contest.id);
+    res = await post('/api/work/create', { kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' });
+    expect(res.statusCode).toBe(400);
+
+    // adopt：明确登记为题组；同一比赛可以被第二个题组关联（0..n）
+    const dir = join(root, 'practice', '2026-10', 'adopted');
+    mkdirSync(dir, { recursive: true });
+    res = await post('/api/work/adopt', { relPath: 'practice/2026-10/adopted', kind: 'problemset', title: 'Adopted', parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().kind).toBe('problemset');
+    expect(res.json().parentId).toBe(contest.id);
+
+    // update 清除 / 再关联；非题组拒绝
+    res = await post('/api/work/update', { id: contest.id, parentId: null });
+    expect(res.statusCode).toBe(400);
+    res = await post('/api/work/update', { id: set.id, parentId: null });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().parentId).toBeNull();
+    res = await post('/api/work/update', { id: set.id, parentId: contest.id });
+    expect(res.statusCode, res.body).toBe(200); // 0..n：不再看占用
+    expect(res.json().parentId).toBe(contest.id);
+  });
+
+  it('归档冻结 API：归档对象 retitle / tags / labels / parentId / trash 全拒绝，取消归档是唯一写操作（契约 27 §4）', async () => {
+    await boot();
+    await initApi();
+    const contest = await create('contest', 'Shanghai');
+    const set = await create('problemset', 'TreeDP', { parentId: contest.id });
+    let res = await post('/api/work/update', { id: set.id, archived: true });
+    expect(res.statusCode, res.body).toBe(200);
+
+    res = await post('/api/work/update', { id: set.id, title: 'Renamed' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+    res = await post('/api/work/update', { id: set.id, tags: { primary: null, related: [] } });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/update', { id: set.id, labels: ['x'] });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/update', { id: set.id, parentId: null });
+    expect(res.statusCode).toBe(409);
+    res = await post('/api/work/trash', { id: set.id });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+
+    // 活动比赛被归档后，不能再被关联（跨归档不可编辑）：与冻结 / 回收同一口径，409 conflict
+    res = await post('/api/work/update', { id: contest.id, archived: true });
+    expect(res.statusCode).toBe(200);
+    res = await post('/api/work/create', { kind: 'problemset', title: 'Blocked', parentId: contest.id });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+
+    // 取消归档后可编辑
+    res = await post('/api/work/update', { id: set.id, archived: false });
+    expect(res.statusCode, res.body).toBe(200);
+    res = await post('/api/work/update', { id: set.id, title: 'Renamed' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().title).toBe('Renamed');
   });
 });

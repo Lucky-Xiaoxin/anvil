@@ -1,28 +1,31 @@
 import { useState } from 'react';
-import type { WorkKind, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
+import type { WorkKind, WorkObjectDto, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
 import { ApiError, createWork, adoptWork } from '../../api.ts';
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
+import { availableContests } from './derive.ts';
 
 export type WorkDialog =
   | { mode: 'create' }
   | { mode: 'adopt'; target: WorkUnregisteredDto };
 
 /**
- * 新模型：比赛和题组都是 contest 文件夹。
- * 「题组」= 比赛文件夹里的源码集合；新建题组 / 比赛只是表单提示不同，落盘 kind 都是 contest。
+ * 5a-4（契约 26）：比赛 = contest、题组 = problemset 是两个对象。
+ * 新建比赛不再产生题组；新建题组可选关联比赛（比赛侧 0..n，27 §2.1）。
  */
-type CreateMode = 'group' | 'contest' | 'template' | 'note';
+type CreateMode = 'contest' | 'problemset' | 'template' | 'note';
 
 const MODES: ReadonlyArray<{ mode: CreateMode; label: string; hint: string }> = [
-  { mode: 'group', label: '题组', hint: '建一个题组文件夹；写题时直接往里放 .cpp，题目不再单独建对象。' },
-  { mode: 'contest', label: '比赛', hint: '建一个比赛对象；可以不挂题组，也可以之后把源码放进文件夹。' },
+  { mode: 'problemset', label: '题组', hint: '建一个题组文件夹；写题时直接往里放 .cpp，题目不再单独建对象。' },
+  { mode: 'contest', label: '比赛', hint: '建一个比赛对象；可填榜单路径，回放成绩存到这里。比赛不产生题组。' },
   { mode: 'template', label: '模板', hint: '模板仍是一个独立对象文件夹。' },
   { mode: 'note', label: '笔记', hint: '笔记仍是一个独立对象文件夹。' },
 ];
 
 interface Props {
   tree: WorkTreeDto;
+  /** 活动比赛（27 §5.2）：关联选择器只列活动对象 */
+  contests: WorkObjectDto[];
   dialog: WorkDialog;
   onDone: (title: string, id: string) => void;
   onClose: () => void;
@@ -31,24 +34,24 @@ interface Props {
 function modeOfHint(kind: WorkKind | null): CreateMode {
   if (kind === 'template') return 'template';
   if (kind === 'note') return 'note';
-  return 'group';
+  if (kind === 'contest') return 'contest';
+  // practice 桶与未知位置默认提议题组；problem 仅旧数据兼容，不再新建
+  return 'problemset';
 }
 
-function kindOfMode(mode: CreateMode): WorkKind {
-  return mode === 'group' || mode === 'contest' ? 'contest' : mode;
-}
-
-export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
+export function WorkCreate({ tree, contests, dialog, onDone, onClose }: Props) {
   const adopting = dialog.mode === 'adopt';
   const target = adopting ? dialog.target : null;
-  const [mode, setMode] = useState<CreateMode>(target === null ? 'group' : modeOfHint(target.kindHint));
+  const [mode, setMode] = useState<CreateMode>(target === null ? 'problemset' : modeOfHint(target.kindHint));
   const [title, setTitle] = useState(() => (target === null ? '' : (target.relPath.split('/').pop() ?? '')));
   const [topId, setTopId] = useState('');
   const [arenaPath, setArenaPath] = useState('');
+  const [parentId, setParentId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const topNodes = tree.taxonomy?.nodes ?? [];
+  const parentOptions = availableContests(contests);
   const current = MODES.find((item) => item.mode === mode) ?? MODES[0]!;
   const canSubmit = adopting || title.trim() !== '';
 
@@ -58,9 +61,15 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
     setBusy(true);
     setErr(null);
     try {
-      const kind = kindOfMode(mode);
+      const kind: WorkKind = mode;
+      const link = mode === 'problemset' && parentId !== '' ? { parentId } : {};
       if (adopting && target !== null) {
-        const made = await adoptWork({ relPath: target.relPath, kind, title: title.trim() === '' ? undefined : title.trim() });
+        const made = await adoptWork({
+          relPath: target.relPath,
+          kind,
+          title: title.trim() === '' ? undefined : title.trim(),
+          ...link,
+        });
         onDone(made.title, made.id);
       } else {
         const made = await createWork({
@@ -68,6 +77,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
           title: title.trim(),
           ...(mode === 'contest' && arenaPath.trim() !== '' ? { arenaPath: arenaPath.trim() } : {}),
           ...(mode === 'template' && topId !== '' ? { topId } : {}),
+          ...link,
         });
         onDone(made.title, made.id);
       }
@@ -111,7 +121,7 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
               className="input"
               value={title}
               maxLength={120}
-              placeholder={mode === 'group' ? '例如 专题训练 / 2024 区域赛' : '必填'}
+              placeholder={mode === 'problemset' ? '例如 专题训练 / 2024 区域赛' : '必填'}
               onChange={(e) => setTitle(e.target.value)}
             />
           </label>
@@ -140,6 +150,21 @@ export function WorkCreate({ tree, dialog, onDone, onClose }: Props) {
                 placeholder="official/icpc/…/xxx.srk.json"
                 onChange={(e) => setArenaPath(e.target.value)}
               />
+            </label>
+          ) : null}
+
+          {mode === 'problemset' ? (
+            <label className="wk-field">
+              <span className="wk-label">关联比赛（可选）</span>
+              <select className="wk-select" value={parentId} onChange={(e) => setParentId(e.target.value)}>
+                <option value="">无关联（独立题组）</option>
+                {parentOptions.map((contest) => (
+                  <option value={contest.id} key={contest.id}>
+                    {contest.title}
+                  </option>
+                ))}
+              </select>
+              <span className="wk-hint">关联不移动文件夹；一个比赛可以关联多个题组（27 §2.1）。</span>
             </label>
           ) : null}
 

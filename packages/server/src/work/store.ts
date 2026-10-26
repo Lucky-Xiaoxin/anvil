@@ -93,6 +93,8 @@ export interface WorkAdoptInput {
   relPath: string;
   kind: WorkKind;
   title?: string;
+  /** 仅 problemset：可选关联的比赛（逻辑 parentId，不搬目录） */
+  parentId?: string | null;
 }
 
 export interface WorkUpdateInput {
@@ -101,6 +103,8 @@ export interface WorkUpdateInput {
   tags?: { primary?: string | null; related?: string[] };
   labels?: unknown;
   archived?: boolean;
+  /** 仅 problemset：null = 清除关联 */
+  parentId?: string | null;
 }
 
 export interface WorkInitInput {
@@ -515,7 +519,9 @@ export class WorkService {
     const root = idx.root;
     const kind = input.kind;
     if (!isWorkKind(kind)) throw new WorkError('invalid', 'kind 不合法');
-    if (kind !== 'problem' && input.parentId !== undefined) throw new WorkError('invalid', '只有 problem 可以指定 parentId');
+    if (kind !== 'problem' && kind !== 'problemset' && input.parentId !== undefined) {
+      throw new WorkError('invalid', '只有 problemset / problem 可以指定 parentId');
+    }
     if (kind !== 'problem' && (input.problemKey !== undefined || input.templateId !== undefined)) {
       throw new WorkError('invalid', 'problemKey / templateId 只属于 problem');
     }
@@ -530,9 +536,18 @@ export class WorkService {
     let parent: IndexedObject | null = null;
     if (input.parentId !== undefined && input.parentId !== '') {
       parent = idx.byId.get(input.parentId) ?? null;
-      if (parent === null) throw new WorkError('parent-missing', '父比赛不存在');
-      if (parent.record.meta.kind !== 'contest') throw new WorkError('invalid', '父对象必须是 contest');
-      if (parent.effectiveArchived) throw new WorkError('invalid', '父比赛已归档，不能往里建题');
+      if (parent === null) {
+        throw new WorkError('parent-missing', kind === 'problemset' ? '关联的比赛不存在' : '父比赛不存在');
+      }
+      if (parent.record.meta.kind !== 'contest') {
+        throw new WorkError('invalid', kind === 'problemset' ? '关联对象必须是 contest' : '父对象必须是 contest');
+      }
+      // 归档类拒绝统一用 conflict（409）：请求本身合法，是「当前状态挡路」，取消归档后重试即可
+      if (kind === 'problem' && parent.effectiveArchived) throw new WorkError('conflict', '父比赛已归档，不能往里建题');
+      // 0..n（27 §2.1）：一个比赛可以被任意多个题组关联；只挡「目标已归档」（27 §1.7）
+      if (kind === 'problemset' && parent.effectiveArchived) {
+        throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
+      }
     }
 
     let title = input.title === undefined ? '' : input.title.trim();
@@ -760,6 +775,19 @@ export class WorkService {
     const idx = this.ensureIndex();
     const root = idx.root;
     if (!isWorkKind(input.kind)) throw new WorkError('invalid', 'kind 不合法');
+    // 关联比赛是显式选择（26 §4.2），不根据目标目录位置推断
+    if (input.parentId !== undefined && input.parentId !== null && input.parentId !== '' && input.kind !== 'problemset') {
+      throw new WorkError('invalid', '只有 problemset 可以指定关联比赛');
+    }
+    let linkParentId: string | null = null;
+    if (input.kind === 'problemset' && input.parentId !== undefined && input.parentId !== null && input.parentId !== '') {
+      const linked = idx.byId.get(input.parentId) ?? null;
+      if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
+      if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
+      // 0..n（27 §2.1）：不再检查占用；目标已归档则拒绝（27 §1.7）
+      if (linked.effectiveArchived) throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
+      linkParentId = linked.record.meta.id;
+    }
     const abs = resolveInside(root, input.relPath);
     const st = lstatOrNull(abs);
     if (st === null) throw new WorkError('not-found', '要登记的目标不存在');
@@ -801,7 +829,7 @@ export class WorkService {
       title,
       createdAt: now,
       updatedAt: now,
-      parentId: parent === null ? null : parent.record.meta.id,
+      parentId: input.kind === 'problemset' ? linkParentId : parent === null ? null : parent.record.meta.id,
       tags: { primary: null, related: [] },
       labels: [],
       links: {},
@@ -820,6 +848,12 @@ export class WorkService {
     const obj = idx.byId.get(input.id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
     const current = obj.record.meta;
+    // 归档冻结（27 §4）：已归档对象只允许取消归档，其余字段一律拒绝。
+    // 判据用 effectiveArchived，与 trash / create 同一词：旧 problem 随父比赛定格时也读。
+    if (obj.effectiveArchived) {
+      const frozenFields = [input.title, input.tags, input.labels, input.parentId].some((field) => field !== undefined);
+      if (frozenFields) throw new WorkError('conflict', '已归档的对象是只读的；先取消归档再修改');
+    }
     const next: WorkMeta = {
       ...current,
       tags: { primary: current.tags.primary, related: [...current.tags.related] },
@@ -885,6 +919,34 @@ export class WorkService {
       }
     }
 
+    if (input.parentId !== undefined) {
+      // 只有题组能改关联（26 §4.2）；旧 problem 的物理父子不改，比赛 / 模板 / 笔记没有关联
+      if (current.kind !== 'problemset') throw new WorkError('invalid', '只有题组可以修改关联比赛');
+      // 跨归档不可编辑（27 §1.7）：当前关联的比赛已归档时，改挂 / 清除都不允许，先取消它的归档。
+      // 关联比赛缺失（被回收 / 删除）不算归档，仍可改挂或清除来修复悬空
+      if (current.parentId !== null) {
+        const currentParent = idx.byId.get(current.parentId) ?? null;
+        if (currentParent !== null && currentParent.record.meta.kind === 'contest' && currentParent.effectiveArchived) {
+          throw new WorkError('conflict', '关联的比赛已归档，先取消归档再调整关联');
+        }
+      }
+      let nextParentId: string | null = null;
+      if (input.parentId !== null && input.parentId !== '') {
+        if (!workIdOk(input.parentId)) throw new WorkError('invalid', 'parentId 形状不合法');
+        if (input.parentId === current.id) throw new WorkError('invalid', '题组不能关联自己');
+        const linked = idx.byId.get(input.parentId) ?? null;
+        if (linked === null) throw new WorkError('parent-missing', '关联的比赛不存在');
+        if (linked.record.meta.kind !== 'contest') throw new WorkError('invalid', '关联对象必须是 contest');
+        // 0..n（27 §2.1）：不再检查占用；跨归档不可编辑——目标已归档时不能新建这条关联
+        if (linked.effectiveArchived) throw new WorkError('conflict', '关联的比赛已归档，先取消归档再关联');
+        nextParentId = linked.record.meta.id;
+      }
+      if (next.parentId !== nextParentId) {
+        next.parentId = nextParentId;
+        changed = true;
+      }
+    }
+
     if (!changed) return this.detailOf(obj);
     next.updatedAt = this.nowDate().toISOString();
     const record: WorkMetaRecord = { meta: next, raw: obj.record.raw };
@@ -899,6 +961,8 @@ export class WorkService {
     const idx = this.ensureIndex();
     const obj = idx.byId.get(id);
     if (obj === undefined) throw new WorkError('not-found', '找不到这个对象');
+    // 归档对象不能直接进回收站（27 §3.3）：先取消归档回到活动，再按回收站规则操作
+    if (obj.effectiveArchived) throw new WorkError('conflict', '已归档的对象不能移入回收站；先取消归档');
     const trashRoot = join(idx.root, '.anvil', 'trash');
     mkdirSync(trashRoot, { recursive: true });
     const stamp = localStamp(this.nowDate());
@@ -1109,12 +1173,19 @@ export class WorkService {
       if (parentId === null) continue;
       const parent = byId.get(parentId);
       if (parent === undefined) {
-        errors.push({ relPath: obj.relPath, kind: 'parent-missing', message: `parentId 指向不存在的对象：${parentId}` });
+        // 题组的关联比赛缺失（被回收 / 外部删除）只警告：对象保留，可继续使用（26 §2.3）
+        const message =
+          obj.record.meta.kind === 'problemset'
+            ? `关联的比赛不存在（对象保留）：${parentId}`
+            : `parentId 指向不存在的对象：${parentId}`;
+        errors.push({ relPath: obj.relPath, kind: 'parent-missing', message });
       } else if (parent.record.meta.kind !== 'contest') {
         errors.push({ relPath: obj.relPath, kind: 'meta-invalid', message: 'parentId 指向的对象不是 contest' });
         dropped.add(obj.relPath);
       }
     }
+
+    // 0..n（27 §2.1）：多个题组关联同一个比赛不再算冲突；父缺失 / 父不是 contest 的检查保持上面不变
 
     if (taxonomy !== null) {
       const nodeIds = new Set(flattenTaxonomy(taxonomy.nodes).map((n) => n.id));
@@ -1131,6 +1202,8 @@ export class WorkService {
       for (const obj of objects) {
         const parentId = obj.record.meta.parentId;
         if (parentId === null) continue;
+        // 生命周期独立（26 §5.1）：只有旧 problem 继承父对象归档；题组只看自己
+        if (obj.record.meta.kind !== 'problem') continue;
         const parent = byId.get(parentId);
         if (parent !== undefined && parent.effectiveArchived) obj.effectiveArchived = true;
       }
@@ -1283,6 +1356,7 @@ export class WorkService {
       updatedAt: meta.updatedAt,
       fileCount: obj.fileCount,
       sourceCount: obj.sourceCount,
+      ...(meta.sourcePath === undefined ? {} : { sourcePath: meta.sourcePath }),
     };
   }
 

@@ -938,7 +938,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
    `.crow` 是四列定高网格，小字是第 5 个网格项 —— 让它整行跨列独占第二行，
    并给带小字的行放开高度（第一行仍是 38px，四件套对齐不变）。 */
 .crow__err{grid-column:1 / -1;font-size:10.5px;color:var(--bad);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.crow:has(.crow__err){height:auto;grid-template-rows:38px auto;padding-bottom:5px}
+/* 覆盖确认小字：同 crow__err 的落位，但那是「等第二次点击」，不是失败 */
+.crow__arm{grid-column:1 / -1;font-size:10.5px;color:var(--warn);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.crow:has(.crow__err),.crow:has(.crow__arm){height:auto;grid-template-rows:38px auto;padding-bottom:5px}
 .btn--xs{height:24px;padding:0 9px;font-size:11.5px;gap:6px;font-weight:600}
 .btn--xs svg{width:12px;height:12px}
 .btn--go{background:rgba(245,165,36,.10);border-color:rgba(245,165,36,.32);color:var(--accent)}
@@ -1509,6 +1511,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .btn--danger{background:rgba(248,81,73,.12);border-color:rgba(248,81,73,.4);color:#FFC9C5}
 .btn--danger:hover{background:rgba(248,81,73,.2);border-color:rgba(248,81,73,.6)}
 .tb-err{max-width:210px;font-size:10.5px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 覆盖确认小字要读得完（点名是哪一份存档），所以不参与挤压：标题先省略 */
+.tb-arm{flex:0 0 auto;max-width:250px;font-size:10.5px;color:var(--warn);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wk-field{display:flex;flex-direction:column;gap:6px;margin-bottom:9px;min-width:0}
 .wk-select{
   height:32px;padding:0 8px;min-width:0;max-width:100%;
@@ -1527,6 +1531,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-labelinput::placeholder{color:var(--text-mute)}
 .wk-kv{display:grid;grid-template-columns:70px minmax(0,1fr);gap:5px 10px;font-size:11px;color:var(--text-mute)}
 .wk-kv b{font-weight:500;color:var(--text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* 关联题组等多值单元格：chip 换行排，不被单行省略截断（5a-5 §5.1） */
+.wk-kv__chips{display:flex;flex-wrap:wrap;gap:4px;min-width:0;font-weight:500;color:var(--text-dim);align-items:center}
 .wk-kv code{font-size:10.5px;color:var(--text-dim);overflow-wrap:anywhere}
 .wk-sec--files{margin-top:2px}
 /* 模板详情内联编辑（切片 5a.1） */
@@ -1633,6 +1639,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-import__row.is-on{background:rgba(245,165,36,.07)}
 .wk-import__row--child{padding-left:34px;position:relative}
 .wk-import__row--child::before{content:'';position:absolute;left:20px;top:12px;bottom:12px;border-left:1px solid var(--line-soft)}
+.wk-import__row--scatter{background:rgba(76,201,240,.035)}
+.wk-import__row--scatter.is-on{background:rgba(76,201,240,.08)}
+.wk-badge--warn{color:var(--warn);border-color:rgba(210,153,34,.35)}
 .wk-import__check{flex:0 0 auto;margin-top:3px;accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 .wk-import__check:disabled{cursor:default;opacity:.65}
 .wk-import__main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px}
@@ -1690,6 +1699,18 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .wk-import__skip{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text-dim)}
 .wk-import__skip li{display:flex;gap:8px;flex-wrap:wrap;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,.025)}
 .wk-import__skip li span:last-child{margin-left:auto;font-size:10.5px;color:var(--text-mute)}
+
+/* 来源虚拟视图（切片 5a-3）：组头不是对象，只用于折叠浏览 */
+.wk-source{border:1px solid var(--line-soft);border-radius:var(--r-s);margin:3px 4px;min-width:0;overflow:hidden}
+.wk-source__head{display:flex;align-items:center;gap:5px;padding:6px 8px;background:rgba(255,255,255,.022);min-width:0}
+.wk-source__main{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.wk-source__title{
+  font-family:var(--font-num);font-size:11.5px;color:var(--text-dim);letter-spacing:.03em;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.wk-source__meta{font-family:var(--font-num);font-size:10px;color:var(--text-mute);white-space:nowrap}
+.wk-source__body{display:flex;flex-direction:column;gap:1px;padding:2px 4px 5px 12px;border-top:1px solid var(--line-soft);min-width:0}
+.wk-sec__title--sub{padding-top:14px;margin-top:5px;border-top:1px solid var(--line-soft);color:var(--text-dim)}
 
 @media (max-width:1100px){
   .wk-import__stats{grid-template-columns:repeat(2,minmax(0,1fr))}
