@@ -522,8 +522,11 @@ export class WorkService {
     if (kind !== 'problem' && kind !== 'problemset' && input.parentId !== undefined) {
       throw new WorkError('invalid', '只有 problemset / problem 可以指定 parentId');
     }
-    if (kind !== 'problem' && (input.problemKey !== undefined || input.templateId !== undefined)) {
-      throw new WorkError('invalid', 'problemKey / templateId 只属于 problem');
+    if (kind !== 'problem' && input.problemKey !== undefined) {
+      throw new WorkError('invalid', 'problemKey 只属于 problem');
+    }
+    if (kind !== 'problem' && kind !== 'problemset' && input.templateId !== undefined) {
+      throw new WorkError('invalid', 'templateId 只属于 problem / problemset');
     }
     if (kind !== 'contest' && input.arenaPath !== undefined) throw new WorkError('invalid', 'arenaPath 只属于 contest');
     if (kind !== 'template' && input.topId !== undefined) throw new WorkError('invalid', 'topId 只属于 template');
@@ -570,8 +573,8 @@ export class WorkService {
       templateSource = idx.byId.get(explicitTemplate) ?? null;
       if (templateSource === null) throw new WorkError('not-found', '来源模板不存在');
       if (templateSource.record.meta.kind !== 'template') throw new WorkError('invalid', 'templateId 必须指向模板对象');
-    } else if (kind === 'problem' && input.templateId === undefined) {
-      // 未选模板 = 用默认模板（非归档里 updatedAt 最新的那件），与创建对话框同一判据
+    } else if ((kind === 'problem' || kind === 'problemset') && input.templateId === undefined) {
+      // 省略模板 = 用默认模板（非归档里 updatedAt 最新的那件）；题组与旧 problem 同一判据
       templateSource = this.defaultTemplateOf(idx);
     }
 
@@ -654,6 +657,7 @@ export class WorkService {
     }
   }
 
+  /** 默认模板：非归档模板里 updatedAt 最新的一件；旧 problem 与题组共用 */
   private defaultTemplateOf(idx: WorkIndex): IndexedObject | null {
     const picked = defaultTemplateOf(
       idx.objects.map((obj) => ({

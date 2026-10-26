@@ -343,7 +343,7 @@ describe('模板文件读写（切片 5a.1）', () => {
   });
 });
 
-describe('新建题目默认模板（切片 5a.1）', () => {
+describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () => {
   it('未指定模板时用 updatedAt 最新的非归档模板放入 solution.cpp', async () => {
     await initRoot();
     const older = await service.create({ kind: 'template', title: 'Older', topId: 'ds' });
@@ -375,6 +375,36 @@ describe('新建题目默认模板（切片 5a.1）', () => {
     await service.update({ id: b.id, archived: true });
     const fallback = await service.create({ kind: 'problem', title: 'Fallback' });
     expect(readFileSync(join(absOf(fallback.relPath), 'solution.cpp'), 'utf8')).toBe('// alpha\n');
+  });
+
+  it('新建题组同样用默认模板（5a-2 起题组是唯一可建单元）：solution.cpp 与 test.cpp 一并放入', async () => {
+    await initRoot();
+    const bare = await service.create({ kind: 'problemset', title: 'Bare' });
+    expect(service.object(bare.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
+
+    const tpl = await service.create({ kind: 'template', title: 'Base', topId: 'ds' });
+    writeFileSync(join(absOf(tpl.relPath), 'template.cpp'), '// base\n');
+    writeFileSync(join(absOf(tpl.relPath), 'test.cpp'), 'int main() { return 0; }\n');
+
+    const set = await service.create({ kind: 'problemset', title: 'TreeDP' });
+    expect(readFileSync(join(absOf(set.relPath), 'solution.cpp'), 'utf8')).toBe('// base\n');
+    expect(readFileSync(join(absOf(set.relPath), 'test.cpp'), 'utf8')).toBe('int main() { return 0; }\n');
+  });
+
+  it('题组也接受显式 templateId / null（不复制）；比赛仍拒绝 templateId', async () => {
+    await initRoot();
+    const alpha = await service.create({ kind: 'template', title: 'Alpha', topId: 'ds' });
+    writeFileSync(join(absOf(alpha.relPath), 'template.cpp'), '// alpha\n');
+    const beta = await service.create({ kind: 'template', title: 'Beta', topId: 'ds' });
+    writeFileSync(join(absOf(beta.relPath), 'template.cpp'), '// beta\n');
+
+    const chosen = await service.create({ kind: 'problemset', title: 'Chosen', templateId: alpha.id });
+    expect(readFileSync(join(absOf(chosen.relPath), 'solution.cpp'), 'utf8')).toBe('// alpha\n');
+
+    const none = await service.create({ kind: 'problemset', title: 'No Template', templateId: null });
+    expect(service.object(none.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
+
+    await expect(service.create({ kind: 'contest', title: 'Nope', templateId: alpha.id })).rejects.toMatchObject({ kind: 'invalid' });
   });
 });
 
@@ -760,7 +790,7 @@ describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
 });
 
 describe('题组对象与关联（契约 26 §2 / §4 / §5；0..n 见契约 27）', () => {
-  it('problemset 落 practice/<YYYY-MM>/，可带关联比赛；arenaPath / templateId 拒绝', async () => {
+  it('problemset 落 practice/<YYYY-MM>/，可带关联比赛；arenaPath 拒绝，templateId 受支持（2026-10-26 起）', async () => {
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai', arenaPath: 'official/icpc/x/y.srk.json' });
     const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
@@ -768,7 +798,9 @@ describe('题组对象与关联（契约 26 §2 / §4 / §5；0..n 见契约 27�
     expect(set.relPath).toBe('practice/2026-10/treedp');
     expect(set.parentId).toBe(contest.id);
     await expect(service.create({ kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' })).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(service.create({ kind: 'problemset', title: 'Bad', templateId: null })).rejects.toMatchObject({ kind: 'invalid' });
+    const tpl = await service.create({ kind: 'template', title: 'T', topId: 'ds' });
+    const withTpl = await service.create({ kind: 'problemset', title: 'WithTpl', templateId: tpl.id });
+    expect(withTpl.kind).toBe('problemset');
     await expect(service.create({ kind: 'problemset', title: 'Bad', parentId: 'obj_0000000099' })).rejects.toMatchObject({ kind: 'parent-missing' });
     // 比赛不能带 parentId
     await expect(service.create({ kind: 'contest', title: 'Bad', parentId: contest.id })).rejects.toMatchObject({ kind: 'invalid' });
