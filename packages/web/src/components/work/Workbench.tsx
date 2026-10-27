@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkKind, WorkObjectDetailDto, WorkObjectDto, WorkTreeDto } from '@anvil/shared';
 import {
   ApiError,
@@ -6,6 +6,7 @@ import {
   getWorkTree,
   initWork,
   openWork,
+  purgeWorkTrash,
   restoreWork,
   rescanWork,
   trashWork,
@@ -134,22 +135,41 @@ export function Workbench() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkObjectDetailDto | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  /** 详情请求序号：快速连点两个对象时，只让最后一次响应落地 */
+  const detailSeq = useRef(0);
+  const detailAbort = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
+  const clearDetail = useCallback((): void => {
+    detailSeq.current += 1;
+    detailAbort.current?.abort();
+    detailAbort.current = null;
+    setDetailLoading(false);
+    setDetail(null);
+  }, []);
+
   const loadDetail = useCallback(async (id: string): Promise<void> => {
+    const seq = ++detailSeq.current;
+    detailAbort.current?.abort();
+    const abort = new AbortController();
+    detailAbort.current = abort;
     setDetailLoading(true);
     try {
-      const next = await getWorkObject(id);
+      const next = await getWorkObject(id, abort.signal);
+      if (seq !== detailSeq.current) return;
       setDetail(next);
     } catch (error) {
+      if (seq !== detailSeq.current) return;
       const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
+      if (api.kind === 'aborted') return;
       setNotice({ kind: 'err', text: api.message });
       setDetail(null);
     } finally {
-      setDetailLoading(false);
+      if (detailAbort.current === abort) detailAbort.current = null;
+      if (seq === detailSeq.current) setDetailLoading(false);
     }
   }, []);
 
@@ -181,12 +201,12 @@ export function Workbench() {
           const exists = selectId !== null && next.objects.some((o) => o.id === selectId);
           setSelectedId(exists ? selectId : null);
           if (exists && selectId !== null) void loadDetail(selectId);
-          else setDetail(null);
+          else clearDetail();
         } else {
           const exists = selectedId !== null && next.objects.some((o) => o.id === selectedId);
           if (!exists) {
             setSelectedId(null);
-            setDetail(null);
+            clearDetail();
           }
         }
         return next;
@@ -195,7 +215,7 @@ export function Workbench() {
         if (SETUP_KINDS.has(api.kind)) {
           setSetup({ kind: api.kind, message: api.message });
           setTree(null);
-          setDetail(null);
+          clearDetail();
           setSelectedId(null);
         } else {
           setNotice({ kind: 'err', text: api.message });
@@ -205,7 +225,7 @@ export function Workbench() {
         setLoading(false);
       }
     },
-    [loadDetail, selectedId],
+    [clearDetail, loadDetail, selectedId],
   );
 
   useEffect(() => {
@@ -221,7 +241,7 @@ export function Workbench() {
     }
     setTrashView(true);
     setSelectedId(null);
-    setDetail(null);
+    clearDetail();
     setNodeFilter(null);
     setLabelFilter(null);
     setKindFilter('all');
@@ -241,11 +261,12 @@ export function Workbench() {
       const made = await make();
       const next = await load(archived, false);
       if (next !== null && next.objects.some((o) => o.id === made.id)) {
+        clearDetail();
         setSelectedId(made.id);
         setDetail(made);
       } else {
         setSelectedId(null);
-        setDetail(null);
+        clearDetail();
       }
       setNotice({ kind: 'ok', text: '已保存' });
     } catch (error) {
@@ -278,7 +299,7 @@ export function Workbench() {
     setArchived(next);
     setTrashView(false);
     setSelectedId(null);
-    setDetail(null);
+    clearDetail();
     void load(next, false);
   };
 
@@ -484,6 +505,23 @@ export function Workbench() {
                 setTrashView(false);
                 void afterMutation('restore', () => restoreWork(id));
               }}
+              onPurge={() => {
+                if (busy !== null) return;
+                setBusy('purge-trash');
+                setNotice(null);
+                void (async () => {
+                  try {
+                    const result = await purgeWorkTrash();
+                    await load(archived, false);
+                    setNotice({ kind: 'ok', text: `已清空回收站（${result.removed} 项）` });
+                  } catch (error) {
+                    const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
+                    setNotice({ kind: 'err', text: api.message });
+                  } finally {
+                    setBusy(null);
+                  }
+                })();
+              }}
             />
           </div>
         </section>
@@ -496,9 +534,11 @@ export function Workbench() {
                   <div className="wk-detail__title">
                     <span>回收站</span>
                   </div>
-                  <p className="wk-hint">删除只进回收站，不做硬删。恢复按原路径移回，路径被占时会拒绝。</p>
+                  <p className="wk-hint">删除只进回收站；恢复按原路径移回，路径被占时会拒绝。清空会永久删除全部条目。</p>
                 </div>
-                <div className="wk-empty">共 <b>{tree.trash.length}</b> 项。中间列表里点「恢复」。</div>
+                <div className="wk-empty">
+                  共 <b>{tree.trash.length}</b> 项。中间列表里点「恢复」，或清空回收站。
+                </div>
               </div>
             ) : detailLoading ? (
               <div className="wk-empty">正在读对象…</div>
@@ -534,7 +574,7 @@ export function Workbench() {
                     try {
                       await trashWork(id);
                       setSelectedId(null);
-                      setDetail(null);
+                      clearDetail();
                       await load(archived, false);
                       setNotice({ kind: 'ok', text: '已移入回收站' });
                     } catch (error) {

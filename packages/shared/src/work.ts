@@ -89,6 +89,10 @@ export interface WorkTrashDto {
   trashedAt: string;
 }
 
+export interface WorkTrashPurgeResult {
+  removed: number;
+}
+
 export interface WorkTreeDto {
   root: string;
   scannedAt: number;

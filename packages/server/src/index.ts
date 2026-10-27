@@ -3,9 +3,10 @@ import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify from 'fastify';
 import { ArenaClient } from './arena.ts';
-import { ConfigWriteBlocked, dbFile, loadConfig, portOf, saveHandles, saveWorkspaceRoot, saveXcpcPlayerKey, vaultDir, webDistDir } from './config.ts';
-import { openDatabase } from './db.ts';
+import { dbFile, loadConfig, portOf, saveHandles, saveWorkspaceRoot, saveXcpcPlayerKey, vaultDir, webDistDir } from './config.ts';
+import { getMeta, handleMetaKey, openDatabase } from './db.ts';
 import { registerApi } from './api.ts';
+import { registerErrorHandler } from './error-handler.ts';
 import { registerStatic } from './static.ts';
 import { life } from './life.ts';
 import { WorkService } from './work/store.ts';
@@ -43,24 +44,22 @@ const config = loadConfig();
 const port = portOf(config);
 life('boot', `port=${port} argv=${process.argv.slice(1).join(' ')}`);
 const db = openDatabase(dbFile());
+// 只读对账：config 是「想要谁」，meta 是「库里实际是谁」。两者不一致时下次同步本来就会清库，
+// 启动先留一行账，避免只在同步日志里才看得到（不要自动把 meta 改成 config，否则换人会漏清）
+for (const source of ['cf', 'at'] as const) {
+  const owner = getMeta(db, handleMetaKey(source));
+  const wanted = source === 'cf' ? config.cfHandle : config.atHandle;
+  if (owner !== null && wanted !== '' && owner !== wanted) {
+    life('handle-drift', `${source} data=${owner} config=${wanted}（下次同步会按新 handle 清空重建）`);
+  }
+}
 const sources = {
   cf: createCfSource(db, new CfClient()),
   at: createAtSource(db, new AtClient()),
 };
 
 const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
-app.setErrorHandler((err, request, reply) => {
-  const e = err as { message?: unknown; statusCode?: number };
-  if (err instanceof ConfigWriteBlocked) {
-    life('request-error', `${request.method} ${request.url} 配置读不懂，已拒绝写入`);
-    return reply.code(409).send({ error: { kind: 'config-invalid', message: err.message } });
-  }
-  life('request-error', `${request.method} ${request.url} ${String(e.message ?? err)}`);
-  console.error('[anvil] request-error:', err);
-  return reply.code(e.statusCode ?? 500).send({
-    error: { kind: 'internal', message: '服务端内部错误，详情见 vault/anvil-server.log' },
-  });
-});
+registerErrorHandler(app);
 const work = new WorkService({
   db,
   getRoot: () => loadConfig().workspaceRoot,

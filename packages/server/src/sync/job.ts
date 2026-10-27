@@ -25,6 +25,7 @@ import {
   type CfSubmissionRaw,
 } from './cf.ts';
 import type { CheckResult, SyncSource } from './source.ts';
+import { life } from '../life.ts';
 import { switchNote } from './note.ts';
 
 export const SOURCE = 'cf' as const;
@@ -84,6 +85,7 @@ export async function syncOnce(
     for (;;) {
       const page = await client.call<CfSubmissionRaw[]>('user.status', { handle, from, count: PAGE_SIZE });
       if (pendingWipe) {
+        life('sync-reset', `${SOURCE} ${owner ?? '(unowned)'} -> ${handle} stale=${stale}`);
         resetSourceData(db, SOURCE);
         setMeta(db, handleMetaKey(SOURCE), handle);
         pendingWipe = false;

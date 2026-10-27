@@ -35,12 +35,16 @@ function distFile(distDir: string, urlPath: string): string | null {
 
 export function registerStatic(app: FastifyInstance, distDir: string): void {
   app.get('/*', async (request, reply) => {
-    if (request.url.startsWith('/api/')) return reply.code(404).send({ error: '接口不存在' });
+    if (request.url.startsWith('/api/')) {
+      return reply.code(404).send({ error: { kind: 'not-found', message: '接口不存在' } });
+    }
 
     const path = request.url.split('?')[0]!;
     const direct = distFile(distDir, path);
     // 带扩展名的资源请求不做 SPA 兜底：拿 HTML 当 JS 只会把报错推到控制台里
-    if (!direct && extname(path)) return reply.code(404).send({ error: '文件不存在' });
+    if (!direct && extname(path)) {
+      return reply.code(404).send({ error: { kind: 'not-found', message: '文件不存在' } });
+    }
     const file = direct ?? distFile(distDir, join('/', 'index.html'));
     if (!file) {
       return reply.code(503).type('text/plain; charset=utf-8').send('前端还没构建：先跑 npm run build');

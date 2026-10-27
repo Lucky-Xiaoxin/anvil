@@ -265,6 +265,8 @@ export function App() {
         } else {
           setPendingHandles((p) => (p[source] === null ? p : { ...p, [source]: null }));
           setDelta({ source, stored: final.stored });
+          // 换 handle 的清库提示不能只活在向导日志里：从顶栏同步也要当场看见
+          if (final.resetNote) next = { kind: 'warn', text: `${SOURCE_NAME[source]} · ${final.resetNote}` };
         }
       } catch (err) {
         next = { kind: 'err', text: `${SOURCE_NAME[source]} · ${messageOf(err)} · 本地缓存的数据照旧显示` };
