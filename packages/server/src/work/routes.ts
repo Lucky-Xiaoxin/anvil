@@ -2,6 +2,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { life } from '../life.ts';
+import { ConfigWriteBlocked } from '../config.ts';
 import { WorkError } from './errors.ts';
 import type { WorkService } from './store.ts';
 
@@ -107,6 +108,9 @@ const invalid = (reply: FastifyReply, message: string): FastifyReply =>
   reply.code(400).send({ error: { kind: 'invalid', message } });
 
 function sendWorkError(reply: FastifyReply, err: unknown): FastifyReply {
+  if (err instanceof ConfigWriteBlocked) {
+    return reply.code(409).send({ error: { kind: 'config-invalid', message: err.message } });
+  }
   if (err instanceof WorkError) {
     if (err.kind === 'internal') life('work-error', err.message);
     return reply.code(err.status).send({

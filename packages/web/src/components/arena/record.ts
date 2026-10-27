@@ -42,3 +42,10 @@ export async function probeSavedRecord(arenaPath: string): Promise<WorkArenaReco
 export function overwriteHintOf(record: WorkArenaRecordDto, now = Date.now()): string {
   return `已有 ${shortStamp(Math.floor(Date.parse(record.savedAt) / 1000), now)} 的存档 · ${record.ghost.subs.length} 发`;
 }
+
+/** 本地录入与工坊存档是否同一份：题序不参与比较，结果与时刻都算 */
+export function ghostsAgree(a: WorkArenaGhost | GhostData, b: WorkArenaGhost | GhostData): boolean {
+  const key = (g: WorkArenaGhost | GhostData): string =>
+    JSON.stringify({ show: g.show, subs: [...g.subs].sort((x, y) => x.p - y.p || x.t - y.t) });
+  return key(a) === key(b);
+}

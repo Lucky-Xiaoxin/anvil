@@ -3,7 +3,7 @@ import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify from 'fastify';
 import { ArenaClient } from './arena.ts';
-import { dbFile, loadConfig, portOf, saveHandles, saveWorkspaceRoot, saveXcpcPlayerKey, vaultDir, webDistDir } from './config.ts';
+import { ConfigWriteBlocked, dbFile, loadConfig, portOf, saveHandles, saveWorkspaceRoot, saveXcpcPlayerKey, vaultDir, webDistDir } from './config.ts';
 import { openDatabase } from './db.ts';
 import { registerApi } from './api.ts';
 import { registerStatic } from './static.ts';
@@ -51,6 +51,10 @@ const sources = {
 const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
 app.setErrorHandler((err, request, reply) => {
   const e = err as { message?: unknown; statusCode?: number };
+  if (err instanceof ConfigWriteBlocked) {
+    life('request-error', `${request.method} ${request.url} 配置读不懂，已拒绝写入`);
+    return reply.code(409).send({ error: { kind: 'config-invalid', message: err.message } });
+  }
   life('request-error', `${request.method} ${request.url} ${String(e.message ?? err)}`);
   console.error('[anvil] request-error:', err);
   return reply.code(e.statusCode ?? 500).send({

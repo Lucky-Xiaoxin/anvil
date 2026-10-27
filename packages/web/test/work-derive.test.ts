@@ -316,3 +316,21 @@ describe('选中项自动展开键（修复：手动折叠不被弹回的前提�
     expect(expandKeysForSelection('obj_0000000099', all, model)).toEqual([]);
   });
 });
+
+describe('默认模板标（23 §6.1：非归档里 updatedAt 最新的一件）', () => {
+  const older = obj({ id: 'obj_0000000070', kind: 'template', title: 'Older', relPath: 'templates/a', updatedAt: '2026-10-20T00:00:00.000Z' });
+  const newer = obj({ id: 'obj_0000000071', kind: 'template', title: 'Newer', relPath: 'templates/b', updatedAt: '2026-10-22T00:00:00.000Z' });
+  const set = obj({ id: 'obj_0000000072', kind: 'problemset', title: 'S', relPath: 'practice/2026-10/s' });
+
+  it('给默认那件打标；判据看全量对象，不随 kind 筛选变', () => {
+    const all = [older, newer, set];
+    expect(groupWorkObjects(all, all).defaultTemplateId).toBe(newer.id);
+    expect(groupWorkObjects([set], all).defaultTemplateId).toBe(newer.id);
+  });
+
+  it('归档模板不参与；一件模板都没有就没有默认', () => {
+    const archived = { ...newer, archived: true, effectiveArchived: true };
+    expect(groupWorkObjects([older, archived], [older, archived]).defaultTemplateId).toBe(older.id);
+    expect(groupWorkObjects([set], [set]).defaultTemplateId).toBeNull();
+  });
+});

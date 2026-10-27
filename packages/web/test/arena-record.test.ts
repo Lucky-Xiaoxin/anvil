@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkArenaRecordDto } from '@anvil/shared';
 import type { LeafRow } from '../src/components/arena/catalog.ts';
-import { arenaTitleOf, ghostToRecord, overwriteHintOf, recordToGhost, viewOfRow } from '../src/components/arena/record.ts';
+import { arenaTitleOf, ghostToRecord, ghostsAgree, overwriteHintOf, recordToGhost, viewOfRow } from '../src/components/arena/record.ts';
 import { saveSession, type Store } from '../src/components/arena/session.ts';
 
 const row: LeafRow = {
@@ -86,5 +86,15 @@ describe('保存成绩的覆盖确认', () => {
     expect(overwriteHintOf({ ...savedRecord, savedAt: '2025-10-20T06:32:00.000Z' }, Date.parse('2026-10-26T02:00:00Z'))).toContain(
       '2025-10-20 14:32',
     );
+  });
+
+  it('本地录入与存档是否同一份：题序不算差异，多一发或改结果都算不同', () => {
+    const a = { show: true, subs: [{ p: 1, t: 45, r: 'AC' as const }, { p: 0, t: 20, r: 'WA' as const }] };
+    const sameOrder = { show: true, subs: [{ p: 0, t: 20, r: 'WA' as const }, { p: 1, t: 45, r: 'AC' as const }] };
+    const oneMore = { show: true, subs: [...sameOrder.subs, { p: 2, t: 60, r: 'AC' as const }] };
+    const flippedShow = { ...sameOrder, show: false };
+    expect(ghostsAgree(a, sameOrder)).toBe(true);
+    expect(ghostsAgree(a, oneMore)).toBe(false);
+    expect(ghostsAgree(a, flippedShow)).toBe(false);
   });
 });

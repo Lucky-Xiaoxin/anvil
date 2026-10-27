@@ -74,23 +74,41 @@ export function loadConfig(): VaultConfig {
   }
 }
 
+/**
+ * 坏配置期间的写入拒绝：`loadConfig()` 读不懂会退回默认值，此时任何「带哪个改哪个」的保存
+ * 都会把没带的键一起写成默认值 —— 宁可拒掉，让用户先修 `vault/config.json`。
+ */
+export class ConfigWriteBlocked extends Error {
+  constructor() {
+    super('vault/config.json 现在读不懂：先按留底的 config.json.bad-* 修好它再保存，否则其它设置会被写成默认值');
+    this.name = 'ConfigWriteBlocked';
+  }
+}
+
+/** 读一次配置并确认这次读是干净的；坏配置期间只读不写 */
+function loadForWrite(): VaultConfig {
+  const cfg = loadConfig();
+  if (configWarning !== null) throw new ConfigWriteBlocked();
+  return cfg;
+}
+
 /** 分源保存：带哪个改哪个，没带的保持原样（docs/contracts/09 §4） */
 export function saveHandles(patch: { cfHandle?: string; atHandle?: string }): VaultConfig {
-  const cfg = { ...loadConfig(), ...patch };
+  const cfg = { ...loadForWrite(), ...patch };
   writeConfig(cfg);
   return cfg;
 }
 
 /** 认领 / 换人写的就是这一个键；'' = 未认领（docs/contracts/14 §3） */
 export function saveXcpcPlayerKey(key: string): VaultConfig {
-  const cfg = { ...loadConfig(), xcpcPlayerKey: key };
+  const cfg = { ...loadForWrite(), xcpcPlayerKey: key };
   writeConfig(cfg);
   return cfg;
 }
 
 /** 工坊受管根：只改这一个键，不碰 handle / port / 认领态（docs/contracts/23 §9.3） */
 export function saveWorkspaceRoot(root: string): VaultConfig {
-  const cfg = { ...loadConfig(), workspaceRoot: root };
+  const cfg = { ...loadForWrite(), workspaceRoot: root };
   writeConfig(cfg);
   return cfg;
 }

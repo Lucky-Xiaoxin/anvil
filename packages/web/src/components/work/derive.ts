@@ -1,5 +1,5 @@
 /** 工坊前端的纯派生：树展开、筛选、搜索、名字查找（可单测，不碰 DOM） */
-import { compareSourcePathNatural, sourceParentPath } from '@anvil/shared';
+import { compareSourcePathNatural, defaultTemplateOf, sourceParentPath } from '@anvil/shared';
 import type { WorkKind, WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
 
 export const KIND_NAME: Record<WorkKind, string> = {
@@ -103,6 +103,8 @@ export interface WorkListModel {
   /** 旧 problem 无父对象 */
   ungrouped: WorkObjectDto[];
   templates: WorkObjectDto[];
+  /** 新建对象默认套用的那件模板（23 §6.1：非归档里 updatedAt 最新的一件）；列表里打「默认」标 */
+  defaultTemplateId: string | null;
   notes: WorkObjectDto[];
   /** parentId 指向不存在的对象：扫描层已报错，这里兜底照常列出 */
   orphans: WorkObjectDto[];
@@ -161,6 +163,8 @@ export function groupWorkObjects(filtered: readonly WorkObjectDto[], all: readon
     problemSets: problemSets.sort(byRelPath),
     ungrouped: ungrouped.sort(byRelPath),
     templates: templates.sort(byRelPath),
+    // 判据走全量对象：kind 筛选挡掉一部分模板时，默认那件不能跟着变
+    defaultTemplateId: defaultTemplateOf(all)?.id ?? null,
     notes: notes.sort(byRelPath),
     orphans: orphans.sort(byRelPath),
   };

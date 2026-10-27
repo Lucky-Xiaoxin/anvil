@@ -787,6 +787,30 @@ describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
     );
     expect(() => service.getArenaRecord(arenaPath)).toThrowError(/不一致/);
   });
+
+  it('回收站里躺着同场 → 保存成绩被拒，不顺手另建一场', async () => {
+    await initRoot();
+    const saved = await service.saveArenaRecord({ arenaPath, title: '上海站', ghost, view });
+    await service.trash(saved.object.id);
+
+    await expect(service.saveArenaRecord({ arenaPath, ghost, view })).rejects.toMatchObject({ kind: 'conflict' });
+    expect((await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath)).toHaveLength(0);
+
+    // 被挡下来之后，原来那一场还能原样恢复并读回存档
+    const restored = await service.restore(saved.object.id);
+    expect(restored.id).toBe(saved.object.id);
+    expect(service.getArenaRecord(arenaPath).arenaPath).toBe(arenaPath);
+  });
+
+  it('恢复会造成两份同场对象 → 拒绝恢复（否则这场的读写当场全废）', async () => {
+    await initRoot();
+    const a = await service.create({ kind: 'contest', title: 'Dup A', arenaPath });
+    await service.trash(a.id);
+    await service.create({ kind: 'contest', title: 'Dup B', arenaPath });
+
+    await expect(service.restore(a.id)).rejects.toMatchObject({ kind: 'conflict' });
+    expect((await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath)).toHaveLength(1);
+  });
 });
 
 describe('题组对象与关联（契约 26 §2 / §4 / §5；0..n 见契约 27）', () => {

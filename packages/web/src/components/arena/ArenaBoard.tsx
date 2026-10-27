@@ -43,7 +43,7 @@ import {
 import type { LeafRow } from './catalog.ts';
 import { GhostPanel } from './GhostPanel.tsx';
 import { Popover, PopShell, resClass, type Anchor } from './pops.tsx';
-import { arenaTitleOf, ghostToRecord, overwriteHintOf, probeSavedRecord, recordToGhost } from './record.ts';
+import { arenaTitleOf, ghostToRecord, ghostsAgree, overwriteHintOf, probeSavedRecord, recordToGhost } from './record.ts';
 import { clearGhost, clearSession, loadGhost, loadSession, saveGhost, saveSession, type GhostData, type Store } from './session.ts';
 
 interface Props {
@@ -83,9 +83,10 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
   /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
   const [frozenView, setFrozenView] = useState(initialRecord?.view.frozenView ?? false);
   const [resumed, setResumed] = useState(false);
-  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条；从工坊带 record 时以 record 为准 */
+  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条。本地那份是工作副本，工坊存档只补空缺、不顶掉它 */
   const initialGhost = initialRecord === null ? null : recordToGhost(initialRecord.ghost);
-  const [ghost, setGhost] = useState<GhostData | null>(initialGhost ?? loadGhost(store, row.path));
+  const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path) ?? initialGhost);
+  const [ghostNote, setGhostNote] = useState<string | null>(null);
   const restoredRef = useRef(initialRecord !== null);
   const [saveState, setSaveState] = useState<'idle' | 'busy' | 'saved' | 'error'>('idle');
   const [saveErr, setSaveErr] = useState<string | null>(null);
@@ -186,9 +187,13 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load.kind === 'ready' ? load.model.duration : 0, row.path, initialRecord]);
 
-  /* 从工坊带进来的幽灵写回 localStorage：目录行与面板此后按同一份数据走 */
+  /* 工坊存档只补本地空缺：本地已有录入且与存档不同 → 保留本地并提示，覆盖交给「保存」这一步 */
   useEffect(() => {
-    if (initialRecord !== null) saveGhost(store, row.path, recordToGhost(initialRecord.ghost));
+    if (initialRecord === null) return;
+    const local = loadGhost(store, row.path);
+    const fromRecord = recordToGhost(initialRecord.ghost);
+    if (local === null) saveGhost(store, row.path, fromRecord);
+    else if (!ghostsAgree(local, fromRecord)) setGhostNote('本地与存档不同 · 保存即覆盖存档');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -312,6 +317,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
       setSaveState('idle');
       setSaveErr(null);
       setArmHint(null);
+      setGhostNote(null);
     },
     [row.path, store],
   );
@@ -321,6 +327,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     setGhost({ show: true, subs: [] });
     setSaveState('idle');
     setSaveErr(null);
+    setGhostNote(null);
   }, [row.path, store]);
 
   /** 把这份「我的成绩 + 当前回放位置」写进工坊：服务端按 arenaPath 找/建 contest，再写 record.json */
@@ -355,6 +362,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
         },
       });
       setSaveState('saved');
+      setGhostNote(null);
     } catch (err) {
       setSaveState('error');
       setSaveErr(messageOf(err));
@@ -527,6 +535,11 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
         {armHint !== null ? (
           <span className="tb-arm" title={armHint}>
             {armHint}
+          </span>
+        ) : null}
+        {armHint === null && ghostNote !== null ? (
+          <span className="tb-note" title={ghostNote}>
+            {ghostNote}
           </span>
         ) : null}
         {saveErr !== null ? (

@@ -1513,6 +1513,8 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 .tb-err{max-width:210px;font-size:10.5px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 覆盖确认小字要读得完（点名是哪一份存档），所以不参与挤压：标题先省略 */
 .tb-arm{flex:0 0 auto;max-width:250px;font-size:10.5px;color:var(--warn);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 本地录入与工坊存档不同：不自动顶掉，只说一句，覆盖走「保存」 */
+.tb-note{flex:0 0 auto;max-width:250px;font-size:10.5px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wk-field{display:flex;flex-direction:column;gap:6px;margin-bottom:9px;min-width:0}
 .wk-select{
   height:32px;padding:0 8px;min-width:0;max-width:100%;

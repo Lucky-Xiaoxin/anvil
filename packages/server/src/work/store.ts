@@ -383,6 +383,11 @@ export class WorkService {
     if (matches.length === 1) {
       obj = matches[0]!;
     } else {
+      // 回收站里躺着同一场时不另建一场：否则新对象占住原路径，旧的那场再也恢复不了
+      const trashed = this.trashedContestForArena(idx, input.arenaPath);
+      if (trashed !== null) {
+        throw new WorkError('conflict', `这场比赛在回收站里（${trashed.title}）；先恢复它再保存成绩`);
+      }
       const made = this.createNow({ kind: 'contest', title: preTitle, arenaPath: input.arenaPath });
       const created = this.ensureIndex().byId.get(made.id);
       if (created === undefined) throw new WorkError('internal', '保存成绩时创建的比赛对象没有进入索引');
@@ -994,6 +999,30 @@ export class WorkService {
     return { id, trashName };
   }
 
+  /** 回收站里那件对象的 meta：`trash.json` 不带 arenaPath，只能读被删对象的 `.anvil.json` */
+  private trashedMeta(trashAbs: string): WorkMeta | null {
+    const file = join(trashAbs, '.anvil.json');
+    const stat = lstatOrNull(file);
+    if (stat === null || stat.isSymbolicLink() || !stat.isFile()) return null;
+    try {
+      const parsed = parseWorkMeta(JSON.parse(readFileSync(file, 'utf8')));
+      return parsed.ok ? parsed.record.meta : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 回收站里指向同一场的 contest（按 arenaPath 认，不看标题） */
+  private trashedContestForArena(idx: WorkIndex, arenaPath: string): WorkTrashDto | null {
+    for (const item of idx.trash) {
+      const dir = idx.trashDirs.get(item.id);
+      if (dir === undefined) continue;
+      const meta = this.trashedMeta(dir);
+      if (meta !== null && meta.kind === 'contest' && meta.links.arenaPath === arenaPath) return item;
+    }
+    return null;
+  }
+
   private restoreNow(id: string): WorkObjectDetailDto {
     const idx = this.ensureIndex();
     const trashAbs = idx.trashDirs.get(id);
@@ -1013,6 +1042,16 @@ export class WorkService {
     const m = manifest as { schema?: unknown; id?: unknown; originalRelPath?: unknown };
     if (m.schema !== 1 || m.id !== id || typeof m.originalRelPath !== 'string' || m.originalRelPath === '') {
       throw new WorkError('not-found', '回收站清单不完整');
+    }
+    // 恢复后出现两份同场对象 = 这场的读与写当场全废（contestByArenaPath 报冲突），所以在门口就挡
+    const trashedMeta = this.trashedMeta(trashAbs);
+    if (trashedMeta !== null && trashedMeta.kind === 'contest' && trashedMeta.links.arenaPath !== undefined) {
+      const dup = idx.objects.find(
+        (o) => o.record.meta.kind === 'contest' && o.record.meta.links.arenaPath === trashedMeta.links.arenaPath,
+      );
+      if (dup !== undefined) {
+        throw new WorkError('conflict', `工坊里已经有同一场的另一份对象（${dup.record.meta.title}）；先处理它再恢复`);
+      }
     }
     const targetAbs = resolveInside(idx.root, m.originalRelPath, { allowMissing: true });
     if (lstatOrNull(targetAbs) !== null) throw new WorkError('path-occupied', '原路径已被占用，不能自动改名恢复');

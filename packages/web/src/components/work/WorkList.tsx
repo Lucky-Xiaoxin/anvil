@@ -57,6 +57,8 @@ function ObjectRow(props: {
   allById?: ReadonlyMap<string, WorkObjectDto>;
   /** 比赛行的关联题组数（当前视图口径，27 §5.1） */
   setCount?: number;
+  /** 模板行：这件就是新建对象默认套用的那件（23 §6.1） */
+  defaultTag?: boolean;
 }) {
   const { obj, taxonomy, selected, child = false, breadcrumb = false } = props;
   const primary = primaryName(obj, taxonomy);
@@ -76,6 +78,7 @@ function ObjectRow(props: {
           {obj.kind === 'problem' ? <span className="wk-kindbadge">{WORK_SECTION.problemBadge}</span> : null}
           <span className="wk-row__titletext">{obj.title}</span>
           {obj.effectiveArchived ? <span className="wk-badge">归档</span> : null}
+          {props.defaultTag === true ? <span className="wk-badge">默认</span> : null}
         </div>
         {breadcrumb ? (
           <div className="wk-row__crumb" title={obj.relPath}>
@@ -522,7 +525,14 @@ export function WorkList(props: Props) {
             <b className="num">{model.templates.length}</b>
           </div>
           {model.templates.map((obj) => (
-            <ObjectRow key={obj.id} obj={obj} taxonomy={taxonomy} selected={selectedId === obj.id} onSelect={props.onSelect} />
+            <ObjectRow
+              key={obj.id}
+              obj={obj}
+              taxonomy={taxonomy}
+              selected={selectedId === obj.id}
+              onSelect={props.onSelect}
+              defaultTag={obj.id === model.defaultTemplateId}
+            />
           ))}
         </div>
       ) : null}
