@@ -237,6 +237,14 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     }
   });
 
+  app.post('/api/work/trash/purge', async (_request, reply) => {
+    try {
+      return await work.purgeTrash();
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
   app.post('/api/work/restore', async (request, reply) => {
     const parsed = idBody.safeParse(request.body ?? {});
     if (!parsed.success) return invalid(reply, '缺少对象 id');

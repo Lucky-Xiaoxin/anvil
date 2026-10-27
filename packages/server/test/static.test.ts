@@ -59,10 +59,10 @@ describe('静态托管', () => {
     expect(res.payload).not.toContain('anvil');
   });
 
-  it('未知路径回 SPA，/api 未知路径回 404 JSON', async () => {
+  it('未知路径回 SPA，/api 未知路径回 404 JSON（与其余接口同形状）', async () => {
     expect((await get('/whatever')).payload).toContain('anvil');
     const api = await get('/api/nope');
     expect(api.statusCode).toBe(404);
-    expect(JSON.parse(api.payload)).toHaveProperty('error');
+    expect(api.json()).toEqual({ error: { kind: 'not-found', message: '接口不存在' } });
   });
 });

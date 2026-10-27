@@ -3,7 +3,7 @@
  * 所有写操作走单 Promise 队列；所有元数据写入走 writeFileAtomic；不新增 SQLite 表。
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, type Dirent } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, rmdirSync, unlinkSync, type Dirent } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
@@ -46,6 +46,7 @@ import {
   type WorkTemplateSaveInput,
   type WorkTreeDto,
   type WorkTrashDto,
+  type WorkTrashPurgeResult,
   type WorkUnregisteredDto,
 } from '@anvil/shared';
 import { writeFileAtomic } from '../atomic.ts';
@@ -486,6 +487,11 @@ export class WorkService {
 
   trash(id: string): Promise<{ id: string; trashName: string }> {
     return this.enqueue(() => this.trashNow(id));
+  }
+
+  /** 清空回收站：只删带 `trash.json` 的应用条目，不碰受管根里其它文件 */
+  purgeTrash(): Promise<WorkTrashPurgeResult> {
+    return this.enqueue(() => this.purgeTrashNow());
   }
 
   restore(id: string): Promise<WorkObjectDetailDto> {
@@ -997,6 +1003,41 @@ export class WorkService {
     }
     this.index = null;
     return { id, trashName };
+  }
+
+  private purgeTrashNow(): WorkTrashPurgeResult {
+    const idx = this.ensureIndex();
+    const trashRoot = join(idx.root, '.anvil', 'trash');
+    const rootStat = lstatOrNull(trashRoot);
+    if (rootStat === null) return { removed: 0 };
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      throw new WorkError('unsafe-path', '回收站必须是受管根内的普通目录');
+    }
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(trashRoot, { withFileTypes: true });
+    } catch (err) {
+      throw new WorkError('internal', `回收站读不出来：${asError(err).message}`);
+    }
+    let removed = 0;
+    try {
+      for (const entry of entries) {
+        const abs = join(trashRoot, entry.name);
+        const stat = lstatOrNull(abs);
+        if (stat === null) continue;
+        // 只认应用自己生成的回收站目录（普通目录 + 普通 trash.json）；杂项与符号链接一律不碰
+        if (stat.isSymbolicLink() || !stat.isDirectory()) continue;
+        const manifest = lstatOrNull(join(abs, 'trash.json'));
+        if (manifest === null || manifest.isSymbolicLink() || !manifest.isFile()) continue;
+        rmSync(abs, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        removed += 1;
+      }
+    } catch (err) {
+      throw new WorkError('internal', `清空回收站失败（已删除 ${removed} 项）：${asError(err).message}`);
+    } finally {
+      this.index = null;
+    }
+    return { removed };
   }
 
   /** 回收站里那件对象的 meta：`trash.json` 不带 arenaPath，只能读被删对象的 `.anvil.json` */

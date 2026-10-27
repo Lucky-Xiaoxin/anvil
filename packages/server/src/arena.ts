@@ -4,7 +4,7 @@
  * 许可证纪律（§2.4，AGPL-3.0）：只运行时拉取、只落 `vault/`（gitignore），
  * 不把 srk-collection 的代码或数据文件带进本仓。
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { vaultDir } from './config.ts';
 import { writeFileAtomic } from './atomic.ts';
@@ -367,10 +367,12 @@ export class ArenaClient {
       const parsed = parseCatalogYaml(res.text);
       if (parsed.tree.length === 0) throw new ArenaError('unavailable', '目录内容不合法');
       writeFileAtomic(this.catalogFile, res.text);
+      const pruned = this.pruneCache(parsed.tree);
       return {
         fetchedAt: mtimeSeconds(this.catalogFile),
         total: parsed.total,
         tree: this.annotateCached(parsed.tree),
+        ...(pruned === 0 ? {} : { pruned }),
       };
     } catch (err) {
       if (cached !== null) return this.toCatalogDto(cached.fetchedAt, cached.text);
@@ -394,6 +396,70 @@ export class ArenaClient {
         ? { ...n, cached: contestPathOk(n.path) && existsSync(join(this.dir, n.path)) }
         : { ...n, children: this.annotateCached(n.children ?? []) },
     );
+  }
+
+  /**
+   * 拿到权威目录后，删掉不在目录里的榜单文件（`vault/arena` 只是可再生缓存）。
+   * 只动 `official/**.srk.json`；目录文件本身、未知文件和符号链接一律不碰。
+   */
+  private pruneCache(tree: ArenaCatalogNode[]): number {
+    const keep = new Set<string>();
+    const collect = (nodes: ArenaCatalogNode[]): void => {
+      for (const node of nodes) {
+        if (node.path !== undefined) keep.add(node.path);
+        else collect(node.children ?? []);
+      }
+    };
+    collect(tree);
+
+    let removed = 0;
+    const visit = (absDir: string, relDir: string): boolean => {
+      let entries;
+      try {
+        entries = readdirSync(absDir, { withFileTypes: true });
+      } catch {
+        return true;
+      }
+      let remains = false;
+      for (const entry of entries) {
+        const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
+        const abs = join(absDir, entry.name);
+        if (entry.isSymbolicLink()) {
+          remains = true;
+          continue;
+        }
+        if (entry.isDirectory()) {
+          if (visit(abs, rel)) remains = true;
+          else {
+            try {
+              rmdirSync(abs);
+            } catch {
+              remains = true;
+            }
+          }
+          continue;
+        }
+        if (
+          !entry.isFile() ||
+          rel === '_catalog.yaml' ||
+          !rel.startsWith('official/') ||
+          !rel.endsWith('.srk.json') ||
+          keep.has(rel)
+        ) {
+          remains = true;
+          continue;
+        }
+        try {
+          rmSync(abs, { force: true });
+          removed += 1;
+        } catch {
+          remains = true;
+        }
+      }
+      return remains;
+    };
+    visit(this.dir, '');
+    return removed;
   }
 
   /** 单场：路径镜像落盘，内容终局不变 → 已缓存即回，永不过期（§2.1） */

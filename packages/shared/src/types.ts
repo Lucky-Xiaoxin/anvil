@@ -274,6 +274,8 @@ export interface ArenaCatalogDto {
   fetchedAt: number;
   total: number;
   tree: ArenaCatalogNode[];
+  /** 本次拿到新目录后清掉的过期榜单缓存数（0 时省略） */
+  pruned?: number;
 }
 
 export interface ArenaContestDto {

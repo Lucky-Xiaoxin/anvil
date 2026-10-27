@@ -14,6 +14,7 @@ import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNo
 import { elapsedOf } from './engine.ts';
 import { arenaTitleOf, ghostToRecord, overwriteHintOf, probeSavedRecord, viewOfRow } from './record.ts';
 import {
+  clearSession,
   loadGhost,
   loadOpenGroups,
   loadScrollTop,
@@ -82,16 +83,20 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   const [saveErr, setSaveErr] = useState<{ path: string; text: string } | null>(null);
   const [arm, setArm] = useState<{ path: string; hint: string } | null>(null);
   const [restoreErr, setRestoreErr] = useState<string | null>(null);
+  const [pruned, setPruned] = useState(0);
+  const [sessionRev, setSessionRev] = useState(0);
   const restoredRef = useRef(false);
 
   const fetchCatalog = useCallback(async (refresh: boolean): Promise<void> => {
     if (refresh) setBusy(true);
     else setState('loading');
+    setPruned(0);
     try {
       const res = await getArenaCatalog(refresh);
       setDto(res);
       setState('ready');
       setError('');
+      setPruned(res.pruned ?? 0);
       onCount(res.total);
     } catch (err) {
       setError(messageOf(err));
@@ -116,13 +121,22 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, sessionEpoch, now]);
+  }, [store, sessionEpoch, sessionRev, now]);
 
   useEffect(() => {
     if (sessions.size === 0) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [sessions.size]);
+
+  /** 目录里直接结束一场回放：只清会话记录，不碰「我的成绩」 */
+  const endSession = useCallback(
+    (path: string): void => {
+      clearSession(store, path);
+      setSessionRev((n) => n + 1);
+    },
+    [store],
+  );
 
   const leaves = useMemo(() => (dto === null ? [] : flattenLeaves(dto.tree)), [dto]);
   const hits = useMemo(() => (q.trim() === '' ? [] : searchLeaves(leaves, q)), [leaves, q]);
@@ -342,7 +356,9 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
           <div className="cat">
             {state === 'loading' ? <Loading /> : null}
             {state === 'error' ? <Failed text={error} onRetry={() => void fetchCatalog(false)} /> : null}
-            {state === 'ready' && q.trim() !== '' ? <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} pf={pf} save={save} /> : null}
+            {state === 'ready' && q.trim() !== '' ? (
+              <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} onEndSession={endSession} pf={pf} save={save} />
+            ) : null}
             {state === 'ready' && q.trim() === '' ? (
               <>
                 {(dto?.tree ?? []).map((n) => (
@@ -354,6 +370,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
                     toggle={toggle}
                     sessions={sessions}
                     onEnter={onEnter}
+                    onEndSession={endSession}
                     pf={pf}
                     save={save}
                     top
@@ -367,6 +384,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
             <span>
               来源 <b>algoux/srk-collection</b>（社区快照）· 回放的是已打完的比赛
             </span>
+            {pruned > 0 ? <span>已清理 {pruned} 个过期缓存</span> : null}
             <span className="spacer" />
             {state === 'ready' ? <span>{fetchedLabel(dto?.fetchedAt ?? null)}</span> : null}
           </div>
@@ -427,7 +445,23 @@ const prefetchOf = (r: LeafRow, pf: PrefetchState): { cached: boolean; busy: boo
   err: pf.prefetchErr?.path === r.path ? pf.prefetchErr.text : '',
 });
 
-function Found({ hits, q, sessions, onEnter, pf, save }: { hits: LeafRow[]; q: string; sessions: Map<string, { elapsed: number; paused: boolean }>; onEnter: Props['onEnter']; pf: PrefetchState; save: SaveState }) {
+function Found({
+  hits,
+  q,
+  sessions,
+  onEnter,
+  pf,
+  save,
+  onEndSession,
+}: {
+  hits: LeafRow[];
+  q: string;
+  sessions: Map<string, { elapsed: number; paused: boolean }>;
+  onEnter: Props['onEnter'];
+  pf: PrefetchState;
+  save: SaveState;
+  onEndSession: (path: string) => void;
+}) {
   return (
     <>
       <div className="cyear cyear--flat">
@@ -453,6 +487,7 @@ function Found({ hits, q, sessions, onEnter, pf, save }: { hits: LeafRow[]; q: s
             path={r.group.join(' / ')}
             live={sessions.get(r.path) ?? null}
             onEnter={onEnter}
+            onEndSession={onEndSession}
             save={save}
             {...prefetchOf(r, pf)}
             onPrefetch={pf.onPrefetch}
@@ -470,6 +505,7 @@ interface GroupProps {
   toggle: (key: string) => void;
   sessions: Map<string, { elapsed: number; paused: boolean }>;
   onEnter: Props['onEnter'];
+  onEndSession: (path: string) => void;
   pf: PrefetchState;
   save: SaveState;
   top?: boolean;
@@ -477,7 +513,7 @@ interface GroupProps {
 }
 
 /** 分组行：顶层是 `.cgrp`，下层是 `.cyear`；展开态按「类目名 → 组名」这条链记，不写进存储 */
-const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, pf, save, top = false, chain = '' }: GroupProps) {
+const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, onEndSession, pf, save, top = false, chain = '' }: GroupProps) {
   const key = chain === '' ? node.name : `${chain} / ${node.name}`;
   // 一律折起（含顶层五类）：394 行全摊开等于没有目录；展开过的那一层由 arena:tree 记着
   const open = openState.has(key);
@@ -514,10 +550,10 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
       {head}
       <div className="cbody" style={{ ['--d' as string]: depth + 1 }}>
         {node.kids.map((k) => (
-          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} pf={pf} save={save} chain={key} />
+          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} onEndSession={onEndSession} pf={pf} save={save} chain={key} />
         ))}
         {node.leaves.map((r, i) => (
-          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} save={save} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
+          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} onEndSession={onEndSession} save={save} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
         ))}
       </div>
     </>
@@ -534,6 +570,7 @@ interface RowProps {
   alt?: boolean;
   path?: string;
   onEnter: Props['onEnter'];
+  onEndSession: (path: string) => void;
   save: SaveState;
   /** 预拉取三态（docs/contracts/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
   cached: boolean;
@@ -542,7 +579,7 @@ interface RowProps {
   onPrefetch: (path: string) => void;
 }
 
-const Row = memo(function Row({ row, live, alt = false, path, onEnter, save, cached, busy, err, onPrefetch }: RowProps) {
+const Row = memo(function Row({ row, live, alt = false, path, onEnter, onEndSession, save, cached, busy, err, onPrefetch }: RowProps) {
   const hasGhost = save.ghostPaths.has(row.path);
   const saving = save.savingPath === row.path;
   const saved = save.savedNow.has(row.path);
@@ -566,6 +603,13 @@ const Row = memo(function Row({ row, live, alt = false, path, onEnter, save, cac
             </span>
             <button className="btn btn--xs" onClick={() => onEnter(row, true)}>
               回到回放
+            </button>
+            <button
+              className="btn btn--xs btn--ghost"
+              title="结束这场回放并清掉「进行中」标记；「我的成绩」会保留"
+              onClick={() => onEndSession(row.path)}
+            >
+              结束
             </button>
           </>
         ) : (

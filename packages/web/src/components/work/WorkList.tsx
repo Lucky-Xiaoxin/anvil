@@ -33,6 +33,7 @@ interface Props {
   trashView: boolean;
   onAdopt: (item: WorkUnregisteredDto) => void;
   onRestore: (id: string) => void;
+  onPurge: () => void;
   busyId: string | null;
   /** 筛选条件变化时重置折叠状态，避免搜索命中藏在收起的组里 */
   filterKey: string;
@@ -380,6 +381,7 @@ function ProblemsetGroups(props: {
 export function WorkList(props: Props) {
   const { objects, allObjects, allById, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [purgeArmed, setPurgeArmed] = useState(false);
   const model = useMemo(() => groupWorkObjects(objects, allObjects), [objects, allObjects]);
   const sourceModel = useMemo(() => groupWorkObjectsBySource(model.problemSets), [model.problemSets]);
   /** 本视图口径的比赛 → 关联题组数（27 §5.1）：活动视图数活动题组，归档视图数归档题组 */
@@ -395,6 +397,10 @@ export function WorkList(props: Props) {
   useEffect(() => {
     setCollapsed(new Set());
   }, [props.filterKey]);
+
+  useEffect(() => {
+    setPurgeArmed(false);
+  }, [trashView, trash.length]);
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -425,6 +431,24 @@ export function WorkList(props: Props) {
         <div className="wk-sec__title">
           <span>回收站</span>
           <b className="num">{trash.length}</b>
+          {trash.length > 0 ? (
+            <button
+              className={`btn btn--xs${purgeArmed ? ' btn--danger' : ''}`}
+              style={{ marginLeft: 'auto' }}
+              disabled={props.busyId !== null}
+              title="永久删除回收站里的全部条目（不可恢复）"
+              onClick={() => {
+                if (!purgeArmed) {
+                  setPurgeArmed(true);
+                  return;
+                }
+                setPurgeArmed(false);
+                props.onPurge();
+              }}
+            >
+              {purgeArmed ? '确认清空' : '清空'}
+            </button>
+          ) : null}
         </div>
         {trash.length === 0 ? (
           <div className="wk-empty">回收站是空的。</div>
@@ -445,7 +469,7 @@ export function WorkList(props: Props) {
             </div>
           ))
         )}
-        <p className="wk-hint">恢复按原路径移回；原路径被占或父目录缺失时会拒绝，不会自动改名。</p>
+        <p className="wk-hint">恢复按原路径移回；原路径被占或父目录缺失时会拒绝，不会自动改名。清空会永久删除回收站里的条目。</p>
       </div>
     );
   }

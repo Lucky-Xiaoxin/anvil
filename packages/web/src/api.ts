@@ -18,6 +18,7 @@ import type {
   WorkOpenApp,
   WorkTags,
   WorkTemplateFileDto,
+  WorkTrashPurgeResult,
   WorkTreeDto,
   XcpcProfileDto,
   XcpcRefreshDto,
@@ -46,9 +47,13 @@ function readJson(text: string): unknown {
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
   let res: Response;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = init?.signal == null ? timeout : AbortSignal.any([init.signal, timeout]);
   try {
-    res = await fetch(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    res = await fetch(path, { ...init, signal });
   } catch (err) {
+    // 调用方主动取消（切对象 / 卸载）不是故障，原样交给上层决定是否忽略
+    if (init?.signal?.aborted === true) throw new ApiError('请求已取消', 'aborted');
     if ((err as { name?: string }).name === 'TimeoutError') {
       throw new ApiError(`本地服务响应超时（>${Math.round(timeoutMs / 1000)} 秒）`, 'timeout');
     }
@@ -132,8 +137,11 @@ export const getWorkTree = (opts: { archived?: boolean; rescan?: boolean } = {})
 export const initWork = (path: string, confirmExisting = false): Promise<WorkTreeDto> =>
   request<WorkTreeDto>('/api/work/init', post({ path, confirmExisting }), 45_000);
 
-export const getWorkObject = (id: string): Promise<WorkObjectDetailDto> =>
-  request<WorkObjectDetailDto>(`/api/work/object?id=${encodeURIComponent(id)}`);
+export const getWorkObject = (id: string, signal?: AbortSignal): Promise<WorkObjectDetailDto> =>
+  request<WorkObjectDetailDto>(
+    `/api/work/object?id=${encodeURIComponent(id)}`,
+    signal === undefined ? undefined : { signal },
+  );
 
 export const createWork = (body: {
   kind: WorkKind;
@@ -164,6 +172,9 @@ export const trashWork = (id: string): Promise<{ id: string; trashName: string }
 
 export const restoreWork = (id: string): Promise<WorkObjectDetailDto> =>
   request<WorkObjectDetailDto>('/api/work/restore', post({ id }), 30_000);
+
+export const purgeWorkTrash = (): Promise<WorkTrashPurgeResult> =>
+  request<WorkTrashPurgeResult>('/api/work/trash/purge', post({}), 30_000);
 
 export const openWork = async (id: string, relPath?: string, app?: WorkOpenApp): Promise<void> => {
   await request<null>(

@@ -16,6 +16,7 @@ import {
   type RatingInput,
   type SubmissionRow,
 } from '../db.ts';
+import { life } from '../life.ts';
 import { switchNote } from './note.ts';
 import type { CheckResult, SyncSource } from './source.ts';
 
@@ -322,6 +323,7 @@ export async function syncAt(
   try {
     await client.submissions(handle, fromSecond, (batch) => {
       if (pendingWipe) {
+        life('sync-reset', `${SOURCE} ${owner ?? '(unowned)'} -> ${handle} stale=${stale}`);
         resetSourceData(db, SOURCE);
         setMeta(db, handleMetaKey(SOURCE), handle);
         pendingWipe = false;
@@ -338,6 +340,7 @@ export async function syncAt(
     });
     if (pendingWipe) {
       // 上游一条都没有（result 里 200+[] 的一种）：也把库清干净，别让上一个人的记录挂在新 handle 下面
+      life('sync-reset', `${SOURCE} ${owner ?? '(unowned)'} -> ${handle} stale=${stale}`);
       resetSourceData(db, SOURCE);
       setMeta(db, handleMetaKey(SOURCE), handle);
       pendingWipe = false;

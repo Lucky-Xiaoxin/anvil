@@ -303,6 +303,20 @@ describe('目录缓存', () => {
     expect(hits[CATALOG_PATH]).toBe(2);
   });
 
+  it('拉到新目录后清掉不在目录里的缓存，有效缓存与目录文件保留', async () => {
+    const stale = 'official/icpc/icpc2024/icpc2024old.srk.json';
+    putMirror(stale);
+    putMirror(SH);
+    writeFileSync(join(dir, '_catalog.yaml'), CATALOG, 'utf8');
+    const { fetchImpl } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
+    const dto = await mkClient({ fetchImpl, dir }).catalog(true);
+    expect(dto.pruned).toBe(1);
+    expect(existsSync(join(dir, stale))).toBe(false);
+    expect(existsSync(join(dir, SH))).toBe(true);
+    expect(existsSync(join(dir, '_catalog.yaml'))).toBe(true);
+    expect(dto.tree[0]?.children?.[0]?.children?.[0]?.cached).toBe(true);
+  });
+
   it('无缓存且两条源都拉不通 → ArenaError(unavailable)，逐源各退避重试 3 次后放弃', async () => {
     let attempts = 0;
     const c = mkClient({

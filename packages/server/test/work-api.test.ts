@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -182,6 +182,30 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json()).toEqual(expect.objectContaining({ objects: 4, added: 0, removed: 0 }));
     detail = (await app.inject({ method: 'GET', url: `/api/work/object?id=${problem.id}` })).json();
     expect(detail.relPath).toBe('contests/2026-10-21_shanghai/cherry-tree');
+  });
+
+  it('回收站清空：只删应用条目、不可恢复、不误伤杂项、空站幂等', async () => {
+    await boot();
+    await initApi();
+    const note = await create('note', 'Temp');
+    let res = await post('/api/work/trash', { id: note.id });
+    expect(res.statusCode, res.body).toBe(200);
+    writeFileSync(join(root, '.anvil', 'trash', 'keep.txt'), 'not mine');
+
+    res = await post('/api/work/trash/purge', {});
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ removed: 1 });
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    expect(tree.trash).toEqual([]);
+    expect(readdirSync(join(root, '.anvil', 'trash'))).toEqual(['keep.txt']);
+
+    res = await post('/api/work/restore', { id: note.id });
+    expect(res.statusCode).toBe(404);
+
+    res = await post('/api/work/trash/purge', {});
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ removed: 0 });
   });
 
   it('adopt 与路径越界；未知对象 404；root-version', async () => {
