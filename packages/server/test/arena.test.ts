@@ -405,13 +405,17 @@ describe('目录缓存', () => {
     expect(n).toBe(ARENA_HOSTS.length * (1 + MAX_RETRIES));
   });
 
-  it('有缓存时上游失败照常回缓存（降级不崩）', async () => {
+  it('有缓存时上游失败照常回缓存，并标 stale + refreshError', async () => {
     const { fetchImpl, hits } = countingFetch({ [CATALOG_PATH]: async () => okResponse(CATALOG) });
     const c = mkClient({ fetchImpl, dir });
-    await c.catalog();
+    const first = await c.catalog();
+    expect(first.stale).toBeUndefined();
     const offline = mkClient({ fetchImpl: failFetch, dir });
     const back = await offline.catalog(true);
     expect(back.total).toBe(5);
+    expect(back.stale).toBe(true);
+    expect(back.refreshError).toBeTruthy();
+    expect(back.fetchedAt).toBe(first.fetchedAt);
     expect(hits[CATALOG_PATH]).toBe(1);
   });
 
@@ -552,6 +556,25 @@ describe('arena 路由', () => {
     const res = await app.inject({ method: 'GET', url: '/api/arena/catalog' });
     expect(res.statusCode).toBe(200);
     expect(res.json().total).toBe(5);
+    await close();
+  });
+
+  it('GET /api/arena/catalog 刷新失败但有缓存 → 200 + stale，不 502', async () => {
+    let calls = 0;
+    const { app, close } = await makeApp({
+      [CATALOG_PATH]: async () => {
+        calls += 1;
+        if (calls === 1) return okResponse(CATALOG);
+        throw new Error('ECONNRESET');
+      },
+    });
+    const first = await app.inject({ method: 'GET', url: '/api/arena/catalog' });
+    expect(first.statusCode).toBe(200);
+
+    const res = await app.inject({ method: 'GET', url: '/api/arena/catalog?refresh=1' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ total: 5, stale: true });
+    expect(res.json().refreshError).toBeTruthy();
     await close();
   });
 

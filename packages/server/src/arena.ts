@@ -375,7 +375,14 @@ export class ArenaClient {
         ...(pruned === 0 ? {} : { pruned }),
       };
     } catch (err) {
-      if (cached !== null) return this.toCatalogDto(cached.fetchedAt, cached.text);
+      if (cached !== null) {
+        const dto = this.toCatalogDto(cached.fetchedAt, cached.text);
+        return {
+          ...dto,
+          stale: true,
+          refreshError: err instanceof ArenaError ? err.message : reasonOf(err),
+        };
+      }
       throw err instanceof ArenaError ? err : new ArenaError('unavailable', reasonOf(err));
     }
   }

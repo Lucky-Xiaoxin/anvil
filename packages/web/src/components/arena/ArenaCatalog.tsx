@@ -68,6 +68,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   const [dto, setDto] = useState<ArenaCatalogDto | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
+  const [stale, setStale] = useState<{ message: string; fetchedAt: number } | null>(null);
   const [q, setQ] = useState('');
   /** 展开中的组键集合；落 localStorage，默认空 = 连顶层五类也收起（刷新 / 从回放退回都回到原位） */
   const [open, setOpen] = useState<Set<string>>(() => loadOpenGroups(store));
@@ -86,6 +87,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   const [pruned, setPruned] = useState(0);
   const [sessionRev, setSessionRev] = useState(0);
   const restoredRef = useRef(false);
+  const dtoRef = useRef<ArenaCatalogDto | null>(null);
 
   const fetchCatalog = useCallback(async (refresh: boolean): Promise<void> => {
     if (refresh) setBusy(true);
@@ -93,14 +95,25 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
     setPruned(0);
     try {
       const res = await getArenaCatalog(refresh);
+      dtoRef.current = res;
       setDto(res);
       setState('ready');
       setError('');
+      setStale(
+        res.stale === true ? { message: res.refreshError ?? '上游取不到新目录', fetchedAt: res.fetchedAt } : null,
+      );
       setPruned(res.pruned ?? 0);
       onCount(res.total);
     } catch (err) {
-      setError(messageOf(err));
-      if (!refresh) setState('error');
+      const text = messageOf(err);
+      setError(text);
+      if (dtoRef.current === null) {
+        setState('error');
+        setStale(null);
+      } else {
+        setState('ready');
+        setStale({ message: text, fetchedAt: dtoRef.current.fetchedAt });
+      }
     } finally {
       setBusy(false);
     }
@@ -326,6 +339,18 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
               <div>{restoreErr}</div>
             </div>
           ) : null}
+          {stale !== null ? (
+            <div className="alert alert--warn" role="status">
+              <Icon id="i-warn" />
+              <div>
+                <b>刷新失败</b>，正在显示旧缓存 · {fetchedLabel(stale.fetchedAt)}
+                <div className="cat-stale__reason">{stale.message}</div>
+              </div>
+              <button className="alert__x" type="button" disabled={busy} onClick={() => void fetchCatalog(true)}>
+                重试
+              </button>
+            </div>
+          ) : null}
           <div className="srchline">
             <div className="search">
               <Icon id="i-search" />
@@ -422,7 +447,7 @@ function Failed({ text, onRetry }: { text: string; onRetry: () => void }) {
       <div className="alert alert--err">
         <Icon id="i-plug" />
         <div>
-          <b>目录拉取失败</b>（{text}）
+          <b>目录拉取失败</b>（无可用缓存；{text}）
         </div>
         <button className="alert__x" onClick={onRetry}>
           重试
