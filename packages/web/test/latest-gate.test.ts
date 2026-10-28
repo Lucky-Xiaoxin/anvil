@@ -11,4 +11,15 @@ describe('LatestGate', () => {
     gate.invalidate();
     expect(gate.isCurrent(second)).toBe(false);
   });
+
+  it('选择变化使待应用的自动选择失效，下一次加载仍可申请新选择', () => {
+    const gate = createLatestGate();
+    const beforeSelection = gate.begin();
+    gate.invalidate();
+    gate.invalidate();
+    expect(gate.isCurrent(beforeSelection)).toBe(false);
+    const nextLoad = gate.begin();
+    expect(gate.isCurrent(beforeSelection)).toBe(false);
+    expect(gate.isCurrent(nextLoad)).toBe(true);
+  });
 });

@@ -142,6 +142,7 @@ export function Workbench() {
   /** 树请求序号 + 取消：快速切活动 / 归档时只让最后一次响应落地 */
   const treeGate = useMemo(createLatestGate, []);
   const treeAbort = useRef<AbortController | null>(null);
+  const selectionGate = useMemo(createLatestGate, []);
   /** 当前视图 / 选中项的同步镜像：异步响应回来时按“此刻”判定，不用闭包里的旧值 */
   const archivedRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
@@ -159,9 +160,10 @@ export function Workbench() {
   }, []);
 
   const setSelected = useCallback((id: string | null): void => {
+    selectionGate.invalidate();
     selectedIdRef.current = id;
     setSelectedId(id);
-  }, []);
+  }, [selectionGate]);
 
   const setViewArchived = useCallback((next: boolean): void => {
     archivedRef.current = next;
@@ -206,10 +208,12 @@ export function Workbench() {
   const load = useCallback(
     async (archivedNext: boolean, rescan: boolean, selectId?: string | null): Promise<WorkTreeDto | null> => {
       const token = treeGate.begin();
+      const selectionToken = selectionGate.begin();
       treeAbort.current?.abort();
       const abort = new AbortController();
       treeAbort.current = abort;
       setLoading(true);
+      setNotice(null);
       try {
         // 当前视图带 rescan（首次进入）；对面视图只读一份，用来拼全量 byId（27 §5.3）
         const [next, other] = await Promise.all([
@@ -220,8 +224,7 @@ export function Workbench() {
         setTree(next);
         setAllObjects([...next.objects, ...other.objects]);
         setSetup(null);
-        setNotice(null);
-        if (selectId !== undefined) {
+        if (selectId !== undefined && selectionGate.isCurrent(selectionToken)) {
           const exists = selectId !== null && next.objects.some((o) => o.id === selectId);
           setSelected(exists ? selectId : null);
           if (exists && selectId !== null) void loadDetail(selectId);
@@ -252,7 +255,7 @@ export function Workbench() {
         if (treeGate.isCurrent(token)) setLoading(false);
       }
     },
-    [clearDetail, loadDetail, setSelected, treeGate],
+    [clearDetail, loadDetail, selectionGate, setSelected, treeGate],
   );
 
   useEffect(() => {
@@ -445,10 +448,9 @@ export function Workbench() {
             setImportOpen(false);
             setViewArchived(false);
             void (async () => {
-              const next = await load(false, false, objectId === null ? undefined : objectId);
-              if (next === null) return;
+              await load(false, false, objectId === null ? undefined : objectId);
               const summary = importResultSummary(result);
-              setNotice({ kind: summary.level, text: summary.text });
+              setNotice((current) => current?.kind === 'err' ? current : { kind: summary.level, text: summary.text });
             })();
           }}
         />
@@ -615,10 +617,12 @@ export function Workbench() {
                     setBusy('trash');
                     try {
                       await trashWork(id);
-                      setSelected(null);
-                      clearDetail();
-                      await load(archivedRef.current, false);
-                      setNotice({ kind: 'ok', text: '已移入回收站' });
+                      if (selectedIdRef.current === id) {
+                        setSelected(null);
+                        clearDetail();
+                      }
+                      const next = await load(archivedRef.current, false);
+                      if (next !== null) setNotice({ kind: 'ok', text: '已移入回收站' });
                     } catch (error) {
                       const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
                       setNotice({ kind: 'err', text: api.message });
