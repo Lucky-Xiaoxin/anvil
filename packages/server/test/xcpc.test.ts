@@ -700,10 +700,10 @@ describe('XCPC 路由（docs/contracts/14 §4）', () => {
 
   it('拉快照：没认领 → 400；认领后 200 且版本没变就是 updated:false', async () => {
     const { app } = await boot(claimRoutes());
-    expect((await app.inject({ method: 'POST', url: '/api/xcpc/refresh' })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/xcpc/refresh', payload: {} })).statusCode).toBe(400);
 
     const claimed = await boot(claimRoutes(), { claim: true });
-    const res = await claimed.app.inject({ method: 'POST', url: '/api/xcpc/refresh' });
+    const res = await claimed.app.inject({ method: 'POST', url: '/api/xcpc/refresh', payload: {} });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ updated: false, status: 'ok' });
   });

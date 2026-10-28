@@ -182,7 +182,7 @@ export const restoreWork = (id: string): Promise<WorkObjectDetailDto> =>
   request<WorkObjectDetailDto>('/api/work/restore', post({ id }), 30_000);
 
 export const purgeWorkTrash = (): Promise<WorkTrashPurgeResult> =>
-  request<WorkTrashPurgeResult>('/api/work/trash/purge', post({}), 30_000);
+  request<WorkTrashPurgeResult>('/api/work/trash/purge', post({ confirm: true }), 30_000);
 
 export const openWork = async (id: string, relPath?: string, app?: WorkOpenApp): Promise<void> => {
   await request<null>(

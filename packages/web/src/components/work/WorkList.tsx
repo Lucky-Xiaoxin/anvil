@@ -445,6 +445,7 @@ export function WorkList(props: Props) {
                 setPurgeArmed(false);
                 props.onPurge();
               }}
+              onBlur={() => setPurgeArmed(false)}
             >
               {purgeArmed ? '确认清空' : '清空'}
             </button>
