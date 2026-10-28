@@ -22,6 +22,7 @@ import { WorkImport } from './WorkImport.tsx';
 import { WorkList } from './WorkList.tsx';
 import { KIND_NAME, KIND_ORDER, filterWorkObjects, kindCounts } from './derive.ts';
 import { importResultSummary } from './import-derive.ts';
+import { createLatestGate } from './latest.ts';
 
 interface Notice {
   kind: 'err' | 'ok' | 'warn';
@@ -138,6 +139,12 @@ export function Workbench() {
   /** 详情请求序号：快速连点两个对象时，只让最后一次响应落地 */
   const detailSeq = useRef(0);
   const detailAbort = useRef<AbortController | null>(null);
+  /** 树请求序号 + 取消：快速切活动 / 归档时只让最后一次响应落地 */
+  const treeGate = useMemo(createLatestGate, []);
+  const treeAbort = useRef<AbortController | null>(null);
+  /** 当前视图 / 选中项的同步镜像：异步响应回来时按“此刻”判定，不用闭包里的旧值 */
+  const archivedRef = useRef(false);
+  const selectedIdRef = useRef<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
@@ -149,6 +156,16 @@ export function Workbench() {
     detailAbort.current = null;
     setDetailLoading(false);
     setDetail(null);
+  }, []);
+
+  const setSelected = useCallback((id: string | null): void => {
+    selectedIdRef.current = id;
+    setSelectedId(id);
+  }, []);
+
+  const setViewArchived = useCallback((next: boolean): void => {
+    archivedRef.current = next;
+    setArchived(next);
   }, []);
 
   const loadDetail = useCallback(async (id: string): Promise<void> => {
@@ -177,8 +194,10 @@ export function Workbench() {
   const refreshDetailQuietly = useCallback(async (id: string): Promise<void> => {
     try {
       const next = await getWorkObject(id);
+      if (selectedIdRef.current !== id) return;
       setDetail((prev) => (prev?.id === id ? next : prev));
     } catch (error) {
+      if (selectedIdRef.current !== id) return;
       const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
       setNotice({ kind: 'err', text: api.message });
     }
@@ -186,46 +205,54 @@ export function Workbench() {
 
   const load = useCallback(
     async (archivedNext: boolean, rescan: boolean, selectId?: string | null): Promise<WorkTreeDto | null> => {
+      const token = treeGate.begin();
+      treeAbort.current?.abort();
+      const abort = new AbortController();
+      treeAbort.current = abort;
       setLoading(true);
       try {
         // 当前视图带 rescan（首次进入）；对面视图只读一份，用来拼全量 byId（27 §5.3）
         const [next, other] = await Promise.all([
-          getWorkTree({ archived: archivedNext, rescan }),
-          getWorkTree({ archived: !archivedNext }),
+          getWorkTree({ archived: archivedNext, rescan, signal: abort.signal }),
+          getWorkTree({ archived: !archivedNext, signal: abort.signal }),
         ]);
+        if (!treeGate.isCurrent(token)) return null;
         setTree(next);
         setAllObjects([...next.objects, ...other.objects]);
         setSetup(null);
         setNotice(null);
         if (selectId !== undefined) {
           const exists = selectId !== null && next.objects.some((o) => o.id === selectId);
-          setSelectedId(exists ? selectId : null);
+          setSelected(exists ? selectId : null);
           if (exists && selectId !== null) void loadDetail(selectId);
           else clearDetail();
         } else {
-          const exists = selectedId !== null && next.objects.some((o) => o.id === selectedId);
-          if (!exists) {
-            setSelectedId(null);
-            clearDetail();
-          }
+          // 选中项以响应回来时的用户操作为准：加载期间新点的对象不应该被清掉
+          const current = selectedIdRef.current;
+          const exists = current !== null && next.objects.some((o) => o.id === current);
+          setSelected(exists ? current : null);
+          if (!exists) clearDetail();
         }
         return next;
       } catch (error) {
+        if (!treeGate.isCurrent(token)) return null;
         const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
+        if (api.kind === 'aborted') return null;
         if (SETUP_KINDS.has(api.kind)) {
           setSetup({ kind: api.kind, message: api.message });
           setTree(null);
           clearDetail();
-          setSelectedId(null);
+          setSelected(null);
         } else {
           setNotice({ kind: 'err', text: api.message });
         }
         return null;
       } finally {
-        setLoading(false);
+        if (treeAbort.current === abort) treeAbort.current = null;
+        if (treeGate.isCurrent(token)) setLoading(false);
       }
     },
-    [clearDetail, loadDetail, selectedId],
+    [clearDetail, loadDetail, setSelected, treeGate],
   );
 
   useEffect(() => {
@@ -234,13 +261,23 @@ export function Workbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(
+    () => () => {
+      treeGate.invalidate();
+      treeAbort.current?.abort();
+      detailSeq.current += 1;
+      detailAbort.current?.abort();
+    },
+    [treeGate],
+  );
+
   const openTrash = (): void => {
     if (trashView) {
       setTrashView(false);
       return;
     }
     setTrashView(true);
-    setSelectedId(null);
+    setSelected(null);
     clearDetail();
     setNodeFilter(null);
     setLabelFilter(null);
@@ -249,24 +286,29 @@ export function Workbench() {
 
   const selectObject = (id: string): void => {
     setTrashView(false);
-    setSelectedId(id);
+    setSelected(id);
     void loadDetail(id);
   };
 
   const afterMutation = async (label: string, make: () => Promise<WorkObjectDetailDto>): Promise<void> => {
     if (busy !== null) return;
+    const viewAtStart = archivedRef.current;
+    const selectionAtStart = selectedIdRef.current;
     setBusy(label);
     setNotice(null);
     try {
       const made = await make();
-      const next = await load(archived, false);
-      if (next !== null && next.objects.some((o) => o.id === made.id)) {
-        clearDetail();
-        setSelectedId(made.id);
-        setDetail(made);
-      } else {
-        setSelectedId(null);
-        clearDetail();
+      const next = await load(archivedRef.current, false);
+      // 用户在这次操作期间切了视图或换了选中项：别用旧操作的完成态抢回去
+      if (next !== null && archivedRef.current === viewAtStart && selectedIdRef.current === selectionAtStart) {
+        if (next.objects.some((o) => o.id === made.id)) {
+          clearDetail();
+          setSelected(made.id);
+          setDetail(made);
+        } else {
+          setSelected(null);
+          clearDetail();
+        }
       }
       setNotice({ kind: 'ok', text: '已保存' });
     } catch (error) {
@@ -283,8 +325,8 @@ export function Workbench() {
     setNotice(null);
     try {
       const summary = await rescanWork();
-      await load(archived, false);
-      if (selectedId !== null) void loadDetail(selectedId);
+      const next = await load(archivedRef.current, false);
+      if (next !== null && selectedIdRef.current !== null) void loadDetail(selectedIdRef.current);
       setNotice({ kind: 'ok', text: `扫描完成：${summary.objects} 个对象 · 未登记 ${summary.unregistered} · 错误 ${summary.errors}` });
     } catch (error) {
       const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
@@ -295,10 +337,10 @@ export function Workbench() {
   };
 
   const toggleArchived = (): void => {
-    const next = !archived;
-    setArchived(next);
+    const next = !archivedRef.current;
+    setViewArchived(next);
     setTrashView(false);
-    setSelectedId(null);
+    setSelected(null);
     clearDetail();
     void load(next, false);
   };
@@ -322,7 +364,7 @@ export function Workbench() {
             setTree(next);
             setAllObjects(next.objects);
             setSetup(null);
-            setArchived(false);
+            setViewArchived(false);
             setNotice({ kind: 'ok', text: '工作区已初始化' });
           }}
         />
@@ -397,11 +439,11 @@ export function Workbench() {
           onClose={() => {
             // 即使从「继续导入」直接离开，也要刷新：之前可能已经成功导入过对象
             setImportOpen(false);
-            void load(archived, false);
+            void load(archivedRef.current, false);
           }}
           onImported={(objectId, result) => {
             setImportOpen(false);
-            setArchived(false);
+            setViewArchived(false);
             void (async () => {
               const next = await load(false, false, objectId === null ? undefined : objectId);
               if (next === null) return;
@@ -512,7 +554,7 @@ export function Workbench() {
                 void (async () => {
                   try {
                     const result = await purgeWorkTrash();
-                    await load(archived, false);
+                    await load(archivedRef.current, false);
                     setNotice({ kind: 'ok', text: `已清空回收站（${result.removed} 项）` });
                   } catch (error) {
                     const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
@@ -573,9 +615,9 @@ export function Workbench() {
                     setBusy('trash');
                     try {
                       await trashWork(id);
-                      setSelectedId(null);
+                      setSelected(null);
                       clearDetail();
-                      await load(archived, false);
+                      await load(archivedRef.current, false);
                       setNotice({ kind: 'ok', text: '已移入回收站' });
                     } catch (error) {
                       const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
@@ -602,7 +644,7 @@ export function Workbench() {
                 onFilterLabel={(label) => setLabelFilter(label)}
                 onTemplateSaved={() => {
                   if (detail !== null) void refreshDetailQuietly(detail.id);
-                  void load(archived, false);
+                  void load(archivedRef.current, false);
                 }}
               />
             ) : (
@@ -622,7 +664,7 @@ export function Workbench() {
             setDialog(null);
             setTrashView(false);
             // 在「看归档」里新建 / 登记出来的是未归档对象，先切回活动视图再拉树，否则会“保存成功但看不见”
-            setArchived(false);
+            setViewArchived(false);
             void (async () => {
               await load(false, false, id);
               setNotice({ kind: 'ok', text: `已保存「${title}」` });
