@@ -135,10 +135,10 @@ export interface WorkRescanSummaryDto {
   errors: number;
 }
 
-export const getWorkTree = (opts: { archived?: boolean; rescan?: boolean } = {}): Promise<WorkTreeDto> =>
+export const getWorkTree = (opts: { archived?: boolean; rescan?: boolean; signal?: AbortSignal } = {}): Promise<WorkTreeDto> =>
   request<WorkTreeDto>(
     `/api/work/tree?archived=${opts.archived === true ? '1' : '0'}&rescan=${opts.rescan === true ? '1' : '0'}`,
-    undefined,
+    opts.signal === undefined ? undefined : { signal: opts.signal },
     45_000,
   );
 
