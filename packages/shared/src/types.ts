@@ -276,6 +276,10 @@ export interface ArenaCatalogDto {
   tree: ArenaCatalogNode[];
   /** 本次拿到新目录后清掉的过期榜单缓存数（0 时省略） */
   pruned?: number;
+  /** 显式刷新失败、本次回的是旧缓存（docs/contracts/16 §2.1） */
+  stale?: boolean;
+  /** stale 时的上游失败原因（给人看的短句） */
+  refreshError?: string;
 }
 
 export interface ArenaContestDto {

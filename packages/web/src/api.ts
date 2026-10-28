@@ -95,10 +95,18 @@ export async function getXcpc(): Promise<XcpcProfileDto | null> {
 export const searchXcpc = (q: string): Promise<{ results: XcpcSearchRow[] }> =>
   request<{ results: XcpcSearchRow[] }>(`/api/xcpc/search?q=${encodeURIComponent(q)}`, undefined, 45_000);
 
-export const claimXcpc = (key: string): Promise<XcpcProfileDto> => request<XcpcProfileDto>('/api/xcpc/claim', post({ key }), 90_000);
+/**
+ * 后端最坏预算：meta 2×20s + 详情 2×60s + 退避 ≈ 161s（claim ≈ 120.5s）。
+ * 前端等待必须覆盖它，否则后台还在下载、前台先报超时。
+ */
+export const XCPC_SYNC_TIMEOUT_MS = 180_000;
+
+export const claimXcpc = (key: string): Promise<XcpcProfileDto> =>
+  request<XcpcProfileDto>('/api/xcpc/claim', post({ key }), XCPC_SYNC_TIMEOUT_MS);
 
 /** 拉快照 = 比版本后按需重拉，单请求往返，不走 /api/sync 的 runner */
-export const refreshXcpc = (): Promise<XcpcRefreshDto> => request<XcpcRefreshDto>('/api/xcpc/refresh', post({}), 90_000);
+export const refreshXcpc = (): Promise<XcpcRefreshDto> =>
+  request<XcpcRefreshDto>('/api/xcpc/refresh', post({}), XCPC_SYNC_TIMEOUT_MS);
 
 /** 源显示名：tab 条、顶栏按钮与错误文案共用一份 */
 export const SOURCE_NAME: Record<SourceId, string> = { cf: 'Codeforces', at: 'AtCoder', xcpc: 'XCPC' };

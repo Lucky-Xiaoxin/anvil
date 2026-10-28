@@ -882,6 +882,7 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 
 /* ---------- 18. 目录（s1） ---------- */
 .catwrap{max-width:1030px;margin:0 auto;width:100%;flex:0 0 auto;display:flex;flex-direction:column;gap:12px}
+.cat-stale__reason{color:var(--text-mute);font-size:11.5px;margin-top:2px}
 .cat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .cgrp{
   display:flex;align-items:center;gap:12px;width:100%;text-align:left;
