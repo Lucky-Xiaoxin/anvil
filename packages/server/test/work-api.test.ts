@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -191,21 +191,110 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     let res = await post('/api/work/trash', { id: note.id });
     expect(res.statusCode, res.body).toBe(200);
     writeFileSync(join(root, '.anvil', 'trash', 'keep.txt'), 'not mine');
+    mkdirSync(join(root, '.anvil', 'trash', 'keep-dir'), { recursive: true });
+    writeFileSync(join(root, '.anvil', 'trash', 'keep-dir', 'note.txt'), 'not mine either');
+    const outside = join(base, 'outside');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, 'trash.json'), '{"schema":1}');
+    let linked = true;
+    try {
+      symlinkSync(outside, join(root, '.anvil', 'trash', 'linked'), 'junction');
+    } catch {
+      linked = false;
+    }
 
-    res = await post('/api/work/trash/purge', {});
+    res = await post('/api/work/trash/purge', { confirm: true });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toEqual({ removed: 1 });
 
     const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
     expect(tree.trash).toEqual([]);
-    expect(readdirSync(join(root, '.anvil', 'trash'))).toEqual(['keep.txt']);
+    const kept = ['keep-dir', 'keep.txt', ...(linked ? ['linked'] : [])];
+    expect(readdirSync(join(root, '.anvil', 'trash')).sort()).toEqual(kept.sort());
+    expect(readFileSync(join(root, '.anvil', 'trash', 'keep-dir', 'note.txt'), 'utf8')).toBe('not mine either');
+    if (linked) {
+      expect(existsSync(join(outside, 'trash.json'))).toBe(true);
+    }
 
     res = await post('/api/work/restore', { id: note.id });
     expect(res.statusCode).toBe(404);
 
-    res = await post('/api/work/trash/purge', {});
+    res = await post('/api/work/trash/purge', { confirm: true });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ removed: 0 });
+  });
+
+  it('回收站清空：缺 confirm 不执行，条目仍在', async () => {
+    await boot();
+    await initApi();
+    const note = await create('note', 'Temp');
+    expect((await post('/api/work/trash', { id: note.id })).statusCode).toBe(200);
+
+    for (const body of [{}, { confirm: false }, { confirm: 'true' }]) {
+      const res = await post('/api/work/trash/purge', body);
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json().error.kind).toBe('invalid');
+    }
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    expect(tree.trash).toHaveLength(1);
+  });
+
+  it('写接口跨站防护：非本机 Origin / cross-site 拒绝，错 content-type 拒绝，GET 与本机 Origin 放行', async () => {
+    await boot();
+    await initApi();
+    const note = await create('note', 'Temp');
+    expect((await post('/api/work/trash', { id: note.id })).statusCode).toBe(200);
+
+    const json = { 'content-type': 'application/json' };
+    let res = await app.inject({
+      method: 'POST',
+      url: '/api/work/trash/purge',
+      payload: { confirm: true },
+      headers: { ...json, origin: 'https://evil.example' },
+    });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.json().error.kind).toBe('forbidden');
+
+    res = await app.inject({
+      method: 'POST',
+      url: '/api/work/trash/purge',
+      payload: { confirm: true },
+      headers: { ...json, 'sec-fetch-site': 'cross-site' },
+    });
+    expect(res.statusCode, res.body).toBe(403);
+
+    res = await app.inject({
+      method: 'POST',
+      url: '/api/work/trash/purge',
+      payload: 'confirm=true',
+      headers: { 'content-type': 'text/plain' },
+    });
+    expect(res.statusCode, res.body).toBe(415);
+    expect(res.json().error.kind).toBe('unsupported-media-type');
+
+    // 写接口是全局防护，不是只护清空
+    res = await app.inject({
+      method: 'POST',
+      url: '/api/work/rescan',
+      payload: {},
+      headers: { ...json, origin: 'https://evil.example' },
+    });
+    expect(res.statusCode, res.body).toBe(403);
+
+    res = await app.inject({
+      method: 'POST',
+      url: '/api/work/rescan',
+      payload: {},
+      headers: { ...json, origin: 'http://127.0.0.1:5173' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+
+    res = await app.inject({ method: 'GET', url: '/api/work/tree', headers: { origin: 'https://evil.example' } });
+    expect(res.statusCode, res.body).toBe(200);
+
+    const tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
+    expect(tree.trash).toHaveLength(1);
   });
 
   it('adopt 与路径越界；未知对象 404；root-version', async () => {
