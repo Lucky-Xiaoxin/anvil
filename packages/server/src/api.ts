@@ -114,7 +114,37 @@ function sendArenaError(reply: FastifyReply, err: unknown): FastifyReply {
   return reply.code(502).send({ error: { kind: 'unavailable', message: `取不到：${String(err)}` } });
 }
 
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+/** 写接口跨站防护（docs/contracts/23 §10）：只认 JSON 请求体 + 本机 Origin；不是身份认证 */
+function registerWriteGuard(app: FastifyInstance): void {
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/api/') || !WRITE_METHODS.has(request.method)) return;
+    const mediaType = (request.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+    if (mediaType !== 'application/json') {
+      return reply.code(415).send({ error: { kind: 'unsupported-media-type', message: '写接口只接受 application/json' } });
+    }
+    const origin = request.headers.origin;
+    if (origin !== undefined && !isLocalOrigin(origin)) {
+      return reply.code(403).send({ error: { kind: 'forbidden', message: '跨站请求已拒绝' } });
+    }
+    if (request.headers['sec-fetch-site'] === 'cross-site') {
+      return reply.code(403).send({ error: { kind: 'forbidden', message: '跨站请求已拒绝' } });
+    }
+  });
+}
+
 export function registerApi(app: FastifyInstance, ctx: ApiContext): void {
+  registerWriteGuard(app);
   registerWorkRoutes(app, ctx.work);
 
   app.get('/api/status', async () => buildStatus(ctx.db, ctx.getHandles(), ctx.xcpc, Date.now(), configWarningOf()));

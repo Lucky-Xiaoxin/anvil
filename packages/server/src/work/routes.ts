@@ -46,6 +46,8 @@ const updateBody = z.object({
 
 const idBody = z.object({ id: z.string().max(40) });
 
+const purgeBody = z.object({ confirm: z.literal(true) });
+
 const openBody = z.object({
   id: z.string().max(40),
   relPath: z.string().max(400).optional(),
@@ -237,7 +239,9 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     }
   });
 
-  app.post('/api/work/trash/purge', async (_request, reply) => {
+  app.post('/api/work/trash/purge', async (request, reply) => {
+    const parsed = purgeBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, '清空回收站需要显式确认');
     try {
       return await work.purgeTrash();
     } catch (err) {
