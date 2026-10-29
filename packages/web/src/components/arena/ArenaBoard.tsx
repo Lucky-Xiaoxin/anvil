@@ -370,16 +370,8 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     const key = draftKey(row.path);
     const onStorage = (e: StorageEvent): void => {
       if (e.key !== key) return;
-      if (e.newValue === null) {
-        setStale(true);
-        return;
-      }
-      try {
-        const next = JSON.parse(e.newValue) as { draftId?: unknown };
-        if (next.draftId !== draftRef.current?.draftId) setStale(true);
-      } catch {
-        setStale(true);
-      }
+      // 同场共用一份草稿：另一个标签只要写成功（同 draftId 也算），这个页面的副本就过期了
+      setStale(true);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
