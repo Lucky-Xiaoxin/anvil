@@ -1782,6 +1782,9 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   .arena-target{max-width:110px}
 }
 @media (max-width:1320px){
-  .arena-topbar{gap:7px}
-  .arena-target{max-width:90px}
+  .arena-topbar{gap:6px;padding:0 var(--sp-3)}
+  .arena-topbar .rbname{max-width:170px}
+  .arena-topbar .btn--sm{padding:0 8px}
+  /* 1280 下目标名让位给主要动作；全名留在「保存」按钮的 title 里 */
+  .arena-target{display:none}
 }

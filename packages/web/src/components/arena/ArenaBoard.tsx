@@ -1167,7 +1167,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
             <button
               className="btn btn--sm"
               disabled={saveBusy || conflict !== null || draft?.pendingSave !== null}
-              title={draft?.pendingSave !== null ? '上次保存结果未确认：先重试对账' : '保存到当前目标'}
+              title={draft?.pendingSave !== null ? '上次保存结果未确认：先重试对账' : draft?.target != null ? `保存到：${draft.target.name}` : '首次保存会新建一档'}
               onClick={requestSaveCurrent}
             >
               <Icon id="i-save" />
