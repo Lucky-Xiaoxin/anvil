@@ -1064,7 +1064,8 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     if (identity.kind === 'view') {
       if (view.status === 'error') return { text: '查看：… · 读取失败', tone: 'warn' };
       if (view.status !== 'ready' || recordForView === null) return { text: '查看：… · 读取中', tone: 'view' };
-      return { text: `查看：${recordForView.name} · ${timingText(recordForView.result)}`, tone: 'view' };
+      const bg = practiceRunning ? ' · 当前练习仍在计时' : '';
+      return { text: `查看：${recordForView.name} · ${timingText(recordForView.result)}${bg}`, tone: 'view' };
     }
     return { text: `查看终榜 · 只读${practiceRunning ? ' · 当前练习仍在计时' : ''}`, tone: 'review' };
   })();
@@ -1087,7 +1088,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     ...(recordCount > 1 ? { meta: String(recordCount) } : {}),
     onSelect: openHistoryLayer,
   });
-  if (identity.kind !== 'review') {
+  if (identity.kind === 'view' || identity.kind === 'edit' || (identity.kind === 'practice' && draft !== null)) {
     menuItems.push({ key: 'ghost', label: '我的成绩', onSelect: openGhostFromMenu });
   }
   if ((identity.kind === 'practice' || identity.kind === 'edit') && canSaveDraft(draft)) {
