@@ -4,7 +4,7 @@
  * 深链口径：`#/arena?path=` 进入该场当前练习（有草稿）或终榜；`&record=` 只读打开指定档；
  * `&legacy=restore` 请求把旧 live 恢复为当前练习。
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArenaCatalog } from './ArenaCatalog.tsx';
 import { ArenaBoard, type ArenaEntryMode } from './ArenaBoard.tsx';
 import type { LeafRow } from './catalog.ts';
@@ -53,6 +53,11 @@ export function Arena({ onCount, entry, onEntryConsumed }: Props) {
     setEpoch((n) => n + 1);
   }, []);
   const bump = useCallback(() => setEpoch((n) => n + 1), []);
+
+  /* 已在回放里又收到新深链（工坊 / 粘链接）：先回目录，让目录按 record 打开指定档 */
+  useEffect(() => {
+    if (entry !== null) setOpen(null);
+  }, [entry]);
 
   if (store === null) return null;
   if (open === null) {

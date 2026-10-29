@@ -11,6 +11,7 @@ import {
   LEGACY_RECORD_ID,
   arenaRecordAddressOk,
   arenaRecordContentEquals,
+  arenaStampOf,
   arenaTrashIdOk,
   contestPathOk,
   legacyArenaRecordName,
@@ -628,7 +629,7 @@ export function trashRecordFile(
       ? read.record.name
       : read.kind === 'legacy-review'
         ? legacyArenaRecordName(read.record.savedAt)
-        : `旧进度 ${read.record.savedAt}`;
+        : `旧进度 · ${Number.isNaN(Date.parse(read.record.savedAt)) ? read.record.savedAt : arenaStampOf(new Date(read.record.savedAt))}`;
   const manifest: RecordTrashManifest = {
     schema: 2,
     entryType: 'arena-record',

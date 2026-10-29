@@ -32,6 +32,7 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
   const [renameErr, setRenameErr] = useState<string | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [trashTarget, setTrashTarget] = useState<ArenaRecordSummaryDto | null>(null);
+  const [trashLegacy, setTrashLegacy] = useState<{ revision: string; savedAt: string } | null>(null);
   const seq = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -79,23 +80,27 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
   };
 
   const confirmTrash = (): void => {
-    if (trashTarget === null) return;
+    if (trashTarget === null && trashLegacy === null) return;
+    const target = trashTarget;
+    const legacyTarget = trashLegacy;
     setBusy('trash');
     setErr(null);
     void (async () => {
       try {
         await trashArenaRecord({
           arenaPath,
-          recordId: trashTarget.recordId,
-          expectedRevision: trashTarget.revision,
+          recordId: target?.recordId ?? 'legacy',
+          expectedRevision: target?.revision ?? legacyTarget!.revision,
           confirm: true,
         });
         setTrashTarget(null);
+        setTrashLegacy(null);
         await refresh();
         onChanged();
       } catch (error) {
         setErr(messageOf(error));
         setTrashTarget(null);
+        setTrashLegacy(null);
       } finally {
         setBusy(null);
       }
@@ -200,6 +205,21 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
                 >
                   恢复为当前练习
                 </button>
+                {archived ? null : (
+                  <button
+                    type="button"
+                    className="btn btn--xs btn--ghost"
+                    disabled={busy !== null}
+                    title="把旧根文件单独移入回收站；原文件按 revision 校验"
+                    onClick={() => {
+                      setTrashLegacy({ revision: legacy.revision, savedAt: legacy.savedAt });
+                      setErr(null);
+                    }}
+                  >
+                    <Icon id="i-trash" />
+                    删除
+                  </button>
+                )}
               </div>
             </div>
           ) : null}
@@ -232,21 +252,32 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
           onConfirm={confirmRename}
         />
       ) : null}
-      {trashTarget !== null ? (
+      {trashTarget !== null || trashLegacy !== null ? (
         <ConfirmDialog
-          title="删除存档"
+          title={trashTarget !== null ? '删除存档' : '删除旧进度'}
           body={
-            <>
-              把「<b>{trashTarget.name}</b>」从「{contestTitle}」移入回收站？
-              <br />
-              比赛、题组与其它成绩不受影响；可从回收站恢复，清空回收站才永久删除。
-            </>
+            trashTarget !== null ? (
+              <>
+                把「<b>{trashTarget.name}</b>」从「{contestTitle}」移入回收站？
+                <br />
+                比赛、题组与其它成绩不受影响；可从回收站恢复，清空回收站才永久删除。
+              </>
+            ) : (
+              <>
+                把「{contestTitle}」的<b>旧进度</b>（保存于 {recordStamp(trashLegacy!.savedAt)}）移入回收站？
+                <br />
+                旧进度不是正式成绩；恢复后仍是原 schema 1 旧进度，不会被转成完赛档。
+              </>
+            )
           }
           confirmLabel="移入回收站"
           danger
           busy={busy === 'trash'}
           error={err}
-          onCancel={() => setTrashTarget(null)}
+          onCancel={() => {
+            setTrashTarget(null);
+            setTrashLegacy(null);
+          }}
           onConfirm={confirmTrash}
         />
       ) : null}

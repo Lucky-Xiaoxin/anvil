@@ -464,6 +464,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
 
   const requestSwitch = useCallback(
     (action: SwitchAction): void => {
+      if (staleRef.current) {
+        setStale(true);
+        setActionErr('另一个标签页改了本场草稿：先重新读取，再做切换');
+        return;
+      }
       if (saveBusy) {
         setActionErr('正在保存：先等这次保存结束，再切换');
         return;
@@ -560,7 +565,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const finishSave = useCallback(
     (base: ArenaDraft, record: ArenaRecord, revision: string, after?: () => void): void => {
       const next = applySaveSuccess(base, record, revision);
-      commit(next);
+      const persisted = commit(next);
+      if (!persisted) {
+        setSaveErr('已写入服务端，但本地草稿写不进去：刷新页面可重新读回；不要在这个页面继续编辑');
+        return;
+      }
       setSaveNote(`已保存 · ${record.name}`);
       setSaveErr(null);
       setConflict(null);
@@ -627,6 +636,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
 
   const doUpdate = useCallback(
     async (base: ArenaDraft, after?: () => void): Promise<boolean> => {
+      if (staleRef.current) {
+        setStale(true);
+        setSaveErr('另一个标签页改了本场草稿：先重新读取，不能在这里保存');
+        return false;
+      }
       const target = base.target;
       const payload = target === null ? null : buildUpdatePayload(base, {
         arenaPath: row.path,
@@ -681,6 +695,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   );
 
   const requestSaveCurrent = useCallback((): void => {
+    if (staleRef.current) {
+      setStale(true);
+      setSaveErr('另一个标签页改了本场草稿：先重新读取，不能在这里保存');
+      return;
+    }
     const current = draftRef.current;
     if (current === null || !canSaveDraft(current)) return;
     setSaveErr(null);
@@ -712,6 +731,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   }, [commit, doUpdate, finishSave]);
 
   const requestSaveAs = useCallback((): void => {
+    if (staleRef.current) {
+      setStale(true);
+      setSaveErr('另一个标签页改了本场草稿：先重新读取，不能在这里另存');
+      return;
+    }
     const current = draftRef.current;
     if (current === null || !canSaveDraft(current)) return;
     if (current.pendingSave !== null) {
@@ -850,7 +874,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
 
   const onGhostChange = useCallback(
     (next: GhostData): void => {
-      if (saveBusy) return;
+      if (saveBusy || identity.kind === 'review') return;
       setSaveNote(null);
       setSaveErr(null);
       setConflict(null);
@@ -865,15 +889,20 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   );
 
   const onGhostClear = useCallback((): void => {
-    if (saveBusy || identity.kind === 'view') return;
+    if (saveBusy || identity.kind === 'view' || identity.kind === 'review') return;
     if (draft === null) return;
     setSaveNote(null);
     setSaveErr(null);
     commit({ ...draft, ghost: { show: true, subs: [] } });
   }, [commit, draft, identity.kind, saveBusy]);
 
+  /* 幽灵归属只跟身份走：查看终榜不借用当前练习的录入，避免两个身份串数据 */
   const currentGhost: GhostData | null =
-    identity.kind === 'view' ? viewGhost : draft?.ghost ?? null;
+    identity.kind === 'view'
+      ? viewGhost
+      : identity.kind === 'practice' || identity.kind === 'edit'
+        ? draft?.ghost ?? null
+        : null;
 
   /* ---------- 弹层 ---------- */
   useEffect(() => {
@@ -898,6 +927,26 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   };
+
+  /* 所有 hook 必须在提前 return 之前：榜的 useMemo 不能跟着“是否 ready”改变调用顺序 */
+  const readyModel = load.kind === 'ready' ? load.model : null;
+  const span = readyModel?.duration ?? 0;
+  const review = !runningHere;
+  const viewMs = runningHere ? elapsed : Math.max(0, Math.min(scrubMs, span));
+  const inFrz =
+    readyModel !== null &&
+    (review ? frozenView && inFreezeWindow(viewMs, span, readyModel.freezeStart) : inFreezeWindow(elapsed, span, readyModel.freezeStart));
+  const ghostSubs: GhostSub[] | null =
+    currentGhost !== null && currentGhost.show && currentGhost.subs.length > 0 ? currentGhost.subs : null;
+  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= span ? 1 : 0)}|${ghostSig(currentGhost)}`;
+  const boardMaybe: Board | null = useMemo(
+    () =>
+      readyModel === null
+        ? null
+        : buildBoard(readyModel, review ? viewMs : Math.min(viewMs, span), onlyFormal, review && !frozenView, ghostSubs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readyModel, minuteKey],
+  );
 
   if (load.kind === 'error') {
     return (
@@ -953,18 +1002,8 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   }
 
   const model = load.model;
-  const span = model.duration;
-  const review = !runningHere;
-  const viewMs = runningHere ? elapsed : Math.max(0, Math.min(scrubMs, span));
-  const inFrz = review ? frozenView && inFreezeWindow(viewMs, span, model.freezeStart) : inFreezeWindow(elapsed, span, model.freezeStart);
-  const ghostSubs: GhostSub[] | null =
-    currentGhost !== null && currentGhost.show && currentGhost.subs.length > 0 ? currentGhost.subs : null;
-  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= span ? 1 : 0)}|${ghostSig(currentGhost)}`;
-  const board: Board = useMemo(
-    () => buildBoard(model, review ? viewMs : Math.min(viewMs, span), onlyFormal, review && !frozenView, ghostSubs),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [model, minuteKey],
-  );
+  const board = boardMaybe;
+  if (board === null) return null;
   const frozen = board.cap < viewMs || inFrz;
   const freezeLabel = clockHM(model.freezeStart);
   const teamCount = board.rows.length - (board.ghostTeam ? 1 : 0);
@@ -1043,6 +1082,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
           <span>{identitySub}</span>
           {dirtyMark ? <i className="arena-id__dirty" title="有未保存修改" /> : null}
         </span>
+        {finishNote !== '' ? <span className="pill pill--over">{finishNote}</span> : null}
 
         {runningHere && draft?.session != null ? (
           <>
@@ -1117,7 +1157,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
           </button>
         ) : null}
 
-        {identity.kind === 'practice' && draft !== null && draft.phase !== 'running' ? (
+        {(identity.kind === 'practice' || identity.kind === 'edit') && draft !== null && draft.phase !== 'running' ? (
           <button className="btn btn--sm btn--ghost" onClick={beginNewPractice} title="替换当前草稿前会先询问">
             <Icon id="i-play" />
             重新练一次
@@ -1160,9 +1200,11 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
           </button>
         ) : null}
 
-        <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 / 查看逐发" onClick={openGhostPop}>
-          <Icon id="i-user" />
-        </button>
+        {identity.kind === 'review' ? null : (
+          <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 / 查看逐发" onClick={openGhostPop}>
+            <Icon id="i-user" />
+          </button>
+        )}
 
         {model.approx ? (
           <span

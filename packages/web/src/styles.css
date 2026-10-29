@@ -1726,12 +1726,12 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
    ========================================================================== */
 .arena-topbar{gap:10px}
 .arena-id{
-  display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;flex:0 1 auto;min-width:0;
+  display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;flex:0 0 auto;max-width:300px;
   border:1px solid var(--line);border-radius:999px;background:var(--panel-2);
   font-size:11px;color:var(--text-dim);white-space:nowrap;
 }
-.arena-id b{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;min-width:0}
-.arena-id span{font-family:var(--font-num);font-size:10px;color:var(--text-mute);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arena-id b{font-weight:600;color:var(--text);max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.arena-id span{font-family:var(--font-num);font-size:10px;color:var(--text-mute);max-width:150px;overflow:hidden;text-overflow:ellipsis}
 .arena-id--practice{border-color:rgba(245,165,36,.35);background:rgba(245,165,36,.07)}
 .arena-id--edit{border-color:rgba(76,201,240,.35);background:rgba(76,201,240,.06)}
 .arena-id--view{border-color:rgba(76,201,240,.28)}
@@ -1783,5 +1783,5 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
 }
 @media (max-width:1320px){
   .arena-topbar{gap:7px}
-  .arena-target{display:none}
+  .arena-target{max-width:90px}
 }

@@ -748,12 +748,18 @@ const Row = memo(function Row({ row, live, state, alt = false, path, onEnter, on
             <button className="btn btn--xs btn--ghost" title="结束本次练习；结束状态会记进当前草稿，不会自动保存正式档" onClick={() => onEndDraft(row)}>
               结束
             </button>
+            <button className="btn btn--xs btn--ghost" title="只读看终榜，不改当前练习" onClick={() => onEnter(row, 'review')}>
+              查看终榜
+            </button>
           </>
         ) : draft !== null ? (
           <>
             <button className="btn btn--xs btn--go" onClick={() => onEnter(row, 'practice')}>
               <Icon id="i-eye" />
               {finished ? '查看成绩' : '查看录入'}
+            </button>
+            <button className="btn btn--xs btn--ghost" title="只读看终榜，不改当前草稿" onClick={() => onEnter(row, 'review')}>
+              查看终榜
             </button>
             {canSave ? (
               <button className="btn btn--xs" disabled={saving} onClick={() => onSaveDraft(row)} title="保存到工坊；已有目标时只更新那一档">
