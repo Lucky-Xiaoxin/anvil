@@ -7,7 +7,7 @@ import type {
   WorkArenaRecordDto,
 } from '@anvil/shared';
 import { arenaResultLabel, copyArenaRecordName, defaultArenaRecordName, legacyArenaRecordName } from '@anvil/shared';
-import { clockHMS, fullStamp } from '../../format.ts';
+import { fullStamp } from '../../format.ts';
 import type { LeafRow } from './catalog.ts';
 import type { GhostData } from './session.ts';
 
@@ -61,10 +61,4 @@ export function recordCountLabel(summary: ArenaRecordSummaryDto): string {
 /** 列表摘要 / 完整档的结束状态（同一份读法） */
 export function resultLabel(result: ArenaRecordResult): string {
   return arenaResultLabel(result);
-}
-
-/** 早停档的附加读数：停止位置不是比赛满时长（契约 §4.2） */
-export function recordFinishNote(result: ArenaRecordResult): string {
-  if (result.finish !== 'stopped' || result.stoppedAtMs === null) return '';
-  return `提前结束于 ${clockHMS(result.stoppedAtMs)}`;
 }

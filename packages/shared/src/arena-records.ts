@@ -373,9 +373,18 @@ export function summaryOfArenaRecord(record: ArenaRecord, revision: string): Are
   };
 }
 
+/** 毫秒 → `2:15:00`；用于结束状态文案（榜单 / 工坊共用） */
+export function arenaClockText(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 3600)}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`;
+}
+
 /** 结束方式的界面读法（榜单 / 工坊共用一份） */
 export function arenaResultLabel(result: ArenaRecordResult): string {
-  if (result.origin === 'legacy-review') return '旧回顾 · 结束时间未知';
-  if (result.origin === 'manual') return '补录 · 已结束';
-  return result.finish === 'stopped' ? '模拟 · 提前结束' : '模拟 · 到时结束';
+  if (result.origin === 'legacy-review') return '旧存档 · 结束时间未知';
+  if (result.origin === 'manual') return '手动记录';
+  if (result.finish === 'stopped') {
+    return result.stoppedAtMs === null ? '计时 · 提前结束' : `计时 · ${arenaClockText(result.stoppedAtMs)} 提前结束`;
+  }
+  return result.durationMs === null ? '计时 · 跑满' : `计时 · 跑满 ${arenaClockText(result.durationMs)}`;
 }

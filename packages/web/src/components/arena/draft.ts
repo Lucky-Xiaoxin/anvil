@@ -326,7 +326,7 @@ export function canSaveDraft(draft: ArenaDraft | null): boolean {
 }
 
 export function finishSwitchLabel(c: ReplaceCase): string {
-  return c === 'running' ? '结束并保存后切换' : c === 'legacy' ? '确认已结束并保存后切换' : '保存后切换';
+  return c === 'running' ? '结束并保存后切换' : c === 'legacy' ? '标记旧成绩已结束并保存后切换' : '保存后切换';
 }
 
 export function discardSwitchLabel(c: ReplaceCase): string {
@@ -454,6 +454,6 @@ export function migrateLegacy(store: Store, path: string, durationMs: number): L
 export function draftSummary(draft: ArenaDraft | null): string {
   if (draft === null) return '没有当前草稿';
   if (draft.phase === 'running') return draft.session?.paused === true ? '当前练习已暂停' : '当前练习进行中';
-  if (draft.phase === 'legacy-unconfirmed') return '旧成绩未标记结束';
+  if (draft.phase === 'legacy-unconfirmed') return '旧成绩 · 需确认是否已结束';
   return draft.target === null ? '已结束 · 未保存' : isDirty(draft) ? '已结束 · 有未保存修改' : '已结束 · 已保存';
 }

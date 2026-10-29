@@ -5,7 +5,7 @@
  * 走钟每秒一次，但**榜只在分钟滚过的那一刻重建**（§4 性能口径）；行组件 memo 化。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ArenaRecord, ArenaLegacyRecordDto } from '@anvil/shared';
+import type { ArenaRecord, ArenaRecordResult, ArenaLegacyRecordDto } from '@anvil/shared';
 import {
   ApiError,
   createArenaRecord,
@@ -53,7 +53,6 @@ import {
   declareFinished,
   draftFromLegacyLive,
   draftFromRecord,
-  draftSummary,
   finishDraft,
   isDirty,
   loadDraft,
@@ -66,18 +65,11 @@ import {
   type ArenaDraft,
   type ReplaceCase,
 } from './draft.ts';
-import {
-  arenaTitleOf,
-  copySaveName,
-  firstSaveName,
-  newRecordId,
-  recordFinishNote,
-  recordToGhost,
-  resultLabel,
-} from './record.ts';
+import { arenaTitleOf, copySaveName, firstSaveName, newRecordId, recordToGhost } from './record.ts';
 import { draftKey } from './draft.ts';
 import type { GhostData, Store } from './session.ts';
 import { ConfirmDialog, HistoryDialog, NameDialog, ReplaceDialog, type HistoryState } from './ArenaDialogs.tsx';
+import { ArenaMenu, type ArenaMenuItem } from './ArenaMenu.tsx';
 
 export type ArenaEntryMode = 'practice' | 'review' | 'record' | 'restore-legacy';
 
@@ -171,11 +163,13 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const [onlyFormal, setOnlyFormal] = useState(false);
   const [pop, setPop] = useState<Pop | null>(null);
   const boardBox = useRef<HTMLDivElement | null>(null);
+  const topbarRef = useRef<HTMLDivElement | null>(null);
   const { show, hide } = useTip();
 
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
-  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -249,7 +243,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     if (load.kind !== 'ready') return;
     const duration = load.model.duration;
     setSaveErr(null);
-    setSaveNote(null);
+    setSaveFlash(null);
     setConflict(null);
     const loaded = loadDraft(store, row.path);
     if (loaded.kind === 'error') {
@@ -377,23 +371,47 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     return () => window.removeEventListener('storage', onStorage);
   }, [row.path]);
 
-  /* ---------- 历史成绩层 ---------- */
-  const loadHistory = useCallback(async (): Promise<void> => {
-    const seq = ++historySeq.current;
-    setHistory((h) => ({ ...h, status: 'loading', error: null }));
-    try {
-      const dto = await listArenaRecords(row.path);
-      if (seq !== historySeq.current) return;
-      setHistory({ status: 'ready', dto, error: null });
-    } catch (err) {
-      if (seq !== historySeq.current) return;
-      setHistory({ status: 'error', dto: null, error: messageOf(err) });
-    }
-  }, [row.path]);
+  /* ---------- 历史成绩层：进回放即读一次档数（菜单计数 / 首次多档提示） ---------- */
+  const loadHistory = useCallback(
+    async (silent = false): Promise<void> => {
+      const seq = ++historySeq.current;
+      if (!silent) setHistory((h) => ({ ...h, status: 'loading', error: null }));
+      try {
+        const dto = await listArenaRecords(row.path);
+        if (seq !== historySeq.current) return;
+        setHistory({ status: 'ready', dto, error: null });
+      } catch (err) {
+        if (seq !== historySeq.current) return;
+        if (silent) {
+          setHistory((h) => (h.dto === null ? { status: 'error', dto: null, error: messageOf(err) } : h));
+        } else {
+          setHistory({ status: 'error', dto: null, error: messageOf(err) });
+        }
+      }
+    },
+    [row.path],
+  );
+
+  useEffect(() => {
+    void loadHistory(true);
+  }, [loadHistory]);
 
   useEffect(() => {
     if (historyOpen) void loadHistory();
   }, [historyOpen, loadHistory]);
+
+  const recordCount = history.dto?.records.length ?? 0;
+
+  useEffect(() => {
+    if (history.status !== 'ready' || recordCount < 2) return;
+    try {
+      if (localStorage.getItem('arena:history-hint') === '1') return;
+      localStorage.setItem('arena:history-hint', '1');
+    } catch {
+      /* 存储不可用也照常提示一次 */
+    }
+    setNote('这场已有多档成绩 · 「历史成绩」已收进「更多」菜单');
+  }, [history.status, recordCount]);
 
   const openHistoryLayer = useCallback((): void => {
     setHistoryOpen(true);
@@ -405,7 +423,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     (action: SwitchAction): void => {
       if (load.kind !== 'ready') return;
       setSaveErr(null);
-      setSaveNote(null);
+      setSaveFlash(null);
       setConflict(null);
       setActionErr(null);
       setFrozenView(false);
@@ -554,6 +572,21 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   }, [beginRestoreLegacy, draftBooted, load.kind]);
 
   /* ---------- 保存 ---------- */
+  const flashSaved = useCallback((name: string): void => {
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    setSaveFlash(`已保存到 ${name}`);
+    flashTimer.current = window.setTimeout(() => {
+      flashTimer.current = null;
+      setSaveFlash(null);
+    }, 3000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
   const finishSave = useCallback(
     (base: ArenaDraft, record: ArenaRecord, revision: string, after?: () => void): void => {
       const next = applySaveSuccess(base, record, revision);
@@ -562,17 +595,18 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         setSaveErr('已写入服务端，但本地草稿写不进去：刷新页面可重新读回；不要在这个页面继续编辑');
         return;
       }
-      setSaveNote(`已保存 · ${record.name}`);
+      flashSaved(record.name);
       setSaveErr(null);
       setConflict(null);
       setNameState(null);
       setReplaceErr(null);
       setPending(null);
       switchOriginalRef.current = null;
+      void loadHistory(true);
       onDraftChanged?.();
       after?.();
     },
-    [commit, onDraftChanged],
+    [commit, flashSaved, loadHistory, onDraftChanged],
   );
 
   const doCreate = useCallback(
@@ -679,7 +713,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const saveDraftWithName = useCallback(
     (base: ArenaDraft, name: string, saveAs: boolean, after?: () => void): void => {
       setSaveErr(null);
-      setSaveNote(null);
+      setSaveFlash(null);
       if (!saveAs && base.target !== null) void doUpdate(base, after);
       else void doCreate(base, name, after, switchOriginalRef.current ?? undefined);
     },
@@ -827,7 +861,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         setScrubMs(item.record.result.stoppedAtMs ?? duration);
         setConflict(null);
         setSaveErr(null);
-        setSaveNote('已重新读取服务端存档');
+        setNote('已重新读取服务端存档');
       } catch (err) {
         setSaveErr(`重新读取失败：${messageOf(err)}`);
       }
@@ -867,7 +901,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const onGhostChange = useCallback(
     (next: GhostData): void => {
       if (saveBusy || identity.kind === 'review') return;
-      setSaveNote(null);
+      setSaveFlash(null);
       setSaveErr(null);
       setConflict(null);
       if (identity.kind === 'view') {
@@ -883,7 +917,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const onGhostClear = useCallback((): void => {
     if (saveBusy || identity.kind === 'view' || identity.kind === 'review') return;
     if (draft === null) return;
-    setSaveNote(null);
+    setSaveFlash(null);
     setSaveErr(null);
     commit({ ...draft, ghost: { show: true, subs: [] } });
   }, [commit, draft, identity.kind, saveBusy]);
@@ -915,10 +949,6 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     if (r === undefined) return;
     setPop({ kind: 'team', ti, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   }, []);
-  const openGhostPop = (ev: React.MouseEvent): void => {
-    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-    setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
-  };
 
   /* 所有 hook 必须在提前 return 之前：榜的 useMemo 不能跟着“是否 ready”改变调用顺序 */
   const readyModel = load.kind === 'ready' ? load.model : null;
@@ -1002,36 +1032,87 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const ghostRow = board.ghostTeam === null || board.ghostTeam === undefined ? null : board.rows.find((r) => r.ghost === true) ?? null;
 
   const recordForView = identity.kind === 'view' ? view.record : null;
-  const activeResult =
-    identity.kind === 'view'
-      ? recordForView?.result ?? null
-      : identity.kind === 'edit'
-        ? draft?.result ?? null
-        : identity.kind === 'practice' && draft !== null && draft.phase !== 'running'
-          ? draft.result
-          : null;
-  const finishNote = activeResult === null ? '' : recordFinishNote(activeResult);
-  const identityLabel =
-    identity.kind === 'view'
-      ? `查看：${recordForView?.name ?? '…'}`
-      : identity.kind === 'edit'
-        ? `编辑：${draft?.target?.name ?? '…'}`
-        : identity.kind === 'review'
-          ? '查看终榜'
-          : '当前练习';
-  const identitySub =
-    identity.kind === 'practice'
-      ? draft === null
-        ? '尚未开始'
-        : `${draftSummary(draft)}${finishNote === '' ? '' : ` · ${finishNote}`}`
-      : identity.kind === 'edit'
-        ? `${draft !== null && isDirty(draft) ? '有未保存修改' : '已保存'}${finishNote === '' ? '' : ` · ${finishNote}`}`
-        : identity.kind === 'view'
-          ? recordForView === null ? '' : `${resultLabel(recordForView.result)}${finishNote === '' ? '' : ` · ${finishNote}`}`
-          : '只读';
-  const dirtyMark = (identity.kind === 'practice' || identity.kind === 'edit') && draft !== null && isDirty(draft);
+
+  const timingText = (result: ArenaRecordResult | null | undefined): string => {
+    if (result === null || result === undefined) return '结束信息未知';
+    if (result.origin === 'legacy-review') return '结束时间未知';
+    if (result.origin === 'manual') return '手动记录';
+    if (result.finish === 'stopped') {
+      return result.stoppedAtMs === null ? '提前结束' : `${clockHMS(result.stoppedAtMs)} 提前结束`;
+    }
+    return result.durationMs === null ? '计时结束' : `跑满 ${clockHMS(result.durationMs)}`;
+  };
+
+  const status = ((): { text: string; tone: string } => {
+    if (identity.kind === 'practice') {
+      if (draft === null) return { text: '当前练习 · 未开始', tone: 'practice' };
+      if (draft.phase === 'running') {
+        const paused = draft.session?.paused === true;
+        return { text: `当前练习 · 计时 ${clockHMS(elapsed)}${paused ? ' · 已暂停' : ''}`, tone: 'practice' };
+      }
+      if (draft.phase === 'legacy-unconfirmed') return { text: '旧成绩 · 需确认是否已结束', tone: 'warn' };
+      const dirty = isDirty(draft);
+      if (draft.result?.origin === 'manual') {
+        return { text: `当前练习 · 手动记录，${dirty ? '未保存' : '已保存'}`, tone: dirty ? 'dirty' : 'ok' };
+      }
+      return { text: `当前练习 · ${dirty ? '已结束，未保存' : '已保存'}`, tone: dirty ? 'dirty' : 'ok' };
+    }
+    if (identity.kind === 'edit') {
+      const dirty = draft !== null && isDirty(draft);
+      return { text: `编辑：${draft?.target?.name ?? '…'} · ${dirty ? '有修改未保存' : '已保存'}`, tone: dirty ? 'dirty' : 'view' };
+    }
+    if (identity.kind === 'view') {
+      if (view.status === 'error') return { text: '查看：… · 读取失败', tone: 'warn' };
+      if (view.status !== 'ready' || recordForView === null) return { text: '查看：… · 读取中', tone: 'view' };
+      return { text: `查看：${recordForView.name} · ${timingText(recordForView.result)}`, tone: 'view' };
+    }
+    return { text: `查看终榜 · 只读${practiceRunning ? ' · 当前练习仍在计时' : ''}`, tone: 'review' };
+  })();
+
   const canSaveHere = (identity.kind === 'practice' || identity.kind === 'edit') && canSaveDraft(draft) && !stale && draftErr === null;
-  const showSaveTarget = draft?.target != null && canSaveHere;
+  const targetName = draft?.target?.name ?? null;
+  const showTargetArrow = canSaveHere && targetName !== null && recordCount >= 2 && saveFlash === null;
+
+  const openGhostFromMenu = (): void => {
+    const el = topbarRef.current?.querySelector<HTMLElement>('.arena-more__trigger') ?? null;
+    const r = el?.getBoundingClientRect();
+    if (r === undefined || r === null) return;
+    setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
+  };
+
+  const menuItems: ArenaMenuItem[] = [];
+  menuItems.push({
+    key: 'history',
+    label: '历史成绩',
+    ...(recordCount > 1 ? { meta: String(recordCount) } : {}),
+    onSelect: openHistoryLayer,
+  });
+  if (identity.kind !== 'review') {
+    menuItems.push({ key: 'ghost', label: '我的成绩', onSelect: openGhostFromMenu });
+  }
+  if ((identity.kind === 'practice' || identity.kind === 'edit') && canSaveDraft(draft)) {
+    menuItems.push({
+      key: 'save-as',
+      label: '另存一份',
+      disabled: saveBusy || conflict !== null || draft?.pendingSave != null,
+      onSelect: requestSaveAs,
+    });
+  }
+  if ((identity.kind === 'practice' || identity.kind === 'edit') && draft !== null) {
+    menuItems.push({ key: 'again', label: '再练一次', onSelect: beginNewPractice });
+  }
+  if (identity.kind === 'review' && (draft === null || draft.phase === 'finished')) {
+    menuItems.push({ key: 'manual', label: '手动记一场', disabled: !draftBooted, onSelect: beginManual });
+  }
+  if (identity.kind === 'practice' && draft?.phase === 'legacy-unconfirmed') {
+    menuItems.push({ key: 'legacy-done', label: '标记旧成绩已结束', onSelect: confirmLegacyDraft });
+  }
+  if (draft?.pendingSave != null && canSaveHere) {
+    menuItems.push({ key: 'retry', label: '重试对账', disabled: saveBusy, onSelect: requestSaveCurrent });
+  }
+  if (identity.kind === 'review' && draft !== null) {
+    menuItems.push({ key: 'back-practice', label: '回到当前练习', onSelect: () => setIdentity({ kind: 'practice' }) });
+  }
 
   const nameTip = {
     x: 0,
@@ -1053,7 +1134,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
 
   return (
     <>
-      <div className="topbar arena-topbar">
+      <div className="topbar arena-topbar" ref={topbarRef}>
         <button className="btn btn--ghost btn--sm" onClick={onBack}>
           <Icon id="i-chev" className="flip" />
           回到目录
@@ -1069,167 +1150,81 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         >
           {model.title}
         </h2>
-        <span className={`arena-id arena-id--${identity.kind}`} title={`${identityLabel} · ${identitySub}`}>
-          <b>{identityLabel}</b>
-          <span>{identitySub}</span>
-          {dirtyMark ? <i className="arena-id__dirty" title="有未保存修改" /> : null}
+        <span className={`arena-status arena-status--${status.tone}`} title={status.text}>
+          {status.text}
         </span>
-        {finishNote !== '' ? <span className="pill pill--over">{finishNote}</span> : null}
-
         {runningHere && draft?.session != null ? (
-          <>
-            <span className={`clock${draft.session.paused ? ' is-paused' : ''}`}>
-              <i className={`dot ${draft.session.paused || elapsed >= span ? 'dot--idle' : 'dot--live'}`} />
-              <b>{clockHMS(elapsed)}</b>
-            </span>
-            <span className="transport">
-              <button className="tbtn" disabled={saveBusy} aria-label={draft.session.paused ? '继续' : '暂停'} title={draft.session.paused ? '继续' : '暂停'} onClick={togglePause}>
-                <Icon id={draft.session.paused ? 'i-play' : 'i-pause'} />
-              </button>
-              <button className="tbtn" disabled={saveBusy} aria-label="结束本次练习" title="结束本次练习（提前结束会记录真实停止时间）" onClick={endPractice}>
-                <Icon id="i-stop" />
-              </button>
-            </span>
-            {inFrz ? <span className="pill">封榜中 · 剩 {clockHMS(span - elapsed)}</span> : null}
-            {draft.session.paused ? <span className="pill">已暂停</span> : null}
-          </>
-        ) : (
-          <>
-            {identity.kind === 'review' ? (
-              <span className="pill pill--over">终榜回顾</span>
-            ) : identity.kind === 'view' ? (
-              <span className="pill pill--over">{recordForView === null ? '历史成绩' : resultLabel(recordForView.result)}</span>
-            ) : identity.kind === 'edit' ? (
-              <span className="pill">{draft?.target?.name ?? '编辑成绩'}</span>
-            ) : draft?.phase === 'legacy-unconfirmed' ? (
-              <span className="pill">旧成绩 · 未标记结束</span>
-            ) : draft?.phase === 'finished' ? (
-              <span className="pill pill--over">{draft.result === null ? '已结束' : resultLabel(draft.result)}</span>
-            ) : (
-              <span className="pill">已结束</span>
-            )}
-          </>
-        )}
+          <span className="transport">
+            <button className="tbtn" disabled={saveBusy} aria-label={draft.session.paused ? '继续' : '暂停'} title={draft.session.paused ? '继续' : '暂停'} onClick={togglePause}>
+              <Icon id={draft.session.paused ? 'i-play' : 'i-pause'} />
+            </button>
+            <button className="tbtn" disabled={saveBusy} aria-label="结束本次练习" title="结束本次练习（提前结束会记录真实停止时间）" onClick={endPractice}>
+              <Icon id="i-stop" />
+            </button>
+          </span>
+        ) : null}
 
         <span className="topbar__spacer" />
 
-        {/* 后台仍在走的当前练习：查看 / 编辑历史时只提示，不暂停 */}
-        {practiceRunning && identity.kind !== 'practice' ? (
-          <button className="arena-bgclock" title="当前练习仍在计时 · 回到当前练习" onClick={() => setIdentity({ kind: 'practice' })}>
-            <i className="dot dot--live" />
-            当前练习仍在计时
-          </button>
-        ) : null}
-
         {ghostRow === null ? null : (
-          <button className="ghrank" onClick={() => { const el = boardBox.current?.querySelector<HTMLElement>('.brow.is-ghost') ?? null; if (el !== null) { el.scrollIntoView({ block: 'center' }); el.classList.remove('is-jump'); void el.offsetWidth; el.classList.add('is-jump'); } }} title={`我的成绩 · ${ghostRow.solved} 题 / ${ghostRow.pen} 罚时 · 点击跳到榜上那一行`}>
+          <button
+            className="ghrank"
+            onClick={() => {
+              const el = boardBox.current?.querySelector<HTMLElement>('.brow.is-ghost') ?? null;
+              if (el !== null) {
+                el.scrollIntoView({ block: 'center' });
+                el.classList.remove('is-jump');
+                void el.offsetWidth;
+                el.classList.add('is-jump');
+              }
+            }}
+            title={`我的成绩 · ${ghostRow.solved} 题 / ${ghostRow.pen} 罚时 · 点击跳到榜上那一行`}
+          >
             <i className="dot dot--ok" />我 <b>第 {ghostRow.rank} 名</b>
           </button>
         )}
 
-        <button className="btn btn--ghost btn--sm" aria-label="历史成绩" title="历史成绩 · 查看 / 编辑这场保存过的成绩" onClick={openHistoryLayer}>
-          <Icon id="i-clock" />
-          历史
-        </button>
+        <ArenaMenu items={menuItems} />
 
         {identity.kind === 'view' ? (
           <>
-            <button className="btn btn--sm" disabled={view.status !== 'ready'} onClick={() => void beginEdit(identity.recordId)}>
-              <Icon id="i-pencil" />
-              编辑成绩
-            </button>
             <button className="btn btn--sm btn--ghost" onClick={() => (draft === null ? beginNewPractice() : setIdentity({ kind: 'practice' }))}>
               {draft === null ? '开始新练习' : '回到当前练习'}
             </button>
+            <button className="btn btn--sm btn--primary" disabled={view.status !== 'ready'} onClick={() => void beginEdit(identity.recordId)}>
+              <Icon id="i-pencil" />
+              编辑成绩
+            </button>
           </>
-        ) : identity.kind === 'review' ? (
-          <button className="btn btn--sm" disabled={!draftBooted} onClick={beginManual} title="不经过模拟计时，建立一份已结束的补录草稿">
-            <Icon id="i-plus" />
-            录入已结束的成绩
-          </button>
-        ) : null}
-
-        {(identity.kind === 'practice' || identity.kind === 'edit') && draft !== null && draft.phase !== 'running' ? (
-          <button className="btn btn--sm btn--ghost" onClick={beginNewPractice} title="替换当前草稿前会先询问">
-            <Icon id="i-play" />
-            重新练一次
-          </button>
-        ) : null}
-
-        {identity.kind === 'practice' && draft?.phase === 'legacy-unconfirmed' ? (
-          <button className="btn btn--sm btn--go" onClick={confirmLegacyDraft} title="确认这份旧成绩已经结束；保存时按补录处理">
-            确认已结束
+        ) : identity.kind === 'edit' ? (
+          <button className="btn btn--sm btn--ghost" onClick={() => setIdentity({ kind: 'practice' })}>
+            回到当前练习
           </button>
         ) : null}
 
         {canSaveHere ? (
           <>
             <button
-              className="btn btn--sm"
+              className="btn btn--sm btn--primary"
               disabled={saveBusy || conflict !== null || draft?.pendingSave !== null}
               title={draft?.pendingSave !== null ? '上次保存结果未确认：先重试对账' : draft?.target != null ? `保存到：${draft.target.name}` : '首次保存会新建一档'}
               onClick={requestSaveCurrent}
             >
               <Icon id="i-save" />
-              {saveBusy ? '保存中…' : saveNote !== null && draft !== null && !isDirty(draft) ? '已保存' : '保存'}
+              {saveBusy ? '保存中…' : '保存'}
             </button>
-            <button className="btn btn--sm btn--ghost" disabled={saveBusy || conflict !== null} onClick={requestSaveAs} title="另存为新档，原档不变">
-              另存
-            </button>
-            {showSaveTarget ? (
-              <span className="arena-target" title={`保存目标：${draft!.target!.name}`}>
-                保存到：{draft!.target!.name}
+            {saveFlash !== null ? (
+              <span className="arena-saveflash" role="status">
+                {saveFlash}
               </span>
-            ) : (
-              <span className="arena-target is-dim">首次保存将新建一档</span>
-            )}
+            ) : showTargetArrow ? (
+              <span className="arena-target" title={`保存目标：${targetName}`}>
+                → {targetName}
+              </span>
+            ) : null}
           </>
         ) : null}
-
-        {draft?.pendingSave != null && canSaveHere ? (
-          <button className="btn btn--sm btn--go" disabled={saveBusy} onClick={requestSaveCurrent}>
-            重试对账
-          </button>
-        ) : null}
-
-        {identity.kind === 'review' ? null : (
-          <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 / 查看逐发" onClick={openGhostPop}>
-            <Icon id="i-user" />
-          </button>
-        )}
-
-        {model.approx ? (
-          <span
-            className="pill"
-            onMouseEnter={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              show({
-                x: r.left + r.width / 2,
-                y: r.bottom,
-                below: true,
-                date: '近似榜',
-                value: '本场快照没有逐次提交',
-                zero: false,
-                sub: ['榜按终局判名 + 次数重建，逐发时刻上游未记', '所以格子只在判名那一刻出现，中间过程看不到'],
-              });
-            }}
-            onMouseLeave={hide}
-          >
-            近似回放
-          </span>
-        ) : null}
-        {review ? (
-          <label className="switch">
-            <input type="checkbox" checked={frozenView} onChange={(e) => setFrozenView(e.target.checked)} />
-            封榜视角
-          </label>
-        ) : null}
-        <label className="switch">
-          <input type="checkbox" checked={onlyFormal} onChange={(e) => setOnlyFormal(e.target.checked)} />
-          仅正式队
-        </label>
       </div>
-
       <div className="content content--fit">
         <div className="simcol">
           {stale ? (
@@ -1313,15 +1308,6 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
               </button>
             </div>
           ) : null}
-          {saveNote !== null && saveErr === null && conflict === null ? (
-            <div className="alert alert--ok" role="status">
-              <Icon id="i-check" />
-              <div>{saveNote}</div>
-              <button className="alert__x" type="button" onClick={() => setSaveNote(null)}>
-                知道了
-              </button>
-            </div>
-          ) : null}
           {viewError ? (
             <div className="alert alert--err" role="status">
               <Icon id="i-plug" />
@@ -1385,6 +1371,44 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
           ) : null}
 
           <div className="boardwrap" style={{ ['--np' as string]: model.problems.length }}>
+            <div className="boardtools">
+              <label className="switch">
+                <input type="checkbox" checked={onlyFormal} onChange={(e) => setOnlyFormal(e.target.checked)} />
+                仅正式队
+              </label>
+              {review ? (
+                <label className="switch">
+                  <input type="checkbox" checked={frozenView} onChange={(e) => setFrozenView(e.target.checked)} />
+                  封榜视角
+                </label>
+              ) : null}
+              <span className="spacer" />
+              {inFrz ? (
+                <span className="pill">
+                  {review ? '定格视角' : '封榜中'} · 剩 {clockHMS(span - (review ? viewMs : elapsed))}
+                </span>
+              ) : null}
+              {model.approx ? (
+                <span
+                  className="pill"
+                  onMouseEnter={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    show({
+                      x: r.left + r.width / 2,
+                      y: r.bottom,
+                      below: true,
+                      date: '近似榜',
+                      value: '本场快照没有逐次提交',
+                      zero: false,
+                      sub: ['榜按终局判名 + 次数重建，逐发时刻上游未记', '所以格子只在判名那一刻出现，中间过程看不到'],
+                    });
+                  }}
+                  onMouseLeave={hide}
+                >
+                  近似回放
+                </span>
+              ) : null}
+            </div>
             {inFrz ? (
               <div
                 className="frost"
@@ -1605,15 +1629,15 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
 
       {legacyConfirm !== null ? (
         <ConfirmDialog
-          title="旧回顾 · 先确认结束"
+          title="旧成绩 · 先标记结束"
           body={
             <>
               这份旧存档保存时停在回顾模式，<b>不能证明它跑满了时长或真实的停止时间</b>。
               <br />
-              确认“这份成绩已经结束”后，会按补录（manual / declared）进入编辑；保存时才把根文件升级为 schema 2。
+              标记“这份成绩已经结束”后，会按手动记录（manual / declared）进入编辑；保存时才把根文件升级为 schema 2。
             </>
           }
-          confirmLabel="确认已结束，编辑成绩"
+          confirmLabel="标记旧成绩已结束"
           onCancel={() => setLegacyConfirm(null)}
           onConfirm={confirmLegacyEdit}
         />

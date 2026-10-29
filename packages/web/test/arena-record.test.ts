@@ -52,7 +52,8 @@ describe('多存档映射与命名（契约 §3.3 / §4.1）', () => {
   it('旧 review 默认名、结束状态读法（结束时间未知不伪装完赛）', () => {
     expect(legacyRecordDisplayName({ savedAt: '2026-10-20T06:32:00.000Z' } as never)).toBe('旧存档 2026-10-20 14:32');
     expect(resultLabel({ origin: 'legacy-review', finish: 'unknown', durationMs: null, stoppedAtMs: null })).toContain('结束时间未知');
-    expect(resultLabel({ origin: 'timed', finish: 'stopped', durationMs: 1000, stoppedAtMs: 100 })).toContain('提前结束');
+    expect(resultLabel({ origin: 'timed', finish: 'stopped', durationMs: 8_100_000, stoppedAtMs: 8_100_000 })).toBe('计时 · 2:15:00 提前结束');
+    expect(resultLabel({ origin: 'timed', finish: 'time-limit', durationMs: 18_000_000, stoppedAtMs: 18_000_000 })).toBe('计时 · 跑满 5:00:00');
   });
 
   it('存档来源标签与摘要读法', () => {
@@ -67,7 +68,7 @@ describe('多存档映射与命名（契约 §3.3 / §4.1）', () => {
       result: { origin: 'manual', finish: 'declared', durationMs: 1000, stoppedAtMs: null },
       ghost: { show: true, subs: [] },
     };
-    expect(recordSourceLabel(record)).toContain('补录');
-    expect(recordSourceLabel({ recordId: 'x', name: 'x', createdAt: '', updatedAt: '', submissionCount: 0, revision: 'r', result: record.result })).toContain('补录');
+    expect(recordSourceLabel(record)).toContain('手动记录');
+    expect(recordSourceLabel({ recordId: 'x', name: 'x', createdAt: '', updatedAt: '', submissionCount: 0, revision: 'r', result: record.result })).toContain('手动记录');
   });
 });

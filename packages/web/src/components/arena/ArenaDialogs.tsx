@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ArenaRecordsListDto } from '@anvil/shared';
 import { arenaResultLabel, ARENA_RECORD_NAME_MAX } from '@anvil/shared';
 import { Icon } from '../ui.tsx';
-import { recordFinishNote, recordStamp } from './record.ts';
+import { recordStamp } from './record.ts';
 import type { ReplaceCase } from './draft.ts';
 import { discardSwitchLabel, finishSwitchLabel } from './draft.ts';
 
@@ -303,12 +303,6 @@ export function HistoryDialog({
                     <div className="arena-hist__name">{rec.name}</div>
                     <div className="arena-hist__meta">
                       <span>{arenaResultLabel(rec.result)}</span>
-                      {recordFinishNote(rec.result) !== '' ? (
-                        <>
-                          <span className="wk-dot" />
-                          <span>{recordFinishNote(rec.result)}</span>
-                        </>
-                      ) : null}
                       <span className="wk-dot" />
                       <span>{recordStamp(rec.updatedAt)}</span>
                       <span className="wk-dot" />

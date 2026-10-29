@@ -9,7 +9,7 @@ import { listArenaRecords, renameArenaRecord, trashArenaRecord } from '../../api
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { ConfirmDialog, NameDialog } from '../arena/ArenaDialogs.tsx';
-import { recordFinishNote, recordStamp } from '../arena/record.ts';
+import { recordStamp } from '../arena/record.ts';
 
 interface Props {
   arenaPath: string;
@@ -151,12 +151,6 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
                 </div>
                 <div className="wk-rec__meta">
                   <span>{arenaResultLabel(rec.result)}</span>
-                  {recordFinishNote(rec.result) !== '' ? (
-                    <>
-                      <span className="wk-dot" />
-                      <span>{recordFinishNote(rec.result)}</span>
-                    </>
-                  ) : null}
                   <span className="wk-dot" />
                   <span>{recordStamp(rec.updatedAt)}</span>
                   <span className="wk-dot" />
