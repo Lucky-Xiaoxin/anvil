@@ -7,6 +7,7 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync,
 import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
+  arenaTrashIdOk,
   buildWorkRelPath,
   cleanLabels,
   contestPathOk,
@@ -15,8 +16,8 @@ import {
   isImportSourceName,
   isWorkKind,
   parseTaxonomy,
-  parseWorkArenaRecord,
   parseWorkMeta,
+  projectLegacyReview,
   seedTaxonomy,
   slugForAttempt,
   slugWithRandomSuffix,
@@ -24,10 +25,17 @@ import {
   workIdOk,
   workMetaToJson,
   WORK_TEMPLATE_CONTENT_MAX,
-  type WorkArenaGhost,
-  type WorkArenaRecordDto,
-  type WorkArenaSaveResult,
-  type WorkArenaView,
+  type ArenaRecord,
+  type ArenaRecordCreateInput,
+  type ArenaRecordCreateResult,
+  type ArenaRecordItemDto,
+  type ArenaRecordRenameInput,
+  type ArenaRecordsListDto,
+  type ArenaRecordRestoreResult,
+  type ArenaRecordTrashInput,
+  type ArenaRecordTrashResult,
+  type ArenaRecordUpdateInput,
+  type ArenaLegacyRecordDto,
   type WorkFileDto,
   type WorkImportCommitInput,
   type WorkImportPlanDto,
@@ -46,10 +54,12 @@ import {
   type WorkTemplateSaveInput,
   type WorkTreeDto,
   type WorkTrashDto,
+  type WorkTrashObjectDto,
   type WorkTrashPurgeResult,
   type WorkUnregisteredDto,
 } from '@anvil/shared';
 import { writeFileAtomic } from '../atomic.ts';
+import { vaultDir as defaultVaultDir } from '../config.ts';
 import { WorkError } from './errors.ts';
 import { WorkImportService } from './import.ts';
 import { defaultFindCode, nodeSpawn, openTargetWithApp, type SpawnFn } from './open.ts';
@@ -65,6 +75,18 @@ import {
   validateRootPath,
   within,
 } from './paths.ts';
+import {
+  createRecordFile,
+  parseRecordTrashManifest,
+  readRecordFile,
+  renameRecordFile,
+  restoreRecordFile,
+  scanContestRecords,
+  trashRecordFile,
+  updateRecordFile,
+  type RecordHostInfo,
+  type RecordTrashManifest,
+} from './records.ts';
 
 export interface WorkServiceDeps {
   db: DatabaseSync;
@@ -75,6 +97,8 @@ export interface WorkServiceDeps {
   now?: () => Date;
   repoRoot?: string;
   vaultDir?: string;
+  /** 榜单快照缓存目录（默认 vault/arena）；成绩保存只读这里，不发起上游请求 */
+  arenaDir?: string;
   /** 仅测试注入导入上限；生产固定用契约 §4.4 */
   importLimits?: Partial<Record<'maxDepth' | 'maxFiles' | 'maxBytes' | 'maxFileBytes' | 'maxCandidates', number>>;
 }
@@ -113,12 +137,9 @@ export interface WorkInitInput {
   confirmExisting?: boolean;
 }
 
-export interface WorkArenaSaveInput {
-  arenaPath: string;
-  /** 目录行给的标题；没有同 arenaPath 的对象时用来建 contest */
-  title?: string;
-  ghost: WorkArenaGhost;
-  view: WorkArenaView;
+/** 服务层多带一个 created：路由据此回 201 / 200，响应正文仍按契约只给 record / revision / object */
+export interface ArenaRecordCreateServiceResult extends ArenaRecordCreateResult {
+  created: boolean;
 }
 
 export interface WorkRescanSummary {
@@ -320,87 +341,197 @@ export class WorkService {
     return this.enqueue(() => this.saveTemplateNow(input));
   }
 
-  /** 回放页 / 目录行读回存档：按 `links.arenaPath` 找唯一的 contest 对象 */
-  getArenaRecord(arenaPath: string): WorkArenaRecordDto {
-    const obj = this.contestByArenaPath(arenaPath);
-    const file = join(obj.absPath, 'record.json');
-    const fileStat = lstatOrNull(file);
-    if (fileStat === null) throw new WorkError('not-found', '这场还没有保存过成绩');
-    if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
-      throw new WorkError('unsafe-path', 'record.json 必须是普通文件，不允许符号链接');
-    }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(readFileSync(file, 'utf8'));
-    } catch (err) {
-      throw new WorkError('internal', `record.json 读不出来：${asError(err).message}`);
-    }
-    const parsed = parseWorkArenaRecord(raw);
-    if (!parsed.ok) throw new WorkError('internal', `record.json 不合法：${parsed.message}`);
-    if (parsed.record.arenaPath !== arenaPath) {
-      throw new WorkError('conflict', 'record.json 的榜单路径与这场不一致，请先清理存档');
-    }
-    return parsed.record;
+  /* ------------------------------------------------------------------ */
+  /* 榜单多存档（docs/contracts/29）                                     */
+  /* ------------------------------------------------------------------ */
+
+  private arenaDirPath(): string {
+    return this.deps.arenaDir ?? join(this.deps.vaultDir ?? defaultVaultDir, 'arena');
   }
 
-  /** 保存 VP 成绩：同 arenaPath 的 contest 已存在就更新，没有就建一场，然后把 record.json 写进对象文件夹 */
-  saveArenaRecord(input: WorkArenaSaveInput): Promise<WorkArenaSaveResult> {
-    return this.enqueue(() => this.saveArenaRecordNow(input));
+  private hostOf(idx: WorkIndex, obj: IndexedObject): RecordHostInfo {
+    const arenaPath = obj.record.meta.links.arenaPath;
+    if (obj.record.meta.kind !== 'contest' || arenaPath === undefined) {
+      throw new WorkError('invalid', '只有带榜单路径的比赛可以管理成绩存档');
+    }
+    return {
+      root: idx.root,
+      contestId: obj.record.meta.id,
+      contestRelPath: obj.relPath,
+      contestAbs: obj.absPath,
+      arenaPath,
+      effectiveArchived: obj.effectiveArchived,
+    };
   }
 
-  private contestByArenaPath(arenaPath: string): IndexedObject {
+  /** 按 arenaPath 找唯一宿主；重复 / 在回收站都是 409，完全没有宿主才返回 null（仅列表允许空） */
+  private contestForArena(idx: WorkIndex, arenaPath: string): IndexedObject | null {
     if (!contestPathOk(arenaPath)) throw new WorkError('invalid', 'arenaPath 不在榜单路径白名单内');
-    const idx = this.ensureIndex();
     const matches = idx.objects.filter(
       (obj) => obj.record.meta.kind === 'contest' && obj.record.meta.links.arenaPath === arenaPath,
     );
-    if (matches.length === 0) throw new WorkError('not-found', '工坊里还没有这场比赛的 contest 对象');
     if (matches.length > 1) throw new WorkError('conflict', `有 ${matches.length} 个 contest 指向同一场，先清理重复对象`);
-    return matches[0]!;
+    if (matches.length === 1) return matches[0]!;
+    const trashed = this.trashedContestForArena(idx, arenaPath);
+    if (trashed !== null) {
+      throw new WorkError('conflict', `这场比赛在回收站里（${trashed.title}）；先恢复它再操作成绩`);
+    }
+    return null;
   }
 
-  private saveArenaRecordNow(input: WorkArenaSaveInput): WorkArenaSaveResult {
-    if (!contestPathOk(input.arenaPath)) throw new WorkError('invalid', 'arenaPath 不在榜单路径白名单内');
-    const stem = input.arenaPath.split('/').pop()?.replace(/\.srk\.json$/, '') ?? input.arenaPath;
-    const preTitle = (input.title ?? '').trim() || stem;
-    const savedAt = this.nowDate().toISOString();
-    const pre = parseWorkArenaRecord({
-      schema: 1,
-      arenaPath: input.arenaPath,
-      title: preTitle,
-      savedAt,
-      ghost: input.ghost,
-      view: input.view,
-    });
-    if (!pre.ok) throw new WorkError('invalid', pre.message);
+  private requireContestForArena(idx: WorkIndex, arenaPath: string): IndexedObject {
+    const obj = this.contestForArena(idx, arenaPath);
+    if (obj === null) throw new WorkError('not-found', '工坊里还没有这场比赛');
+    return obj;
+  }
 
+  private trashedRecordIdsFor(idx: WorkIndex, contestId: string): Set<string> {
+    const out = new Set<string>();
+    for (const item of idx.trash) {
+      if (item.entryType === 'arena-record' && item.contestId === contestId) out.add(item.recordId);
+    }
+    return out;
+  }
+
+  listArenaRecords(arenaPath: string): ArenaRecordsListDto {
     const idx = this.ensureIndex();
-    const matches = idx.objects.filter(
-      (obj) => obj.record.meta.kind === 'contest' && obj.record.meta.links.arenaPath === input.arenaPath,
-    );
-    if (matches.length > 1) throw new WorkError('conflict', `有 ${matches.length} 个 contest 指向同一场，先清理重复对象`);
+    const obj = this.contestForArena(idx, arenaPath);
+    if (obj === null) return { contestId: null, records: [], legacy: null, errors: [] };
+    return scanContestRecords(this.hostOf(idx, obj));
+  }
 
-    let obj: IndexedObject;
-    if (matches.length === 1) {
-      obj = matches[0]!;
-    } else {
-      // 回收站里躺着同一场时不另建一场：否则新对象占住原路径，旧的那场再也恢复不了
-      const trashed = this.trashedContestForArena(idx, input.arenaPath);
-      if (trashed !== null) {
-        throw new WorkError('conflict', `这场比赛在回收站里（${trashed.title}）；先恢复它再保存成绩`);
-      }
-      const made = this.createNow({ kind: 'contest', title: preTitle, arenaPath: input.arenaPath });
-      const created = this.ensureIndex().byId.get(made.id);
+  getArenaRecordItem(arenaPath: string, recordId: string): ArenaRecordItemDto {
+    const idx = this.ensureIndex();
+    const obj = this.requireContestForArena(idx, arenaPath);
+    const read = readRecordFile(this.hostOf(idx, obj), recordId);
+    if (read.kind === 'missing') throw new WorkError('not-found', '找不到这份存档');
+    if (read.kind === 'legacy-live') {
+      throw new WorkError('not-found', '旧进度不在正式成绩里；用旧进度接口读取');
+    }
+    if (read.kind === 'legacy-review') {
+      return { record: projectLegacyReview(read.record, obj.record.meta.id), revision: read.revision };
+    }
+    return { record: read.record, revision: read.revision };
+  }
+
+  /** 旧根文件原格式（只读）：review 已在 records 里投影，这里主要给旧 live 的“恢复为当前练习” */
+  getArenaLegacy(arenaPath: string): ArenaLegacyRecordDto {
+    const idx = this.ensureIndex();
+    const obj = this.requireContestForArena(idx, arenaPath);
+    const read = readRecordFile(this.hostOf(idx, obj), 'legacy');
+    if (read.kind === 'missing') throw new WorkError('not-found', '这场没有旧根记录');
+    if (read.kind === 'record') throw new WorkError('not-found', '旧根记录已经升级为正式存档');
+    return { mode: read.kind === 'legacy-review' ? 'review' : 'live', record: read.record, revision: read.revision };
+  }
+
+  createArenaRecord(input: ArenaRecordCreateInput): Promise<ArenaRecordCreateServiceResult> {
+    return this.enqueue(() => this.createArenaRecordNow(input));
+  }
+
+  private createArenaRecordNow(input: ArenaRecordCreateInput): ArenaRecordCreateServiceResult {
+    if (!contestPathOk(input.arenaPath)) throw new WorkError('invalid', 'arenaPath 不在榜单路径白名单内');
+    let idx = this.ensureIndex();
+    let obj = this.contestForArena(idx, input.arenaPath);
+    if (obj === null) {
+      const stem = input.arenaPath.split('/').pop()?.replace(/\.srk\.json$/, '') ?? input.arenaPath;
+      const title = (input.contestTitle ?? '').trim() || stem;
+      const made = this.createNow({ kind: 'contest', title, arenaPath: input.arenaPath });
+      idx = this.ensureIndex();
+      const created = idx.byId.get(made.id);
       if (created === undefined) throw new WorkError('internal', '保存成绩时创建的比赛对象没有进入索引');
       obj = created;
     }
-
-    const record: WorkArenaRecordDto = { ...pre.record, title: obj.record.meta.title, savedAt };
-    writeFileAtomic(join(obj.absPath, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);
+    const outcome = createRecordFile(this.hostOf(idx, obj), input, {
+      now: this.nowDate(),
+      arenaDir: this.arenaDirPath(),
+      trashedRecordIds: this.trashedRecordIdsFor(idx, obj.record.meta.id),
+    });
     const fresh = this.refreshIndex();
     const updated = fresh.byId.get(obj.record.meta.id);
     if (updated === undefined) throw new WorkError('internal', '保存成绩后对象没有进入索引');
-    return { record, object: this.dtoOf(updated) };
+    return { ...outcome, object: this.dtoOf(updated) };
+  }
+
+  updateArenaRecord(input: ArenaRecordUpdateInput): Promise<{ record: ArenaRecord; revision: string }> {
+    return this.enqueue(() => {
+      const idx = this.ensureIndex();
+      const obj = this.requireContestForArena(idx, input.arenaPath);
+      return updateRecordFile(this.hostOf(idx, obj), input, {
+        now: this.nowDate(),
+        arenaDir: this.arenaDirPath(),
+      });
+    });
+  }
+
+  renameArenaRecord(input: ArenaRecordRenameInput): Promise<{ record: ArenaRecord; revision: string }> {
+    return this.enqueue(() => {
+      const idx = this.ensureIndex();
+      const obj = this.requireContestForArena(idx, input.arenaPath);
+      return renameRecordFile(this.hostOf(idx, obj), input, { now: this.nowDate() });
+    });
+  }
+
+  trashArenaRecord(input: ArenaRecordTrashInput): Promise<ArenaRecordTrashResult> {
+    return this.enqueue(() => this.trashArenaRecordNow(input));
+  }
+
+  private trashArenaRecordNow(input: ArenaRecordTrashInput): ArenaRecordTrashResult {
+    if (input.confirm !== true) throw new WorkError('invalid', '删除存档需要显式确认');
+    const idx = this.ensureIndex();
+    const obj = this.requireContestForArena(idx, input.arenaPath);
+    const trashId = `tr_${randomBytes(16).toString('hex')}`;
+    const moved = trashRecordFile(this.hostOf(idx, obj), input, {
+      now: this.nowDate(),
+      trashRoot: join(idx.root, '.anvil', 'trash'),
+      trashId,
+    });
+    this.index = null;
+    return { entryType: 'arena-record', trashId: moved.trashId, recordId: input.recordId, trashName: moved.trashName };
+  }
+
+  restoreArenaRecord(trashId: string): Promise<ArenaRecordRestoreResult> {
+    return this.enqueue(() => this.restoreArenaRecordNow(trashId));
+  }
+
+  private restoreArenaRecordNow(trashId: string): ArenaRecordRestoreResult {
+    if (!arenaTrashIdOk(trashId)) throw new WorkError('invalid', 'trashId 形状不合法');
+    const idx = this.ensureIndex();
+    const trashAbs = idx.trashDirs.get(trashId);
+    if (trashAbs === undefined) throw new WorkError('not-found', '回收站里没有这份存档');
+    const manifestPath = join(trashAbs, 'trash.json');
+    const manifestStat = lstatOrNull(manifestPath);
+    if (manifestStat === null) throw new WorkError('not-found', '回收清单不存在');
+    if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+      throw new WorkError('unsafe-path', 'trash.json 必须是普通文件，不允许符号链接');
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch {
+      throw new WorkError('not-found', '回收清单读不出来');
+    }
+    const parsed = parseRecordTrashManifest(raw);
+    if (!parsed.ok) {
+      if ((raw as { schema?: unknown } | null)?.schema === 1) {
+        throw new WorkError('invalid', '这是对象回收条目，请用对象恢复接口');
+      }
+      throw new WorkError('invalid', parsed.message);
+    }
+    const manifest: RecordTrashManifest = parsed.manifest;
+    const host = idx.byId.get(manifest.contestId);
+    if (host === undefined) {
+      const contestTrashed = idx.trash.some((entry) => entry.entryType === 'object' && entry.id === manifest.contestId);
+      if (contestTrashed) {
+        throw new WorkError('conflict', '原比赛还在回收站里；先恢复比赛再恢复这份存档');
+      }
+      throw new WorkError('parent-missing', '原比赛不存在；不能恢复这份存档');
+    }
+    if (host.record.meta.kind !== 'contest' || host.record.meta.links.arenaPath !== manifest.arenaPath) {
+      throw new WorkError('conflict', '回收清单与宿主比赛不一致');
+    }
+    const out = restoreRecordFile(this.hostOf(idx, host), trashAbs, manifest);
+    this.index = null;
+    return out;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1025,10 +1156,27 @@ export class WorkService {
         const abs = join(trashRoot, entry.name);
         const stat = lstatOrNull(abs);
         if (stat === null) continue;
-        // 只认应用自己生成的回收站目录（普通目录 + 普通 trash.json）；杂项与符号链接一律不碰
+        // 只认应用自己生成的两类回收条目（普通目录 + 合法 trash.json）；杂项与符号链接一律不碰
         if (stat.isSymbolicLink() || !stat.isDirectory()) continue;
         const manifest = lstatOrNull(join(abs, 'trash.json'));
         if (manifest === null || manifest.isSymbolicLink() || !manifest.isFile()) continue;
+        let raw: unknown;
+        try {
+          raw = JSON.parse(readFileSync(join(abs, 'trash.json'), 'utf8'));
+        } catch {
+          continue;
+        }
+        const recordEntry = parseRecordTrashManifest(raw);
+        const objectEntry = raw as { schema?: unknown; id?: unknown; title?: unknown; originalRelPath?: unknown; trashedAt?: unknown };
+        const validObject =
+          objectEntry.schema === 1 &&
+          workIdOk(objectEntry.id) &&
+          typeof objectEntry.title === 'string' &&
+          typeof objectEntry.originalRelPath === 'string' &&
+          objectEntry.originalRelPath !== '' &&
+          typeof objectEntry.trashedAt === 'string' &&
+          !Number.isNaN(Date.parse(objectEntry.trashedAt));
+        if (!recordEntry.ok && !validObject) continue;
         rmSync(abs, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
         removed += 1;
       }
@@ -1080,7 +1228,10 @@ export class WorkService {
     } catch {
       throw new WorkError('not-found', '回收站清单读不出来');
     }
-    const m = manifest as { schema?: unknown; id?: unknown; originalRelPath?: unknown };
+    const m = manifest as { schema?: unknown; entryType?: unknown; id?: unknown; originalRelPath?: unknown };
+    if (m.schema === 2 || m.entryType === 'arena-record') {
+      throw new WorkError('invalid', '这是成绩存档的回收条目，请用成绩恢复接口');
+    }
     if (m.schema !== 1 || m.id !== id || typeof m.originalRelPath !== 'string' || m.originalRelPath === '') {
       throw new WorkError('not-found', '回收站清单不完整');
     }
@@ -1300,6 +1451,9 @@ export class WorkService {
     const trashDirs = new Map<string, string>();
     const trashRoot = join(root, '.anvil', 'trash');
     const trashStat = lstatOrNull(trashRoot);
+    if (trashStat !== null && (trashStat.isSymbolicLink() || !trashStat.isDirectory())) {
+      errors.push({ relPath: '.anvil/trash', kind: 'meta-invalid', message: '回收站必须是普通目录，不允许符号链接' });
+    }
     if (trashStat !== null && trashStat.isDirectory()) {
       let entries: Dirent[];
       try {
@@ -1325,6 +1479,22 @@ export class WorkService {
           errors.push({ relPath: toPosix(`.anvil/trash/${entry.name}`), kind: 'meta-invalid', message: 'trash.json 读不出来' });
           continue;
         }
+        const recordEntry = parseRecordTrashManifest(manifest);
+        if (recordEntry.ok) {
+          const rec = recordEntry.manifest;
+          if (!trashDirs.has(rec.id)) trashDirs.set(rec.id, dirAbs);
+          trash.push({
+            entryType: 'arena-record',
+            id: rec.id,
+            recordId: rec.recordId,
+            contestId: rec.contestId,
+            arenaPath: rec.arenaPath,
+            title: rec.title,
+            fileName: rec.fileName,
+            trashedAt: rec.trashedAt,
+          });
+          continue;
+        }
         const m = manifest as { schema?: unknown; id?: unknown; title?: unknown; originalRelPath?: unknown; trashedAt?: unknown };
         if (
           m.schema !== 1 ||
@@ -1335,11 +1505,19 @@ export class WorkService {
           typeof m.trashedAt !== 'string' ||
           Number.isNaN(Date.parse(m.trashedAt))
         ) {
-          errors.push({ relPath: toPosix(`.anvil/trash/${entry.name}`), kind: 'meta-invalid', message: 'trash.json 字段不完整' });
+          const hint = (manifest as { schema?: unknown } | null)?.schema === 2 ? recordEntry.message : 'trash.json 字段不完整';
+          errors.push({ relPath: toPosix(`.anvil/trash/${entry.name}`), kind: 'meta-invalid', message: hint });
           continue;
         }
         if (!trashDirs.has(m.id)) trashDirs.set(m.id, dirAbs);
-        trash.push({ id: m.id, title: m.title, originalRelPath: m.originalRelPath, trashedAt: m.trashedAt });
+        const objectEntry: WorkTrashObjectDto = {
+          entryType: 'object',
+          id: m.id,
+          title: m.title,
+          originalRelPath: m.originalRelPath,
+          trashedAt: m.trashedAt,
+        };
+        trash.push(objectEntry);
       }
     }
     trash.sort((a, b) => (a.trashedAt < b.trashedAt ? 1 : a.trashedAt > b.trashedAt ? -1 : 0));

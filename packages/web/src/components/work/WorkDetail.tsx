@@ -3,6 +3,7 @@ import type { WorkObjectDetailDto, WorkObjectDto, WorkOpenApp, WorkTaxonomyDto }
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { TemplateEditor } from './TemplateEditor.tsx';
+import { WorkRecords } from './WorkRecords.tsx';
 import {
   KIND_NAME,
   WORK_SECTION,
@@ -31,6 +32,12 @@ interface Props {
   /** 仅题组：设置 / 清除关联比赛（null = 清除） */
   onSetParent: (parentId: string | null) => void;
   onSelectObject: (id: string) => void;
+  /** 比赛历史成绩：打开指定档的只读深链 */
+  onOpenArenaRecord: (recordId: string) => void;
+  /** 旧 live 恢复为当前练习 */
+  onRestoreArenaLegacy: () => void;
+  /** 存档改名 / 回收后刷新回收站计数（不动选中项） */
+  onRecordsChanged: () => void;
   onTrash: () => void;
   onOpen: (relPath?: string, app?: WorkOpenApp) => void;
   onOpenArena: (arenaPath: string) => void;
@@ -426,6 +433,17 @@ export function WorkDetail(props: Props) {
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {detail.kind === 'contest' && detail.links.arenaPath !== undefined ? (
+        <WorkRecords
+          arenaPath={detail.links.arenaPath}
+          contestTitle={detail.title}
+          archived={frozen}
+          onOpenRecord={props.onOpenArenaRecord}
+          onRestoreLegacy={props.onRestoreArenaLegacy}
+          onChanged={props.onRecordsChanged}
+        />
       ) : null}
 
       <section className="wk-sec wk-sec--files">

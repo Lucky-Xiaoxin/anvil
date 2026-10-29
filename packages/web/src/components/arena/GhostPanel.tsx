@@ -19,6 +19,8 @@ interface Props {
   durationMs: number;
   /** 本场已存的逐发；null = 还没录过（面板全空） */
   data: GhostData | null;
+  /** 查看历史档：只看 / 只切“展示我”，不增删逐发（docs/contracts/29 §3.1） */
+  readOnly?: boolean;
   onChange: (next: GhostData) => void;
   onClear: () => void;
 }
@@ -46,7 +48,7 @@ const parseTime = (raw: string): number | null => {
 
 const byOrder = (a: GhostSub, b: GhostSub): number => a.p - b.p || a.t - b.t;
 
-export function GhostPanel({ problems, durationMs, data, onChange, onClear }: Props) {
+export function GhostPanel({ problems, durationMs, data, readOnly = false, onChange, onClear }: Props) {
   const show = data?.show ?? true;
   const subs = data?.subs ?? EMPTY;
 
@@ -106,41 +108,47 @@ export function GhostPanel({ problems, durationMs, data, onChange, onClear }: Pr
   return (
     <PopShell head={{ title: '我的成绩', sub: '你 VP 时的逐发提交 · 罚时 = 过题分钟 + 20 ×（过题前失败 · CE 不罚）' }}>
       <div className="pop__rule" />
-      <div className="ghform">
-        <select className="ghsel" aria-label="题目" value={p} onChange={(e) => setP(Number(e.target.value))}>
-          {problems.map((pr, i) => (
-            <option key={pr.alias ?? i} value={i}>
-              {aliasOf(i)}
-            </option>
-          ))}
-        </select>
-        <select className="ghsel" aria-label="判名" value={r} onChange={(e) => setR(e.target.value as GhostResult)}>
-          {GHOST_RESULTS.map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </select>
-        <input
-          className={'ghin ghin--t' + (bad ? ' is-bad' : '')}
-          aria-label="提交时刻 时:分"
-          inputMode="numeric"
-          maxLength={4}
-          placeholder="4:12"
-          value={raw}
-          onChange={(e) => {
-            setRaw(formatTime(e.target.value));
-            setBad(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit();
-          }}
-        />
-        <button className="btn btn--xs btn--go" onClick={submit}>
-          提交
-        </button>
-      </div>
-      <div className={'ghhint' + (bad ? ' is-bad' : '')}>{hint === '' ? '时间 = 时:分（自动补冒号）· 同一题第二个 AC 不收' : hint}</div>
+      {readOnly ? (
+        <div className="ghhint">查看历史成绩：逐发只读；要修改请点顶栏「编辑成绩」。</div>
+      ) : (
+        <>
+          <div className="ghform">
+            <select className="ghsel" aria-label="题目" value={p} onChange={(e) => setP(Number(e.target.value))}>
+              {problems.map((pr, i) => (
+                <option key={pr.alias ?? i} value={i}>
+                  {aliasOf(i)}
+                </option>
+              ))}
+            </select>
+            <select className="ghsel" aria-label="判名" value={r} onChange={(e) => setR(e.target.value as GhostResult)}>
+              {GHOST_RESULTS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+            <input
+              className={'ghin ghin--t' + (bad ? ' is-bad' : '')}
+              aria-label="提交时刻 时:分"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="4:12"
+              value={raw}
+              onChange={(e) => {
+                setRaw(formatTime(e.target.value));
+                setBad(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit();
+              }}
+            />
+            <button className="btn btn--xs btn--go" onClick={submit}>
+              提交
+            </button>
+          </div>
+          <div className={'ghhint' + (bad ? ' is-bad' : '')}>{hint === '' ? '时间 = 时:分（自动补冒号）· 同一题第二个 AC 不收' : hint}</div>
+        </>
+      )}
       <div className="pop__rule" />
       <div className="ghsubs">
         {sorted.length === 0 ? (
@@ -154,9 +162,11 @@ export function GhostPanel({ problems, durationMs, data, onChange, onClear }: Pr
               <span className="ghsub__t">{hm(s.t)}</span>
               <span className={resClass(s.r)}>{s.r}</span>
               <span />
-              <button className="ghsub__x" aria-label={`删除第 ${aliasOf(s.p)} 题这发`} onClick={() => remove(ix)}>
-                ×
-              </button>
+              {readOnly ? null : (
+                <button className="ghsub__x" aria-label={`删除第 ${aliasOf(s.p)} 题这发`} onClick={() => remove(ix)}>
+                  ×
+                </button>
+              )}
             </div>
           ))
         )}
@@ -168,11 +178,13 @@ export function GhostPanel({ problems, durationMs, data, onChange, onClear }: Pr
           展示我
         </label>
         <span className="spacer" />
-        <button className="btn btn--xs btn--ghost" onClick={clear} onBlur={disarm} title="清除本场录入的成绩（两击确认）">
-          {armed ? '再点一次确认清除' : '清除本场成绩'}
-        </button>
+        {readOnly ? null : (
+          <button className="btn btn--xs btn--ghost" onClick={clear} onBlur={disarm} title="清除本场录入的成绩（两击确认）">
+            {armed ? '再点一次确认清除' : '清除本场成绩'}
+          </button>
+        )}
       </div>
-      <div className="ghnote">逐发即明细：点榜上格子看每题；段内成绩按时间轴与封榜视角自动同口径。</div>
+      <div className="ghnote">{readOnly ? '展示我只影响这次查看，不改存档。' : '逐发即明细：点榜上格子看每题；段内成绩按时间轴与封榜视角自动同口径。'}</div>
     </PopShell>
   );
 }

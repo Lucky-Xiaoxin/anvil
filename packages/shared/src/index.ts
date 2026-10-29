@@ -5,4 +5,5 @@ export * from './rating.ts';
 export * from './schemas.ts';
 export * from './arena-path.ts';
 export * from './work.ts';
+export * from './arena-records.ts';
 export * from './work-import.ts';

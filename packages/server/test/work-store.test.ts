@@ -14,7 +14,7 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { seedTaxonomy, type WorkArenaGhost, type WorkArenaView } from '@anvil/shared';
+import { seedTaxonomy, type ArenaRecordResult } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
 import { codeExeFromWherePath, codeLaunchFor, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
@@ -715,101 +715,479 @@ describe('切换根（契约 §3.2）', () => {
   });
 });
 
-describe('VP 成绩存档（docs/contracts/23 §15.3 先行实现）', () => {
+describe('榜单多存档（docs/contracts/29）', () => {
   const arenaPath = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
-  const ghost: WorkArenaGhost = { show: true, subs: [{ p: 1, t: 45, r: 'AC' }, { p: 0, t: 20, r: 'WA' }] };
-  const view: WorkArenaView = { mode: 'review', viewMs: 123000, paused: false, frozenView: true };
+  const otherArena = 'official/icpc/icpc2025/icpc2025beijing.srk.json';
+  const durationMs = 5 * 3_600_000;
+  const rid = (ch: string): string => `rec_${ch.repeat(32)}`;
+  const A = rid('a');
+  const B = rid('b');
+  const C = rid('c');
+  const D = rid('d');
 
-  it('无对象时自动建 contest 并写 record.json；再存只更新同一场', async () => {
-    await initRoot();
-    const saved = await service.saveArenaRecord({ arenaPath, title: '上海站', ghost, view });
-    expect(saved.object.kind).toBe('contest');
-    expect(saved.object.links.arenaPath).toBe(arenaPath);
-    expect(saved.record.ghost.subs.map((s) => [s.p, s.t])).toEqual([
-      [0, 20],
-      [1, 45],
-    ]);
-    expect(existsSync(join(absOf(saved.object.relPath), 'record.json'))).toBe(true);
-    expect(service.object(saved.object.id).files.map((f) => f.path)).toContain('record.json');
-
-    const again = await service.saveArenaRecord({
-      arenaPath,
-      ghost: { ...ghost, show: false },
-      view: { ...view, mode: 'live', viewMs: 60000, paused: true },
-    });
-    expect(again.object.id).toBe(saved.object.id);
-    expect(again.record.ghost.show).toBe(false);
-    expect(again.record.view).toEqual({ mode: 'live', viewMs: 60000, paused: true, frozenView: true });
-    expect(service.getArenaRecord(arenaPath).view.mode).toBe('live');
-    const contests = (await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath);
-    expect(contests).toHaveLength(1);
+  const timed = (stoppedAtMs = durationMs): ArenaRecordResult => ({
+    origin: 'timed',
+    finish: stoppedAtMs === durationMs ? 'time-limit' : 'stopped',
+    durationMs,
+    stoppedAtMs,
   });
-
-  it('已有同 arenaPath 的 contest 直接复用；重复指向同一场则 conflict', async () => {
-    await initRoot();
-    const existing = await service.create({ kind: 'contest', title: '上海站', arenaPath });
-    const saved = await service.saveArenaRecord({ arenaPath, ghost, view });
-    expect(saved.object.id).toBe(existing.id);
-
-    await service.create({ kind: 'contest', title: '上海站副本', arenaPath });
-    await expect(service.saveArenaRecord({ arenaPath, ghost, view })).rejects.toMatchObject({ kind: 'conflict' });
-    expect(() => service.getArenaRecord(arenaPath)).toThrowError(/2 个 contest/);
+  const ghost = { show: true, subs: [{ p: 1, t: 45, r: 'AC' as const }, { p: 0, t: 20, r: 'WA' as const }] };
+  const saveInput = (recordId: string, name: string, patch: Record<string, unknown> = {}) => ({
+    arenaPath,
+    recordId,
+    name,
+    result: timed(),
+    ghost,
+    ...patch,
   });
-
-  it('非法 arenaPath / 判名 / view 拒绝写入', async () => {
-    await initRoot();
-    await expect(
-      service.saveArenaRecord({ arenaPath: '../x.srk.json', ghost, view }),
-    ).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(
-      service.saveArenaRecord({ arenaPath, ghost: { show: true, subs: [{ p: 0, t: 1, r: 'FB' as never }] }, view }),
-    ).rejects.toMatchObject({ kind: 'invalid' });
-    await expect(
-      service.saveArenaRecord({ arenaPath, ghost, view: { ...view, viewMs: -1 } }),
-    ).rejects.toMatchObject({ kind: 'invalid' });
-    expect((await service.tree()).objects).toHaveLength(0);
-  });
-
-  it('record.json 的 arenaPath 与请求不一致 → conflict', async () => {
-    await initRoot();
-    const other = 'official/icpc/icpc2025/icpc2025beijing.srk.json';
-    const contest = await service.create({ kind: 'contest', title: 'Mismatch', arenaPath });
+  function cacheBoard(path = arenaPath, problems = 4): void {
+    const file = join(vault, 'arena', path);
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(
-      join(absOf(contest.relPath), 'record.json'),
+      file,
       JSON.stringify({
-        schema: 1,
-        arenaPath: other,
-        title: 'Mismatch',
-        savedAt: now.toISOString(),
-        ghost,
-        view,
+        contest: { duration: [durationMs, 'ms'] },
+        problems: Array.from({ length: problems }, (_, i) => ({ alias: String.fromCharCode(65 + i) })),
       }),
     );
-    expect(() => service.getArenaRecord(arenaPath)).toThrowError(/不一致/);
+  }
+  async function seedContest(path = arenaPath, title = '上海站') {
+    return service.create({ kind: 'contest', title, arenaPath: path });
+  }
+  function rootRecord(contestRel: string, record: Record<string, unknown>): void {
+    writeFileSync(join(absOf(contestRel), 'record.json'), JSON.stringify(record, null, 2));
+  }
+  const legacyReview = (savedAt: string) => ({
+    schema: 1,
+    arenaPath,
+    title: '上海站',
+    savedAt,
+    ghost,
+    view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
+  });
+  const legacyLive = (savedAt: string) => ({
+    schema: 1,
+    arenaPath,
+    title: '上海站',
+    savedAt,
+    ghost,
+    view: { mode: 'live', viewMs: 72000, paused: true, frozenView: false },
   });
 
-  it('回收站里躺着同场 → 保存成绩被拒，不顺手另建一场', async () => {
+  it('同场三档、同名不同 ID；只有一个 contest；改名不换 ID、不动对象 updatedAt', async () => {
     await initRoot();
-    const saved = await service.saveArenaRecord({ arenaPath, title: '上海站', ghost, view });
-    await service.trash(saved.object.id);
+    cacheBoard();
+    const first = await service.createArenaRecord(saveInput(A, '第一次 VP'));
+    expect(first.created).toBe(true);
+    expect(first.object.kind).toBe('contest');
+    expect(first.record.ghost.subs.map((s) => s.p)).toEqual([0, 1]);
+    expect(existsSync(join(absOf(first.object.relPath), '.anvil-records', `${A}.json`))).toBe(true);
+    expect(service.object(first.object.id).files.map((f) => f.path).some((p) => p.includes('.anvil-records'))).toBe(false);
+    const objectUpdatedAt = service.object(first.object.id).updatedAt;
 
-    await expect(service.saveArenaRecord({ arenaPath, ghost, view })).rejects.toMatchObject({ kind: 'conflict' });
+    await service.createArenaRecord(saveInput(B, '第一次 VP'));
+    await service.createArenaRecord(saveInput(C, '第一次 VP'));
+    const list = service.listArenaRecords(arenaPath);
+    expect(list.contestId).toBe(first.object.id);
+    expect(list.records).toHaveLength(3);
+    expect(list.records.map((r) => r.name)).toEqual(['第一次 VP', '第一次 VP', '第一次 VP']);
+    expect((await service.tree()).objects.filter((o) => o.kind === 'contest')).toHaveLength(1);
+    expect(service.object(first.object.id).updatedAt).toBe(objectUpdatedAt);
+
+    now = new Date(2026, 9, 21, 12, 5, 0);
+    const renamed = await service.renameArenaRecord({
+      arenaPath,
+      recordId: B,
+      expectedRevision: list.records.find((r) => r.recordId === B)!.revision,
+      name: '第二次 VP',
+    });
+    expect(renamed.record.recordId).toBe(B);
+    expect(renamed.record.name).toBe('第二次 VP');
+    expect(service.listArenaRecords(arenaPath).records.find((r) => r.recordId === B)?.name).toBe('第二次 VP');
+    expect((await service.tree()).objects.filter((o) => o.kind === 'contest')).toHaveLength(1);
+  });
+
+  it('更新只写指定档；列表按 updatedAt 倒序；revision 过期与外部改文件都拒绝', async () => {
+    await initRoot();
+    cacheBoard();
+    const a = await service.createArenaRecord(saveInput(A, 'A'));
+    await service.createArenaRecord(saveInput(B, 'B'));
+    const beforeB = service.listArenaRecords(arenaPath).records.find((r) => r.recordId === B)!;
+
+    now = new Date(2026, 9, 21, 12, 10, 0);
+    const updated = await service.updateArenaRecord({
+      arenaPath,
+      recordId: A,
+      expectedRevision: a.revision,
+      result: { ...timed(90 * 60_000) },
+      ghost: { show: false, subs: [{ p: 2, t: 61, r: 'AC' }] },
+    });
+    expect(updated.record.recordId).toBe(A);
+    expect(updated.record.ghost.show).toBe(false);
+    const afterB = service.listArenaRecords(arenaPath).records.find((r) => r.recordId === B)!;
+    expect(afterB.revision).toBe(beforeB.revision);
+    expect(service.listArenaRecords(arenaPath).records[0]?.recordId).toBe(A);
+
+    await expect(
+      service.updateArenaRecord({ arenaPath, recordId: A, expectedRevision: a.revision, result: timed(), ghost }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+
+    const file = join(absOf(a.object.relPath), '.anvil-records', `${A}.json`);
+    const raw = readFileSync(file, 'utf8');
+    writeFileSync(file, raw.replace('"show": false', '"show": true'));
+    await expect(
+      service.updateArenaRecord({ arenaPath, recordId: A, expectedRevision: updated.revision, result: timed(), ghost }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+  });
+
+  it('新建幂等：同 ID 同内容只一份；内容不符 / 已回收拒绝；无缓存与非法逐发拒绝', async () => {
+    await initRoot();
+    await expect(service.createArenaRecord(saveInput(A, 'X'))).rejects.toMatchObject({ kind: 'conflict' });
+
+    cacheBoard();
+    const first = await service.createArenaRecord(saveInput(A, 'X'));
+    const retry = await service.createArenaRecord(saveInput(A, 'X', { contestTitle: '另一个标题' }));
+    expect(first.created).toBe(true);
+    expect(retry.created).toBe(false);
+    expect(retry.record.createdAt).toBe(first.record.createdAt);
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
+
+    await expect(service.createArenaRecord(saveInput(A, '改过名'))).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(service.createArenaRecord(saveInput('legacy', 'X'))).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.createArenaRecord(saveInput(D, 'X', { result: timed(durationMs + 1) }))).rejects.toMatchObject({
+      kind: 'invalid',
+    });
+    await expect(
+      service.createArenaRecord(saveInput(D, 'X', { ghost: { show: true, subs: [{ p: 4, t: 10, r: 'AC' }] } })),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(service.createArenaRecord(saveInput(D, 'X', { ghost: { show: true, subs: [{ p: 0, t: 301, r: 'AC' }] } }))).rejects.toMatchObject({
+      kind: 'invalid',
+    });
+
+    const a = service.listArenaRecords(arenaPath).records.find((r) => r.recordId === A)!;
+    const trashed = await service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: a.revision, confirm: true });
+    await expect(service.createArenaRecord(saveInput(A, 'X'))).rejects.toMatchObject({ kind: 'conflict' });
+    expect(trashed.entryType).toBe('arena-record');
+  });
+
+  it('零成绩可保存；进行中不是服务端状态，缺结束信息 / 时长不符 / 缺缓存都拒绝', async () => {
+    await initRoot();
+    cacheBoard();
+    const zero = await service.createArenaRecord(saveInput(A, '零成绩', { ghost: { show: true, subs: [] } }));
+    expect(zero.record.ghost.subs).toEqual([]);
+    expect(zero.record.result).toMatchObject({ origin: 'timed', finish: 'time-limit', stoppedAtMs: durationMs });
+
+    await expect(
+      service.createArenaRecord(
+        saveInput(B, '补录', { result: { origin: 'manual', finish: 'declared', durationMs, stoppedAtMs: null } }),
+      ),
+    ).resolves.toMatchObject({ created: true });
+    await expect(
+      service.createArenaRecord(
+        saveInput(C, '谎称到时', {
+          result: { origin: 'timed', finish: 'time-limit', durationMs, stoppedAtMs: 60_000 },
+        }),
+      ),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(
+      service.createArenaRecord(saveInput(C, '补录伪造停止', { result: { origin: 'manual', finish: 'declared', durationMs, stoppedAtMs: 0 } })),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(
+      service.createArenaRecord(saveInput(C, '未知结束', { result: { origin: 'legacy-review', finish: 'unknown', durationMs: null, stoppedAtMs: null } })),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+    await expect(
+      service.createArenaRecord(
+        saveInput(C, '时长不符', {
+          result: { origin: 'timed', finish: 'stopped', durationMs: durationMs - 1, stoppedAtMs: durationMs - 1 },
+        }),
+      ),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+
+    const noCache = 'official/icpc/icpc2025/nocache.srk.json';
+    await expect(service.createArenaRecord({ ...saveInput(C, '无缓存'), arenaPath: noCache })).rejects.toMatchObject({
+      kind: 'conflict',
+    });
+  });
+
+  it('单档回收 / 恢复保 ID 与版本；整场回收带着存档走；父缺失 / 父回收 / 父归档 / 占位逐项拒绝', async () => {
+    await initRoot();
+    cacheBoard();
+    const made = await service.createArenaRecord(saveInput(A, '第一次 VP'));
+    const contestId = made.object.id;
+    const a = service.listArenaRecords(arenaPath).records[0]!;
+
+    const trashed = await service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: a.revision, confirm: true });
+    expect(trashed.trashId).toMatch(/^tr_[0-9a-f]{32}$/);
+    const tree = await service.tree();
+    expect(tree.trash).toHaveLength(1);
+    expect(tree.trash[0]).toMatchObject({ entryType: 'arena-record', recordId: A, contestId });
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(0);
+
+    const restored = await service.restoreArenaRecord(trashed.trashId);
+    expect(restored.restored).toBe('record');
+    if (restored.restored === 'record') expect(restored.record.recordId).toBe(A);
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
+
+    // 整场回收：比赛目录连同 .anvil-records 一起移动；恢复整场后存档还在
+    await service.trash(contestId);
+    expect((await service.tree()).trash).toHaveLength(1);
+    await service.restore(contestId);
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
+
+    // 父比赛在回收站：先恢复比赛
+    const again = service.listArenaRecords(arenaPath).records[0]!;
+    const t2 = await service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: again.revision, confirm: true });
+    await service.trash(contestId);
+    await expect(service.restoreArenaRecord(t2.trashId)).rejects.toMatchObject({ kind: 'conflict' });
+    await service.restore(contestId);
+    await service.restoreArenaRecord(t2.trashId);
+
+    // 父归档：管理动作冻结，成绩写入例外
+    const archivedBefore = service.listArenaRecords(arenaPath).records[0]!;
+    await service.update({ id: contestId, archived: true });
+    await expect(
+      service.renameArenaRecord({ arenaPath, recordId: A, expectedRevision: archivedBefore.revision, name: '改名' }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(
+      service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: archivedBefore.revision, confirm: true }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+    const archivedEdit = await service.updateArenaRecord({
+      arenaPath,
+      recordId: A,
+      expectedRevision: archivedBefore.revision,
+      result: timed(),
+      ghost,
+    });
+    await service.update({ id: contestId, archived: false });
+
+    // 目标占位：先塞一个同 ID 文件，恢复必须拒绝而不覆盖
+    const target = join(absOf(made.object.relPath), '.anvil-records', `${A}.json`);
+    const t3 = await service.trashArenaRecord({
+      arenaPath,
+      recordId: A,
+      expectedRevision: archivedEdit.revision,
+      confirm: true,
+    });
+    writeFileSync(target, '{"someone":"else"}');
+    await expect(service.restoreArenaRecord(t3.trashId)).rejects.toMatchObject({ kind: 'path-occupied' });
+    expect(readFileSync(target, 'utf8')).toBe('{"someone":"else"}');
+  });
+
+  it('回收站清空只删两类合法条目；杂项、坏清单、符号链接不动', async () => {
+    await initRoot();
+    cacheBoard();
+    const made = await service.createArenaRecord(saveInput(A, 'A'));
+    const a = service.listArenaRecords(arenaPath).records[0]!;
+    await service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: a.revision, confirm: true });
+    const contest = await service.create({ kind: 'contest', title: '另一场', arenaPath: otherArena });
+    await service.trash(contest.id);
+
+    const trashRoot = join(root, '.anvil', 'trash');
+    mkdirSync(join(trashRoot, 'junk-dir'), { recursive: true });
+    mkdirSync(join(trashRoot, 'bad-manifest'), { recursive: true });
+    writeFileSync(join(trashRoot, 'bad-manifest', 'trash.json'), '{"schema":99}');
+    writeFileSync(join(trashRoot, 'loose.json'), '{}');
+    let linked = false;
+    try {
+      symlinkSync(join(root, '.anvil', 'root.json'), join(trashRoot, 'link-entry'));
+      linked = true;
+    } catch {
+      /* Windows 无符号链接权限时跳过这一小项 */
+    }
+
+    const purged = await service.purgeTrash();
+    expect(purged.removed).toBe(2);
+    expect(existsSync(join(trashRoot, 'junk-dir'))).toBe(true);
+    expect(existsSync(join(trashRoot, 'bad-manifest'))).toBe(true);
+    expect(existsSync(join(trashRoot, 'loose.json'))).toBe(true);
+    if (linked) expect(existsSync(join(trashRoot, 'link-entry'))).toBe(true);
+    expect(made.object.id).toBeTruthy();
+  });
+
+  it('旧 review 进 records 并投影；仅改名保留 unknown；确认编辑后转 manual 并原地升级', async () => {
+    await initRoot();
+    const contest = await seedContest();
+    rootRecord(contest.relPath, legacyReview('2026-10-20T06:32:00.000Z'));
+
+    let list = service.listArenaRecords(arenaPath);
+    expect(list.records).toHaveLength(1);
+    expect(list.legacy).toBeNull();
+    const legacyItem = service.getArenaRecordItem(arenaPath, 'legacy');
+    expect(legacyItem.record).toMatchObject({
+      recordId: 'legacy',
+      name: '旧存档 2026-10-20 14:32',
+      result: { origin: 'legacy-review', finish: 'unknown' },
+    });
+    expect(legacyItem.record.createdAt).toBe('2026-10-20T06:32:00.000Z');
+
+    now = new Date(2026, 9, 21, 12, 30, 0);
+    const renamed = await service.renameArenaRecord({
+      arenaPath,
+      recordId: 'legacy',
+      expectedRevision: legacyItem.revision,
+      name: '老回顾',
+    });
+    expect(renamed.record).toMatchObject({
+      recordId: 'legacy',
+      name: '老回顾',
+      createdAt: '2026-10-20T06:32:00.000Z',
+    });
+    expect(renamed.record.result).toEqual({ origin: 'legacy-review', finish: 'unknown', durationMs: null, stoppedAtMs: null });
+    expect(JSON.parse(readFileSync(join(absOf(contest.relPath), 'record.json'), 'utf8')).schema).toBe(2);
+
+    // 修改成绩不能把 unknown 结束状态写回去
+    await expect(
+      service.updateArenaRecord({
+        arenaPath,
+        recordId: 'legacy',
+        expectedRevision: renamed.revision,
+        result: { origin: 'legacy-review', finish: 'unknown', durationMs: null, stoppedAtMs: null },
+        ghost,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+
+    cacheBoard();
+    const edited = await service.updateArenaRecord({
+      arenaPath,
+      recordId: 'legacy',
+      expectedRevision: renamed.revision,
+      result: { origin: 'manual', finish: 'declared', durationMs, stoppedAtMs: null },
+      ghost,
+    });
+    expect(edited.record.result.origin).toBe('manual');
+    expect(edited.record.createdAt).toBe('2026-10-20T06:32:00.000Z');
+    list = service.listArenaRecords(arenaPath);
+    expect(list.records[0]?.recordId).toBe('legacy');
+  });
+
+  it('旧 live 只进 legacy；rename / update 拒绝；回收后恢复仍是原 schema 1 live', async () => {
+    await initRoot();
+    const contest = await seedContest();
+    rootRecord(contest.relPath, legacyLive('2026-10-20T06:32:00.000Z'));
+
+    const list = service.listArenaRecords(arenaPath);
+    expect(list.records).toHaveLength(0);
+    expect(list.legacy).toMatchObject({ mode: 'live', submissionCount: 2 });
+    const legacy = service.getArenaLegacy(arenaPath);
+    expect(legacy.mode).toBe('live');
+    expect(legacy.record.view.mode).toBe('live');
+
+    await expect(
+      service.renameArenaRecord({ arenaPath, recordId: 'legacy', expectedRevision: legacy.revision, name: 'X' }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+    await expect(
+      service.updateArenaRecord({ arenaPath, recordId: 'legacy', expectedRevision: legacy.revision, result: timed(), ghost }),
+    ).rejects.toMatchObject({ kind: 'conflict' });
+    expect(() => service.getArenaRecordItem(arenaPath, 'legacy')).toThrowError(/旧进度/);
+
+    const trashed = await service.trashArenaRecord({ arenaPath, recordId: 'legacy', expectedRevision: legacy.revision, confirm: true });
+    const back = await service.restoreArenaRecord(trashed.trashId);
+    expect(back.restored).toBe('legacy-progress');
+    if (back.restored === 'legacy-progress') expect(back.legacy.record.schema).toBe(1);
+    expect(existsSync(join(absOf(contest.relPath), 'record.json'))).toBe(true);
+    expect(existsSync(join(absOf(contest.relPath), '.anvil-records', 'legacy.json'))).toBe(false);
+  });
+
+  it('两场各自的 legacy 分别回收 / 恢复，回各自根文件，不串场不重复计数', async () => {
+    await initRoot();
+    const sh = await seedContest(arenaPath, '上海站');
+    const bj = await seedContest(otherArena, '北京站');
+    rootRecord(sh.relPath, legacyReview('2026-10-20T06:32:00.000Z'));
+    writeFileSync(
+      join(absOf(bj.relPath), 'record.json'),
+      JSON.stringify({ ...legacyReview('2026-10-21T06:32:00.000Z'), arenaPath: otherArena }),
+    );
+
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
+    expect(service.listArenaRecords(otherArena).records).toHaveLength(1);
+
+    const shItem = service.getArenaRecordItem(arenaPath, 'legacy');
+    const bjItem = service.getArenaRecordItem(otherArena, 'legacy');
+    const shTrash = await service.trashArenaRecord({ arenaPath, recordId: 'legacy', expectedRevision: shItem.revision, confirm: true });
+    const bjTrash = await service.trashArenaRecord({ arenaPath: otherArena, recordId: 'legacy', expectedRevision: bjItem.revision, confirm: true });
+    expect((await service.tree()).trash.filter((t) => t.entryType === 'arena-record')).toHaveLength(2);
+
+    await service.restoreArenaRecord(bjTrash.trashId);
+    await service.restoreArenaRecord(shTrash.trashId);
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
+    expect(service.listArenaRecords(otherArena).records).toHaveLength(1);
+    expect(existsSync(join(absOf(sh.relPath), 'record.json'))).toBe(true);
+    expect(existsSync(join(absOf(bj.relPath), 'record.json'))).toBe(true);
+    expect(existsSync(join(absOf(sh.relPath), '.anvil-records', 'legacy.json'))).toBe(false);
+  });
+
+  it('损坏 / 未知文件只进 errors，合法档照常可读；路径穿越与场次不一致拒绝', async () => {
+    await initRoot();
+    cacheBoard();
+    const made = await service.createArenaRecord(saveInput(A, '好档'));
+    const dir = join(absOf(made.object.relPath), '.anvil-records');
+    writeFileSync(join(dir, `${B}.json`), '{ 半截');
+    writeFileSync(join(dir, 'unknown.json'), '{}');
+    const list = service.listArenaRecords(arenaPath);
+    expect(list.records.map((r) => r.recordId)).toEqual([A]);
+    expect(list.errors.map((e) => e.file).sort()).toEqual([`.anvil-records/${B}.json`, '.anvil-records/unknown.json']);
+
+    expect(() => service.getArenaRecordItem(arenaPath, B)).toThrowError(/不是合法 JSON/);
+    expect(() => service.getArenaRecordItem(arenaPath, '../record')).toThrowError(/recordId/);
+    expect(() => service.listArenaRecords('../x.srk.json')).toThrowError(/arenaPath/);
+
+    const other = await seedContest(otherArena, '北京站');
+    mkdirSync(join(absOf(other.relPath), '.anvil-records'), { recursive: true });
+    writeFileSync(
+      join(absOf(other.relPath), '.anvil-records', `${D}.json`),
+      JSON.stringify({
+        schema: 2,
+        recordId: D,
+        contestId: made.object.id,
+        arenaPath: otherArena,
+        name: '串场',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        result: timed(),
+        ghost,
+      }),
+    );
+    const otherList = service.listArenaRecords(otherArena);
+    expect(otherList.records).toHaveLength(0);
+    expect(otherList.errors[0]?.message).toContain('不一致');
+  });
+
+  it('回收站里躺着同场 → 列表与新建都拒绝，不顺手另建一场', async () => {
+    await initRoot();
+    cacheBoard();
+    const made = await service.createArenaRecord(saveInput(A, '上海站'));
+    await service.trash(made.object.id);
+
+    await expect(service.createArenaRecord(saveInput(B, '上海站'))).rejects.toMatchObject({ kind: 'conflict' });
+    expect(() => service.listArenaRecords(arenaPath)).toThrowError(/回收站/);
     expect((await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath)).toHaveLength(0);
 
-    // 被挡下来之后，原来那一场还能原样恢复并读回存档
-    const restored = await service.restore(saved.object.id);
-    expect(restored.id).toBe(saved.object.id);
-    expect(service.getArenaRecord(arenaPath).arenaPath).toBe(arenaPath);
+    await service.restore(made.object.id);
+    expect(service.listArenaRecords(arenaPath).records).toHaveLength(1);
   });
 
-  it('恢复会造成两份同场对象 → 拒绝恢复（否则这场的读写当场全废）', async () => {
+  it('5000 发可保存；超过 5000 发整份拒绝', async () => {
     await initRoot();
-    const a = await service.create({ kind: 'contest', title: 'Dup A', arenaPath });
-    await service.trash(a.id);
-    await service.create({ kind: 'contest', title: 'Dup B', arenaPath });
+    cacheBoard(arenaPath, 4);
+    const subs = Array.from({ length: 5000 }, (_, i) => ({ p: i % 4, t: i % 300, r: 'WA' as const }));
+    const out = await service.createArenaRecord(saveInput(A, '满额', { ghost: { show: true, subs } }));
+    expect(out.record.ghost.subs).toHaveLength(5000);
+    await expect(
+      service.createArenaRecord(saveInput(B, '超限', { ghost: { show: true, subs: [...subs, { p: 0, t: 1, r: 'AC' }] } })),
+    ).rejects.toMatchObject({ kind: 'invalid' });
+  });
 
-    await expect(service.restore(a.id)).rejects.toMatchObject({ kind: 'conflict' });
-    expect((await service.tree()).objects.filter((o) => o.links.arenaPath === arenaPath)).toHaveLength(1);
+  it('工坊旧对象 restore 不接成绩条目；成绩 restore 不接对象条目', async () => {
+    await initRoot();
+    cacheBoard();
+    await service.createArenaRecord(saveInput(A, 'A'));
+    const a = service.listArenaRecords(arenaPath).records[0]!;
+    const trashed = await service.trashArenaRecord({ arenaPath, recordId: A, expectedRevision: a.revision, confirm: true });
+    await expect(service.restore(trashed.trashId)).rejects.toMatchObject({ kind: 'invalid' });
+
+    const contest = await service.create({ kind: 'contest', title: '待删', arenaPath: otherArena });
+    await service.trash(contest.id);
+    await expect(service.restoreArenaRecord(contest.id)).rejects.toMatchObject({ kind: 'invalid' });
   });
 });
 

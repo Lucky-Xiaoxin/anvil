@@ -1,48 +1,51 @@
 /**
- * 赛事目录（docs/contracts/16 §5.1）：五类 → 年份 / 省 → 场次，带搜索、计数、三态与进行中标记。
- * 行内第三枚动作「预拉取」= docs/contracts/20 §1：该场快照先拉到本地缓存，已缓存的行换成「本地」小标。
+ * 赛事目录（docs/contracts/16 §5.1 + docs/contracts/29 §6.1）：五类 → 年份 / 省 → 场次。
  *
- * 诚实标注两处照 §2.3 原样：顶栏「目录 N 场 · 榜单来自官方快照」、卡底「来源 algoux/srk-collection
- * （社区快照）· 回放的是已打完的比赛」。
+ * 每场按**当前草稿**显示进行中 / 已结束未保存，不拿“最新存档”替代当前练习；
+ * 历史成绩入口只打开选择层，不为整个外部目录逐场发请求。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ArenaCatalogDto, WorkArenaRecordDto } from '@anvil/shared';
-import { ApiError, getArenaCatalog, getArenaContest, getWorkArenaRecord, saveWorkArenaRecord } from '../../api.ts';
+import type { ArenaCatalogDto } from '@anvil/shared';
+import { ApiError, createArenaRecord, getArenaCatalog, getArenaContest, updateArenaRecord } from '../../api.ts';
 import { clockHMS, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { catalogHeadline, flattenLeaves, searchLeaves, toGroupNode, type GroupNode, type LeafRow } from './catalog.ts';
 import { elapsedOf } from './engine.ts';
-import { arenaTitleOf, ghostToRecord, overwriteHintOf, probeSavedRecord, viewOfRow } from './record.ts';
 import {
-  clearSession,
-  loadGhost,
+  applySaveSuccess,
+  buildCreatePayload,
+  buildUpdatePayload,
+  canSaveDraft,
+  draftSummary,
+  finishDraft,
+  isDirty,
+  listDraftPaths,
+  loadDraft,
+  saveDraft,
+  type ArenaDraft,
+} from './draft.ts';
+import { arenaTitleOf, firstSaveName, newRecordId } from './record.ts';
+import {
   loadOpenGroups,
   loadScrollTop,
-  loadSession,
-  listGhostPaths,
-  listSessionPaths,
   saveOpenGroups,
   saveScrollTop,
   type Store,
 } from './session.ts';
+import { NameDialog } from './ArenaDialogs.tsx';
+import type { ArenaEntry } from './Arena.tsx';
+import type { ArenaEntryMode } from './ArenaBoard.tsx';
 
 interface Props {
   store: Store;
-  /** 刷新目录后由父层重取；这里只报「进哪一场、什么模式」 */
-  onEnter: (row: LeafRow, live: boolean, record?: WorkArenaRecordDto | null) => void;
-  /** 会话表版本号：从回放屏退回目录时 +1，让「回放中」标记立刻更新 */
+  onEnter: (row: LeafRow, mode: ArenaEntryMode, opts?: { recordId?: string | null; openHistory?: boolean }) => void;
+  /** 草稿 / 目录版本号 */
   sessionEpoch: number;
-  /** 目录总场次报给壳层（侧栏页脚）；拉失败不上报，页脚保持上一次的数 */
   onCount: (n: number) => void;
-  /** 工坊「回到回放」带进来的场次路径；目录就绪后自动进入 */
-  restorePath: string | null;
-  onRestoreConsumed: () => void;
+  entry: ArenaEntry | null;
+  onEntryConsumed: () => void;
 }
 
-/**
- * 预拉取三态（docs/contracts/20 §1）：容器持有一份，随目录行往下传。
- * `cachedNow` = 本次会话里刚拉完的（服务端 `cached` 要等下次取目录才更新，先就地记账）。
- */
 interface PrefetchState {
   cachedNow: Set<string>;
   busyPath: string | null;
@@ -50,27 +53,22 @@ interface PrefetchState {
   onPrefetch: (path: string) => void;
 }
 
-interface SaveState {
-  ghostPaths: Set<string>;
-  savingPath: string | null;
-  savedNow: Set<string>;
-  saveErr: { path: string; text: string } | null;
-  /** 覆盖确认：一次保存整份替换 record.json，第一次点击只挂出这一行小字 */
-  arm: { path: string; hint: string } | null;
-  onSaveGhost: (row: LeafRow, live: { elapsed: number; paused: boolean } | null) => void;
-  onDisarm: () => void;
+interface DraftRowState {
+  draft: ArenaDraft | null;
+  saving: boolean;
+  savedNow: boolean;
+  err: string;
 }
 
 const subLabel = (node: GroupNode): string =>
   node.kids.length > 0 ? (node.name === '省赛' ? '按省分组' : node.name === '校赛' ? '按学校' : '按年份') : '按场次';
 
-export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePath, onRestoreConsumed }: Props) {
+export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, entry, onEntryConsumed }: Props) {
   const [dto, setDto] = useState<ArenaCatalogDto | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [stale, setStale] = useState<{ message: string; fetchedAt: number } | null>(null);
   const [q, setQ] = useState('');
-  /** 展开中的组键集合；落 localStorage，默认空 = 连顶层五类也收起（刷新 / 从回放退回都回到原位） */
   const [open, setOpen] = useState<Set<string>>(() => loadOpenGroups(store));
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
@@ -79,183 +77,234 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   const [prefetchErr, setPrefetchErr] = useState<{ path: string; text: string } | null>(null);
   const scrollBox = useRef<HTMLDivElement | null>(null);
   const timer = useRef(0);
+  const [draftRev, setDraftRev] = useState(0);
   const [savingPath, setSavingPath] = useState<string | null>(null);
-  const [savedNow, setSavedNow] = useState<Set<string>>(() => new Set());
+  const [savedNow, setSavedNow] = useState<Set<string>>(() => new Set<string>());
   const [saveErr, setSaveErr] = useState<{ path: string; text: string } | null>(null);
-  const [arm, setArm] = useState<{ path: string; hint: string } | null>(null);
+  const [nameState, setNameState] = useState<{ row: LeafRow; draft: ArenaDraft; initial: string } | null>(null);
+  const [nameBusy, setNameBusy] = useState(false);
   const [restoreErr, setRestoreErr] = useState<string | null>(null);
   const [pruned, setPruned] = useState(0);
   const [sessionRev, setSessionRev] = useState(0);
-  const restoredRef = useRef(false);
   const dtoRef = useRef<ArenaCatalogDto | null>(null);
 
-  const fetchCatalog = useCallback(async (refresh: boolean): Promise<void> => {
-    if (refresh) setBusy(true);
-    else setState('loading');
-    setPruned(0);
-    try {
-      const res = await getArenaCatalog(refresh);
-      dtoRef.current = res;
-      setDto(res);
-      setState('ready');
-      setError('');
-      setStale(
-        res.stale === true ? { message: res.refreshError ?? '上游取不到新目录', fetchedAt: res.fetchedAt } : null,
-      );
-      setPruned(res.pruned ?? 0);
-      onCount(res.total);
-    } catch (err) {
-      const text = messageOf(err);
-      setError(text);
-      if (dtoRef.current === null) {
-        setState('error');
-        setStale(null);
-      } else {
+  const fetchCatalog = useCallback(
+    async (refresh: boolean): Promise<void> => {
+      if (refresh) setBusy(true);
+      else setState('loading');
+      setPruned(0);
+      try {
+        const res = await getArenaCatalog(refresh);
+        dtoRef.current = res;
+        setDto(res);
         setState('ready');
-        setStale({ message: text, fetchedAt: dtoRef.current.fetchedAt });
+        setError('');
+        setStale(res.stale === true ? { message: res.refreshError ?? '上游取不到新目录', fetchedAt: res.fetchedAt } : null);
+        setPruned(res.pruned ?? 0);
+        onCount(res.total);
+      } catch (err) {
+        const text = messageOf(err);
+        setError(text);
+        if (dtoRef.current === null) {
+          setState('error');
+          setStale(null);
+        } else {
+          setState('ready');
+          setStale({ message: text, fetchedAt: dtoRef.current.fetchedAt });
+        }
+      } finally {
+        setBusy(false);
       }
-    } finally {
-      setBusy(false);
-    }
-  }, [onCount]);
+    },
+    [onCount],
+  );
 
   useEffect(() => {
     void fetchCatalog(false);
   }, [fetchCatalog]);
 
-  /* 会话表：路径 → 当前时刻。每秒走一次，只在真有进行中场次时挂定时器 */
-  const sessions = useMemo(() => {
-    const out = new Map<string, { elapsed: number; paused: boolean }>();
-    for (const path of listSessionPaths(store)) {
-      const s = loadSession(store, path);
-      // 走完或已「结束」的场次不再算进行中：那一行的动作回到 开始模拟 / 查看终榜
-      if (s === null || s.ended) continue;
-      out.set(path, { elapsed: elapsedOf(s, s.durationMs || Number.MAX_SAFE_INTEGER, now), paused: s.paused });
+  /* 每场一份草稿：单键枚举，解析失败当没有（正式档另走接口） */
+  const drafts = useMemo(() => {
+    const out = new Map<string, ArenaDraft>();
+    for (const path of listDraftPaths(store)) {
+      const loaded = loadDraft(store, path);
+      if (loaded.kind === 'draft') out.set(path, loaded.draft);
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, sessionEpoch, sessionRev, now]);
+  }, [store, sessionEpoch, draftRev, sessionRev]);
+
+  const livePaths = useMemo(() => {
+    const out = new Map<string, { elapsed: number; paused: boolean }>();
+    for (const [path, d] of drafts) {
+      if (d.phase !== 'running' || d.session === null) continue;
+      out.set(path, { elapsed: elapsedOf(d.session, d.session.durationMs || Number.MAX_SAFE_INTEGER, now), paused: d.session.paused });
+    }
+    return out;
+  }, [drafts, now]);
 
   useEffect(() => {
-    if (sessions.size === 0) return;
+    if (livePaths.size === 0) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [sessions.size]);
+  }, [livePaths.size]);
 
-  /** 目录里直接结束一场回放：只清会话记录，不碰「我的成绩」 */
-  const endSession = useCallback(
-    (path: string): void => {
-      clearSession(store, path);
+  const endDraft = useCallback(
+    (row: LeafRow): void => {
+      const loaded = loadDraft(store, row.path);
+      if (loaded.kind !== 'draft') return;
+      const d = loaded.draft;
+      if (d.phase !== 'running' || d.session === null) return;
+      const span = d.session.durationMs;
+      if (span <= 0) {
+        setSaveErr({ path: row.path, text: '先打开本场加载榜单，才能结束并记录停止时间' });
+        return;
+      }
+      const at = elapsedOf(d.session, span, Date.now());
+      const next = finishDraft(d, span, at, Date.now());
+      if (!saveDraft(store, row.path, next)) {
+        setSaveErr({ path: row.path, text: '浏览器存储写不进去：结束状态没有保存' });
+        return;
+      }
+      setSaveErr(null);
       setSessionRev((n) => n + 1);
+      setDraftRev((n) => n + 1);
     },
     [store],
   );
+
+  /* 目录行保存：有目标走更新（版本校验），无目标先开命名对话框 */
+  const saveRow = useCallback(
+    async (row: LeafRow, draft: ArenaDraft, name?: string): Promise<boolean> => {
+      if (!canSaveDraft(draft)) {
+        setSaveErr({ path: row.path, text: '还没有结束信息，不能保存' });
+        return false;
+      }
+      setSavingPath(row.path);
+      setSaveErr(null);
+      try {
+        if (draft.target !== null) {
+          const payload = buildUpdatePayload(draft, {
+            arenaPath: row.path,
+            recordId: draft.target.recordId,
+            expectedRevision: draft.target.revision,
+          });
+          if (payload === null) throw new Error('缺少结束信息');
+          const res = await updateArenaRecord(payload);
+          const next = applySaveSuccess(draft, res.record, res.revision);
+          if (!saveDraft(store, row.path, next)) {
+            setSaveErr({ path: row.path, text: '浏览器存储写不进去' });
+            return false;
+          }
+          setSavedNow((prev) => new Set(prev).add(row.path));
+          setDraftRev((n) => n + 1);
+          setSessionRev((n) => n + 1);
+          return true;
+        }
+        if (name === undefined) {
+          setNameState({ row, draft, initial: firstSaveName() });
+          return false;
+        }
+        const recordId = newRecordId();
+        const payload = buildCreatePayload(draft, { arenaPath: row.path, contestTitle: arenaTitleOf(row), recordId, name });
+        if (payload === null) throw new Error('缺少结束信息');
+        const frozen: ArenaDraft = { ...draft, pendingSave: { recordId, payload } };
+        if (!saveDraft(store, row.path, frozen)) {
+          setSaveErr({ path: row.path, text: '浏览器存储写不进去：没有发送保存请求' });
+          return false;
+        }
+        try {
+          const res = await createArenaRecord(payload);
+          const next = applySaveSuccess(frozen, res.record, res.revision);
+          if (!saveDraft(store, row.path, next)) {
+            setSaveErr({ path: row.path, text: '浏览器存储写不进去' });
+            return false;
+          }
+          setSavedNow((prev) => new Set(prev).add(row.path));
+          setDraftRev((n) => n + 1);
+          setSessionRev((n) => n + 1);
+          return true;
+        } catch (err) {
+          if (err instanceof ApiError && (err.kind === 'timeout' || err.kind === 'offline' || err.kind === 'aborted')) {
+            setDraftRev((n) => n + 1);
+            setSaveErr({ path: row.path, text: '保存结果未知：打开本场用「重试对账」确认' });
+          } else {
+            if (saveDraft(store, row.path, { ...frozen, pendingSave: null })) setDraftRev((n) => n + 1);
+            setSaveErr({ path: row.path, text: messageOf(err) });
+          }
+          return false;
+        }
+      } catch (err) {
+        setSaveErr({ path: row.path, text: messageOf(err) });
+        return false;
+      } finally {
+        setSavingPath(null);
+      }
+    },
+    [store],
+  );
+
+  const requestSaveRow = useCallback(
+    (row: LeafRow): void => {
+      const loaded = loadDraft(store, row.path);
+      if (loaded.kind !== 'draft') return;
+      const d = loaded.draft;
+      if (d.pendingSave !== null) {
+        setSaveErr({ path: row.path, text: '上次保存结果未确认：打开本场重试对账' });
+        return;
+      }
+      if (d.target !== null) {
+        void saveRow(row, d);
+        return;
+      }
+      setSaveErr(null);
+      setNameState({ row, draft: d, initial: firstSaveName() });
+    },
+    [saveRow, store],
+  );
+
+  /* 深链 / 工坊入口：指定档只读打开；无 record 时进当前练习（有草稿）或终榜 */
+  const entryKey = entry === null ? null : `${entry.path}|${entry.recordId ?? ''}|${entry.restoreLegacy ? 'restore' : ''}`;
+  useEffect(() => {
+    if (entry === null || state !== 'ready') return;
+    const row = flattenLeaves(dto?.tree ?? []).find((r) => r.path === entry.path);
+    if (row === undefined) {
+      setRestoreErr(`目录里找不到这场：${entry.path}`);
+      onEntryConsumed();
+      return;
+    }
+    if (entry.restoreLegacy) {
+      onEnter(row, 'restore-legacy');
+      onEntryConsumed();
+      return;
+    }
+    if (entry.recordId !== null) {
+      onEnter(row, 'record', { recordId: entry.recordId });
+      onEntryConsumed();
+      return;
+    }
+    const loaded = loadDraft(store, entry.path);
+    onEnter(row, loaded.kind === 'draft' && loaded.draft.phase !== 'legacy-unconfirmed' ? 'practice' : 'review');
+    onEntryConsumed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryKey, state, dto]);
+
+  useEffect(() => {
+    setRestoreErr(null);
+  }, [entryKey]);
 
   const leaves = useMemo(() => (dto === null ? [] : flattenLeaves(dto.tree)), [dto]);
   const hits = useMemo(() => (q.trim() === '' ? [] : searchLeaves(leaves, q)), [leaves, q]);
   const total = dto?.total ?? 0;
 
-  /* 有「我的成绩」逐发的场次：目录行给保存入口（本地键枚举，不另造索引） */
-  const ghostPaths = useMemo(() => {
-    const out = new Set<string>();
-    for (const path of listGhostPaths(store)) {
-      const ghost = loadGhost(store, path);
-      if (ghost !== null && ghost.subs.length > 0) out.add(path);
-    }
-    return out;
-  }, [store, sessionEpoch]);
-
   useEffect(() => {
     setSavedNow(new Set());
-    setArm(null);
+    setSaveErr(null);
+    setNameState(null);
   }, [sessionEpoch]);
 
-  const saveGhost = useCallback(
-    async (row: LeafRow, live: { elapsed: number; paused: boolean } | null): Promise<void> => {
-      const ghost = loadGhost(store, row.path);
-      if (ghost === null || ghost.subs.length === 0) return;
-      // 一场只有一份存档：这一行还没被确认过就先探一次，已有存档则只挂出覆盖确认
-      if (arm === null || arm.path !== row.path) {
-        setArm(null);
-        try {
-          const existing = await probeSavedRecord(row.path);
-          if (existing !== null) {
-            setArm({ path: row.path, hint: overwriteHintOf(existing) });
-            return;
-          }
-        } catch (err) {
-          setSaveErr({ path: row.path, text: messageOf(err) });
-          return;
-        }
-      }
-      setSavingPath(row.path);
-      setSaveErr(null);
-      try {
-        await saveWorkArenaRecord({
-          arenaPath: row.path,
-          title: arenaTitleOf(row),
-          ghost: ghostToRecord(ghost),
-          view: viewOfRow(store, row, live),
-        });
-        setSavedNow((prev) => new Set(prev).add(row.path));
-      } catch (err) {
-        setSaveErr({ path: row.path, text: messageOf(err) });
-      } finally {
-        setSavingPath(null);
-        setArm(null);
-      }
-    },
-    [store, arm],
-  );
+  /* 工坊「回到回放」/ 深链：目录就绪后按路径找行（上面 effect 已处理），这里保留错误提示 */
 
-  const save = useMemo<SaveState>(
-    () => ({
-      ghostPaths,
-      savingPath,
-      savedNow,
-      saveErr,
-      arm,
-      onSaveGhost: (row, live) => {
-        void saveGhost(row, live);
-      },
-      onDisarm: () => setArm(null),
-    }),
-    [ghostPaths, savingPath, savedNow, saveErr, arm, saveGhost],
-  );
-
-  /* 工坊「回到回放」：目录就绪后按路径找行，读 record.json，再进回放 */
-  useEffect(() => {
-    restoredRef.current = false;
-    setRestoreErr(null);
-  }, [restorePath]);
-
-  useEffect(() => {
-    if (restorePath === null || state !== 'ready' || restoredRef.current) return;
-    const row = leaves.find((r) => r.path === restorePath);
-    if (row === undefined) {
-      restoredRef.current = true;
-      setRestoreErr(`目录里找不到这场：${restorePath}`);
-      onRestoreConsumed();
-      return;
-    }
-    restoredRef.current = true;
-    void (async () => {
-      let record: WorkArenaRecordDto | null = null;
-      try {
-        record = await getWorkArenaRecord(restorePath);
-      } catch (err) {
-        if (!(err instanceof ApiError && err.kind === 'not-found')) setRestoreErr(`读取工坊存档失败：${messageOf(err)}`);
-      }
-      onEnter(row, false, record);
-      onRestoreConsumed();
-    })();
-  }, [restorePath, state, leaves, onEnter, onRestoreConsumed]);
-
-  /*
-   * 预拉取（docs/contracts/20 §1）：不新开接口，直接走进回放同一条 `GET /api/arena/contest?path=`
-   * —— 命中缓存即秒回，未命中走双源轮换 + 总预算，失败口径也照旧（messageOf）。
-   * 拉到就落 `vault/arena/`，本层只补一条「这次会话里刚拉完」的记账，不进入回放。
-   */
   const prefetch = useCallback(async (path: string): Promise<void> => {
     setBusyPath(path);
     setPrefetchErr(null);
@@ -269,14 +318,14 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
     }
   }, []);
 
-  const onPrefetch = useCallback((path: string): void => {
-    void prefetch(path);
-  }, [prefetch]);
-
-  const pf = useMemo<PrefetchState>(
-    () => ({ cachedNow, busyPath, prefetchErr, onPrefetch }),
-    [cachedNow, busyPath, prefetchErr, onPrefetch],
+  const onPrefetch = useCallback(
+    (path: string): void => {
+      void prefetch(path);
+    },
+    [prefetch],
   );
+
+  const pf = useMemo<PrefetchState>(() => ({ cachedNow, busyPath, prefetchErr, onPrefetch }), [cachedNow, busyPath, prefetchErr, onPrefetch]);
 
   const toggle = (key: string): void =>
     setOpen((o) => {
@@ -287,7 +336,6 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
       return next;
     });
 
-  /* 停留位置：目录到手、树按恢复出的展开态画完之后，才把滚动位置压回去 */
   useEffect(() => {
     if (state !== 'ready') return;
     const el = scrollBox.current;
@@ -298,7 +346,6 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
     return () => cancelAnimationFrame(id);
   }, [state, store]);
 
-  /** 搜索态是平铺结果，那一屏的位置不配当"目录停在哪儿"；防抖 150ms，不每帧写一次存储 */
   const onScroll = useCallback((): void => {
     if (q.trim() !== '') return;
     const el = scrollBox.current;
@@ -310,6 +357,16 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const headline = state === 'loading' ? '目录加载中' : state === 'error' ? '目录不可达' : catalogHeadline(total);
+
+  const rowState = (row: LeafRow): DraftRowState => {
+    const draft = drafts.get(row.path) ?? null;
+    return {
+      draft,
+      saving: savingPath === row.path,
+      savedNow: savedNow.has(row.path),
+      err: saveErr?.path === row.path ? saveErr.text : '',
+    };
+  };
 
   return (
     <>
@@ -354,21 +411,14 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
           <div className="srchline">
             <div className="search">
               <Icon id="i-search" />
-              <input
-                type="text"
-                value={q}
-                placeholder="赛事名过滤，如 上海 / CCPC / 江苏"
-                aria-label="搜索赛事"
-                autoComplete="off"
-                onChange={(e) => setQ(e.target.value)}
-              />
+              <input type="text" value={q} placeholder="赛事名过滤，如 上海 / CCPC / 江苏" aria-label="搜索赛事" autoComplete="off" onChange={(e) => setQ(e.target.value)} />
             </div>
             <span className="srchline__n">
               {state !== 'ready' ? (
                 ''
               ) : q.trim() === '' ? (
                 <>
-                  收录 <b>{total}</b> 场 · {sessions.size > 0 ? <>进行中 <b>{sessions.size}</b> 场</> : '展开分组逐场列出'}
+                  收录 <b>{total}</b> 场 · {livePaths.size > 0 ? <>进行中 <b>{livePaths.size}</b> 场</> : '展开分组逐场列出'}
                 </>
               ) : (
                 <>
@@ -382,7 +432,7 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
             {state === 'loading' ? <Loading /> : null}
             {state === 'error' ? <Failed text={error} onRetry={() => void fetchCatalog(false)} /> : null}
             {state === 'ready' && q.trim() !== '' ? (
-              <Found hits={hits} q={q} sessions={sessions} onEnter={onEnter} onEndSession={endSession} pf={pf} save={save} />
+              <Found hits={hits} q={q} livePaths={livePaths} rowState={rowState} onEnter={onEnter} onEndDraft={endDraft} onSaveDraft={requestSaveRow} pf={pf} />
             ) : null}
             {state === 'ready' && q.trim() === '' ? (
               <>
@@ -393,11 +443,12 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
                     depth={0}
                     openState={open}
                     toggle={toggle}
-                    sessions={sessions}
+                    livePaths={livePaths}
+                    rowState={rowState}
                     onEnter={onEnter}
-                    onEndSession={endSession}
+                    onEndDraft={endDraft}
+                    onSaveDraft={requestSaveRow}
                     pf={pf}
-                    save={save}
                     top
                   />
                 ))}
@@ -415,6 +466,26 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, restorePat
           </div>
         </div>
       </div>
+
+      {nameState !== null ? (
+        <NameDialog
+          title="保存成绩"
+          sub="这是第一次保存这份草稿；名称默认本地日期时间，可修改。"
+          initial={nameState.initial}
+          confirmLabel="保存"
+          busy={nameBusy}
+          error={saveErr?.path === nameState.row.path ? saveErr.text : null}
+          onCancel={() => setNameState(null)}
+          onConfirm={(name) => {
+            const state = nameState;
+            setNameBusy(true);
+            void saveRow(state.row, state.draft, name).then((ok) => {
+              setNameBusy(false);
+              if (ok) setNameState(null);
+            });
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -460,10 +531,6 @@ function Failed({ text, onRetry }: { text: string; onRetry: () => void }) {
   );
 }
 
-/**
- * 行级预拉取读数：服务端标的 `cached` 与本次会话刚拉完的取并集；
- * `err` 只给报错那一行（别的行拿到空串，不跟着抖）。
- */
 const prefetchOf = (r: LeafRow, pf: PrefetchState): { cached: boolean; busy: boolean; err: string } => ({
   cached: r.cached === true || pf.cachedNow.has(r.path),
   busy: pf.busyPath === r.path,
@@ -473,19 +540,21 @@ const prefetchOf = (r: LeafRow, pf: PrefetchState): { cached: boolean; busy: boo
 function Found({
   hits,
   q,
-  sessions,
+  livePaths,
+  rowState,
   onEnter,
+  onEndDraft,
+  onSaveDraft,
   pf,
-  save,
-  onEndSession,
 }: {
   hits: LeafRow[];
   q: string;
-  sessions: Map<string, { elapsed: number; paused: boolean }>;
+  livePaths: Map<string, { elapsed: number; paused: boolean }>;
+  rowState: (row: LeafRow) => DraftRowState;
   onEnter: Props['onEnter'];
+  onEndDraft: (row: LeafRow) => void;
+  onSaveDraft: (row: LeafRow) => void;
   pf: PrefetchState;
-  save: SaveState;
-  onEndSession: (path: string) => void;
 }) {
   return (
     <>
@@ -510,10 +579,11 @@ function Found({
             row={r}
             alt={i % 2 === 1}
             path={r.group.join(' / ')}
-            live={sessions.get(r.path) ?? null}
+            live={livePaths.get(r.path) ?? null}
+            state={rowState(r)}
             onEnter={onEnter}
-            onEndSession={onEndSession}
-            save={save}
+            onEndDraft={onEndDraft}
+            onSaveDraft={onSaveDraft}
             {...prefetchOf(r, pf)}
             onPrefetch={pf.onPrefetch}
           />
@@ -528,19 +598,31 @@ interface GroupProps {
   depth: number;
   openState: Set<string>;
   toggle: (key: string) => void;
-  sessions: Map<string, { elapsed: number; paused: boolean }>;
+  livePaths: Map<string, { elapsed: number; paused: boolean }>;
+  rowState: (row: LeafRow) => DraftRowState;
   onEnter: Props['onEnter'];
-  onEndSession: (path: string) => void;
+  onEndDraft: (row: LeafRow) => void;
+  onSaveDraft: (row: LeafRow) => void;
   pf: PrefetchState;
-  save: SaveState;
   top?: boolean;
   chain?: string;
 }
 
-/** 分组行：顶层是 `.cgrp`，下层是 `.cyear`；展开态按「类目名 → 组名」这条链记，不写进存储 */
-const GroupView = memo(function GroupView({ node, depth, openState, toggle, sessions, onEnter, onEndSession, pf, save, top = false, chain = '' }: GroupProps) {
+const GroupView = memo(function GroupView({
+  node,
+  depth,
+  openState,
+  toggle,
+  livePaths,
+  rowState,
+  onEnter,
+  onEndDraft,
+  onSaveDraft,
+  pf,
+  top = false,
+  chain = '',
+}: GroupProps) {
   const key = chain === '' ? node.name : `${chain} / ${node.name}`;
-  // 一律折起（含顶层五类）：394 行全摊开等于没有目录；展开过的那一层由 arena:tree 记着
   const open = openState.has(key);
   const count = node.count;
 
@@ -555,12 +637,19 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
     </button>
   ) : (
     <div className={`cyear${node.kids.length > 0 ? ' cyear--grp' : ' cyear--flat'}${node.leaves.length === 0 && node.kids.length === 0 ? ' cyear--void' : ''}`}>
-      <div className="cyear__in" role="button" tabIndex={0} aria-expanded={open} onClick={() => toggle(key)} onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggle(key);
-        }
-      }}>
+      <div
+        className="cyear__in"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => toggle(key)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle(key);
+          }
+        }}
+      >
         <Icon id="i-chev" className="cgrp__cv" />
         <b className="cyear__y">{node.name}</b>
         <span className="cyear__n">{count} 场</span>
@@ -575,10 +664,34 @@ const GroupView = memo(function GroupView({ node, depth, openState, toggle, sess
       {head}
       <div className="cbody" style={{ ['--d' as string]: depth + 1 }}>
         {node.kids.map((k) => (
-          <GroupView key={k.name} node={k} depth={depth + 1} openState={openState} toggle={toggle} sessions={sessions} onEnter={onEnter} onEndSession={onEndSession} pf={pf} save={save} chain={key} />
+          <GroupView
+            key={k.name}
+            node={k}
+            depth={depth + 1}
+            openState={openState}
+            toggle={toggle}
+            livePaths={livePaths}
+            rowState={rowState}
+            onEnter={onEnter}
+            onEndDraft={onEndDraft}
+            onSaveDraft={onSaveDraft}
+            pf={pf}
+            chain={key}
+          />
         ))}
         {node.leaves.map((r, i) => (
-          <Row key={r.path} row={r} alt={i % 2 === 1} live={sessions.get(r.path) ?? null} onEnter={onEnter} onEndSession={onEndSession} save={save} {...prefetchOf(r, pf)} onPrefetch={pf.onPrefetch} />
+          <Row
+            key={r.path}
+            row={r}
+            alt={i % 2 === 1}
+            live={livePaths.get(r.path) ?? null}
+            state={rowState(r)}
+            onEnter={onEnter}
+            onEndDraft={onEndDraft}
+            onSaveDraft={onSaveDraft}
+            {...prefetchOf(r, pf)}
+            onPrefetch={pf.onPrefetch}
+          />
         ))}
       </div>
     </>
@@ -592,102 +705,97 @@ const TierBadge = memo(function TierBadge({ tier, label }: { tier: string; label
 interface RowProps {
   row: LeafRow;
   live: { elapsed: number; paused: boolean } | null;
+  state: DraftRowState;
   alt?: boolean;
   path?: string;
   onEnter: Props['onEnter'];
-  onEndSession: (path: string) => void;
-  save: SaveState;
-  /** 预拉取三态（docs/contracts/20 §1）：已缓存 / 正在拉 / 这一行的失败小字 */
+  onEndDraft: (row: LeafRow) => void;
+  onSaveDraft: (row: LeafRow) => void;
   cached: boolean;
   busy: boolean;
   err: string;
   onPrefetch: (path: string) => void;
 }
 
-const Row = memo(function Row({ row, live, alt = false, path, onEnter, onEndSession, save, cached, busy, err, onPrefetch }: RowProps) {
-  const hasGhost = save.ghostPaths.has(row.path);
-  const saving = save.savingPath === row.path;
-  const saved = save.savedNow.has(row.path);
-  const armed = save.arm?.path === row.path;
-  const errText = err !== '' ? err : save.saveErr?.path === row.path ? save.saveErr.text : '';
+const Row = memo(function Row({ row, live, state, alt = false, path, onEnter, onEndDraft, onSaveDraft, cached, busy, err, onPrefetch }: RowProps) {
+  const draft = state.draft;
+  const saving = state.saving;
+  const finished = draft !== null && draft.phase === 'finished';
+  const running = draft !== null && draft.phase === 'running' && live !== null;
+  const canSave = finished && canSaveDraft(draft) && (draft.target === null || isDirty(draft));
+  const errText = err !== '' ? err : state.err;
+  const status = draft === null ? null : draftSummary(draft);
   return (
-    <div className={`crow${alt ? ' is-alt' : ''}${live ? ' is-live' : ''}`}>
+    <div className={`crow${alt ? ' is-alt' : ''}${running ? ' is-live' : ''}${draft !== null ? ' has-draft' : ''}`}>
       <span className="crow__d">{row.date}</span>
       <TierBadge tier={row.badge.tier} label={row.badge.label} />
       <span className="crow__t">
         {row.name}
         {path ? <u>{path}</u> : null}
+        {status !== null ? <i className={`crow__status${draft !== null && isDirty(draft) ? ' is-dirty' : ''}`}>{status}</i> : null}
       </span>
       <span className="crow__acts">
-        {live !== null ? (
+        {running ? (
           <>
             <span className={`crow__live${live.paused ? ' is-paused' : ''}`}>
               <i className={`dot ${live.paused ? 'dot--idle' : 'dot--live'}`} />
-              {live.paused ? '已暂停 ' : '回放中 '}
+              {live.paused ? '已暂停 ' : '进行中 '}
               <span className="num">{clockHMS(live.elapsed)}</span>
             </span>
-            <button className="btn btn--xs" onClick={() => onEnter(row, true)}>
-              回到回放
+            <button className="btn btn--xs" onClick={() => onEnter(row, 'practice')}>
+              回到练习
             </button>
-            <button
-              className="btn btn--xs btn--ghost"
-              title="结束这场回放并清掉「进行中」标记；「我的成绩」会保留"
-              onClick={() => onEndSession(row.path)}
-            >
+            <button className="btn btn--xs btn--ghost" title="结束本次练习；结束状态会记进当前草稿，不会自动保存正式档" onClick={() => onEndDraft(row)}>
               结束
             </button>
+            <button className="btn btn--xs btn--ghost" title="只读看终榜，不改当前练习" onClick={() => onEnter(row, 'review')}>
+              查看终榜
+            </button>
+          </>
+        ) : draft !== null ? (
+          <>
+            <button className="btn btn--xs btn--go" onClick={() => onEnter(row, 'practice')}>
+              <Icon id="i-eye" />
+              {finished ? '查看成绩' : '查看录入'}
+            </button>
+            <button className="btn btn--xs btn--ghost" title="只读看终榜，不改当前草稿" onClick={() => onEnter(row, 'review')}>
+              查看终榜
+            </button>
+            {canSave ? (
+              <button className="btn btn--xs" disabled={saving} onClick={() => onSaveDraft(row)} title="保存到工坊；已有目标时只更新那一档">
+                <Icon id="i-save" />
+                {saving ? '保存中…' : state.savedNow ? '已保存' : '保存成绩'}
+              </button>
+            ) : null}
           </>
         ) : (
           <>
-            <button className="btn btn--xs btn--go" onClick={() => onEnter(row, true)}>
+            <button className="btn btn--xs btn--go" onClick={() => onEnter(row, 'practice')}>
               <Icon id="i-play" />
               开始模拟
             </button>
-            <button className="btn btn--xs btn--ghost" onClick={() => onEnter(row, false)}>
+            <button className="btn btn--xs btn--ghost" onClick={() => onEnter(row, 'review')}>
               <Icon id="i-eye" />
               查看终榜
             </button>
-            {/* 已缓存 = 「本地」小标替代按钮；未缓存 = 预拉取（拉取中禁用重复点，图标留住） */}
             {cached ? (
               <span className="crow__cache">
                 <i className="dot dot--ok" />
                 本地
               </span>
             ) : (
-              <button
-                className="btn btn--xs btn--ghost"
-                disabled={busy}
-                title="把这一场的榜单快照先拉到本地缓存"
-                onClick={() => onPrefetch(row.path)}
-              >
+              <button className="btn btn--xs btn--ghost" disabled={busy} title="把这一场的榜单快照先拉到本地缓存" onClick={() => onPrefetch(row.path)}>
                 <Icon id="i-sync" />
                 {busy ? '拉取中…' : '预拉取'}
               </button>
             )}
           </>
         )}
-        {hasGhost ? (
-          <button
-            className="btn btn--xs"
-            disabled={saving}
-            title={
-              armed
-                ? '再点一次会把这场已有的 record.json 整份替换；点到别处取消'
-                : '把「我的成绩」与当前回放位置存到工坊的比赛对象（record.json）'
-            }
-            onBlur={save.onDisarm}
-            onClick={() => save.onSaveGhost(row, live)}
-          >
-            <Icon id="i-save" />
-            {saving ? '保存中…' : saved ? '已保存' : armed ? '确认覆盖' : '保存'}
-          </button>
-        ) : null}
+        <button className="btn btn--xs btn--ghost" title="历史成绩 · 查看 / 编辑这场保存过的成绩" onClick={() => onEnter(row, 'review', { openHistory: true })}>
+          <Icon id="i-clock" />
+          历史成绩
+        </button>
       </span>
-      {armed ? (
-        <span className="crow__arm" title={save.arm?.hint ?? ''}>
-          {save.arm?.hint ?? ''}
-        </span>
-      ) : null}
       {errText === '' ? null : (
         <span className="crow__err" title={errText}>
           {errText}
