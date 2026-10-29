@@ -87,24 +87,65 @@ const templateSaveBody = z.object({
   baseRevision: z.union([z.string().max(64), z.null()]),
 });
 
-const arenaRecordQuery = z.object({ path: z.string().max(300) });
+/* 榜单多存档（docs/contracts/29）；形状只做第一道挡板，语义由 shared 的解析器收口 */
+const arenaRecordsQuery = z.object({ path: z.string().min(1).max(300) });
 
-const arenaRecordBody = z.object({
-  arenaPath: z.string().max(300),
-  title: z.string().max(200).optional(),
-  ghost: z.object({
-    show: z.boolean(),
-    subs: z
-      .array(z.object({ p: z.number().int().nonnegative(), t: z.number().int().nonnegative(), r: z.enum(['AC', 'WA', 'TLE', 'RE', 'CE']) }))
-      .max(5000),
-  }),
-  view: z.object({
-    mode: z.enum(['live', 'review']),
-    viewMs: z.number().nonnegative(),
-    paused: z.boolean(),
-    frozenView: z.boolean(),
-  }),
+const arenaRecordAddress = z.string().regex(/^(rec_[0-9a-f]{32}|legacy)$/, 'recordId 形状不合法');
+const newArenaRecordId = z.string().regex(/^rec_[0-9a-f]{32}$/, 'recordId 必须是 rec_ 加 32 位小写十六进制');
+const arenaTrashId = z.string().regex(/^tr_[0-9a-f]{32}$/, 'trashId 形状不合法');
+const recordRevision = z.string().min(1).max(128);
+
+const arenaRecordItemQuery = z.object({
+  path: z.string().min(1).max(300),
+  recordId: arenaRecordAddress,
 });
+
+const arenaRecordResultBody = z.object({
+  origin: z.enum(['timed', 'manual', 'legacy-review']),
+  finish: z.enum(['time-limit', 'stopped', 'declared', 'unknown']),
+  durationMs: z.union([z.number().int().positive(), z.null()]),
+  stoppedAtMs: z.union([z.number().int().nonnegative(), z.null()]),
+});
+
+const arenaGhostBody = z.object({
+  show: z.boolean(),
+  subs: z
+    .array(z.object({ p: z.number().int().nonnegative(), t: z.number().int().nonnegative(), r: z.enum(['AC', 'WA', 'TLE', 'RE', 'CE']) }))
+    .max(5000),
+});
+
+const arenaRecordCreateBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  contestTitle: z.string().max(200).optional(),
+  recordId: newArenaRecordId,
+  name: z.string().max(400),
+  result: arenaRecordResultBody,
+  ghost: arenaGhostBody,
+});
+
+const arenaRecordUpdateBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  recordId: arenaRecordAddress,
+  expectedRevision: recordRevision,
+  result: arenaRecordResultBody,
+  ghost: arenaGhostBody,
+});
+
+const arenaRecordRenameBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  recordId: arenaRecordAddress,
+  expectedRevision: recordRevision,
+  name: z.string().max(400),
+});
+
+const arenaRecordTrashBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  recordId: arenaRecordAddress,
+  expectedRevision: recordRevision,
+  confirm: z.literal(true),
+});
+
+const arenaRecordRestoreBody = z.object({ trashId: arenaTrashId });
 
 const invalid = (reply: FastifyReply, message: string): FastifyReply =>
   reply.code(400).send({ error: { kind: 'invalid', message } });
@@ -180,21 +221,84 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     }
   });
 
-  app.get('/api/work/arena-record', async (request, reply) => {
-    const parsed = arenaRecordQuery.safeParse(request.query ?? {});
+  app.get('/api/work/arena-records', async (request, reply) => {
+    const parsed = arenaRecordsQuery.safeParse(request.query ?? {});
     if (!parsed.success) return invalid(reply, '缺少 arenaPath');
     try {
-      return work.getArenaRecord(parsed.data.path);
+      return work.listArenaRecords(parsed.data.path);
     } catch (err) {
       return sendWorkError(reply, err);
     }
   });
 
-  app.post('/api/work/arena-record', async (request, reply) => {
-    const parsed = arenaRecordBody.safeParse(request.body ?? {});
-    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '成绩存档不合法');
+  app.get('/api/work/arena-records/item', async (request, reply) => {
+    const parsed = arenaRecordItemQuery.safeParse(request.query ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '缺少 arenaPath / recordId');
     try {
-      return await work.saveArenaRecord(parsed.data);
+      return work.getArenaRecordItem(parsed.data.path, parsed.data.recordId);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.get('/api/work/arena-records/legacy', async (request, reply) => {
+    const parsed = arenaRecordsQuery.safeParse(request.query ?? {});
+    if (!parsed.success) return invalid(reply, '缺少 arenaPath');
+    try {
+      return work.getArenaLegacy(parsed.data.path);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  // 成绩写接口单独放宽到 1 MiB（最多 5000 发）；其余接口仍按全局 64 KiB
+  app.post('/api/work/arena-records/create', { bodyLimit: 1024 * 1024 }, async (request, reply) => {
+    const parsed = arenaRecordCreateBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '存档参数不合法');
+    try {
+      const result = await work.createArenaRecord(parsed.data);
+      const { created, ...body } = result;
+      return reply.code(created ? 201 : 200).send(body);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/arena-records/update', { bodyLimit: 1024 * 1024 }, async (request, reply) => {
+    const parsed = arenaRecordUpdateBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '存档参数不合法');
+    try {
+      return await work.updateArenaRecord(parsed.data);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/arena-records/rename', async (request, reply) => {
+    const parsed = arenaRecordRenameBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '改名参数不合法');
+    try {
+      return await work.renameArenaRecord(parsed.data);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/arena-records/trash', async (request, reply) => {
+    const parsed = arenaRecordTrashBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, '删除存档需要显式确认');
+    try {
+      return await work.trashArenaRecord(parsed.data);
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/arena-records/restore', async (request, reply) => {
+    const parsed = arenaRecordRestoreBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, 'trashId 不合法');
+    try {
+      return await work.restoreArenaRecord(parsed.data.trashId);
     } catch (err) {
       return sendWorkError(reply, err);
     }

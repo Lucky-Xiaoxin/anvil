@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { DatabaseSync } from 'node:sqlite';
@@ -544,34 +544,140 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().error.kind).toBe('invalid');
   });
 
-  it('arena-record：保存 / 读回 / 自动建 contest / 未知场次 404', async () => {
+  it('arena-records：创建 201 / 幂等 200 / 列表 / 条目 / 改名 / 更新 / 回收 / 恢复；旧接口已移除', async () => {
     await boot();
     await initApi();
     const arenaPath = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
-    let res = await post('/api/work/arena-record', {
+    const cached = join(base, 'vault', 'arena', arenaPath);
+    mkdirSync(dirname(cached), { recursive: true });
+    writeFileSync(
+      cached,
+      JSON.stringify({ contest: { duration: [18_000_000, 'ms'] }, problems: [{ alias: 'A' }, { alias: 'B' }] }),
+    );
+    const recordId = `rec_${'a'.repeat(32)}`;
+    const createBody = {
       arenaPath,
-      title: '上海站',
+      contestTitle: '上海站',
+      recordId,
+      name: '第一次 VP',
+      result: { origin: 'timed', finish: 'time-limit', durationMs: 18_000_000, stoppedAtMs: 18_000_000 },
       ghost: { show: true, subs: [{ p: 0, t: 30, r: 'AC' }] },
-      view: { mode: 'review', viewMs: 180000, paused: false, frozenView: true },
+    };
+
+    let res = await post('/api/work/arena-records/create', createBody);
+    expect(res.statusCode, res.body).toBe(201);
+    const made = res.json();
+    expect(made.object.links.arenaPath).toBe(arenaPath);
+    expect(made.record.name).toBe('第一次 VP');
+    expect(made.revision).toMatch(/^[0-9a-f]{64}$/);
+
+    res = await post('/api/work/arena-records/create', createBody);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().record.createdAt).toBe(made.record.createdAt);
+
+    res = await app.inject({ method: 'GET', url: `/api/work/arena-records?path=${encodeURIComponent(arenaPath)}` });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().records).toHaveLength(1);
+    expect(res.json().records[0].revision).toBe(made.revision);
+    expect(res.json().legacy).toBeNull();
+
+    res = await app.inject({
+      method: 'GET',
+      url: `/api/work/arena-records/item?path=${encodeURIComponent(arenaPath)}&recordId=${recordId}`,
     });
     expect(res.statusCode, res.body).toBe(200);
-    const saved = res.json();
-    expect(saved.object.links.arenaPath).toBe(arenaPath);
-    expect(saved.record.view.frozenView).toBe(true);
+    expect(res.json().record.recordId).toBe(recordId);
 
-    res = await app.inject({ method: 'GET', url: `/api/work/arena-record?path=${encodeURIComponent(arenaPath)}` });
-    expect(res.statusCode, res.body).toBe(200);
-    expect(res.json().ghost.subs).toHaveLength(1);
-
-    res = await app.inject({ method: 'GET', url: `/api/work/arena-record?path=${encodeURIComponent('official/icpc/x/none.srk.json')}` });
-    expect(res.statusCode).toBe(404);
-
-    res = await post('/api/work/arena-record', {
-      arenaPath: '../bad.srk.json',
-      ghost: { show: true, subs: [] },
-      view: { mode: 'review', viewMs: 0, paused: false, frozenView: false },
-    });
+    // 缺 recordId 不自行挑最新档
+    res = await app.inject({ method: 'GET', url: `/api/work/arena-records/item?path=${encodeURIComponent(arenaPath)}` });
     expect(res.statusCode).toBe(400);
+
+    res = await post('/api/work/arena-records/rename', {
+      arenaPath,
+      recordId,
+      expectedRevision: made.revision,
+      name: '重命名',
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const renamed = res.json();
+    expect(renamed.record.name).toBe('重命名');
+
+    res = await post('/api/work/arena-records/update', {
+      arenaPath,
+      recordId,
+      expectedRevision: renamed.revision,
+      result: createBody.result,
+      ghost: { show: true, subs: [] },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const updated = res.json();
+    expect(updated.record.ghost.subs).toEqual([]);
+
+    res = await post('/api/work/arena-records/update', {
+      arenaPath,
+      recordId,
+      expectedRevision: renamed.revision,
+      result: createBody.result,
+      ghost: createBody.ghost,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.kind).toBe('conflict');
+
+    res = await post('/api/work/arena-records/trash', {
+      arenaPath,
+      recordId,
+      expectedRevision: updated.revision,
+      confirm: true,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const trashed = res.json();
+    expect(trashed).toMatchObject({ entryType: 'arena-record', recordId });
+
+    res = await app.inject({ method: 'GET', url: '/api/work/tree' });
+    expect(res.json().trash).toEqual([
+      expect.objectContaining({ entryType: 'arena-record', recordId, contestId: made.object.id }),
+    ]);
+
+    res = await post('/api/work/arena-records/restore', { trashId: trashed.trashId });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().restored).toBe('record');
+
+    // 旧单档读写入口已移除
+    res = await app.inject({ method: 'GET', url: `/api/work/arena-record?path=${encodeURIComponent(arenaPath)}` });
+    expect(res.statusCode).toBe(404);
+    res = await post('/api/work/arena-record', { arenaPath, ghost: { show: true, subs: [] } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('arena-records：5000 发可保存；超过 1 MiB 返回 413', async () => {
+    await boot();
+    await initApi();
+    const arenaPath = 'official/icpc/icpc2025/icpc2025shanghai.srk.json';
+    const cached = join(base, 'vault', 'arena', arenaPath);
+    mkdirSync(dirname(cached), { recursive: true });
+    writeFileSync(
+      cached,
+      JSON.stringify({ contest: { duration: [18_000_000, 'ms'] }, problems: Array.from({ length: 4 }, (_, i) => ({ alias: `P${i}` })) }),
+    );
+    const subs = Array.from({ length: 5000 }, (_, i) => ({ p: i % 4, t: i % 300, r: 'WA' }));
+    let res = await post('/api/work/arena-records/create', {
+      arenaPath,
+      recordId: `rec_${'a'.repeat(32)}`,
+      name: '满额',
+      result: { origin: 'timed', finish: 'time-limit', durationMs: 18_000_000, stoppedAtMs: 18_000_000 },
+      ghost: { show: true, subs },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+
+    res = await post('/api/work/arena-records/create', {
+      arenaPath,
+      recordId: `rec_${'b'.repeat(32)}`,
+      name: '超限',
+      result: { origin: 'timed', finish: 'time-limit', durationMs: 18_000_000, stoppedAtMs: 18_000_000 },
+      ghost: { show: true, subs: [{ p: 0, t: 1, r: 'AC' }] },
+      pad: 'x'.repeat(1024 * 1024),
+    });
+    expect(res.statusCode).toBe(413);
   });
 
   it('题组 API：create / adopt / update 的 kind 与 parentId 校验；关联 / 清除（契约 26 §9.3；0..n 见契约 27）', async () => {

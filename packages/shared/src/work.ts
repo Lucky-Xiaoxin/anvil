@@ -82,12 +82,30 @@ export interface WorkScanErrorDto {
   message: string;
 }
 
-export interface WorkTrashDto {
+interface WorkTrashBaseDto {
+  /** 对象条目 = 对象 id；成绩条目 = 本次回收生成的 trashId（`tr_` 开头） */
   id: string;
+  /** 列表显示名：对象标题 / 存档名称 */
   title: string;
-  originalRelPath: string;
   trashedAt: string;
 }
+
+export interface WorkTrashObjectDto extends WorkTrashBaseDto {
+  entryType: 'object';
+  originalRelPath: string;
+}
+
+/** 单份成绩（docs/contracts/29 §4.5）：回收条目独立于比赛对象，恢复按 recordId 回原宿主 */
+export interface WorkTrashRecordDto extends WorkTrashBaseDto {
+  entryType: 'arena-record';
+  recordId: string;
+  contestId: string;
+  arenaPath: string;
+  /** `record.json`（旧根文件）或 `rec_<32 hex>.json` */
+  fileName: string;
+}
+
+export type WorkTrashDto = WorkTrashObjectDto | WorkTrashRecordDto;
 
 export interface WorkTrashPurgeResult {
   removed: number;
@@ -191,24 +209,18 @@ export type WorkArenaRecordParseResult =
   | { ok: true; record: WorkArenaRecordDto }
   | { ok: false; message: string };
 
-/** record.json 校验：savedAt / view / 逐发都在服务端收口一次，坏文件不静默喂给回放 */
-export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult {
-  if (!isRecord(input)) return { ok: false, message: 'record 不是对象' };
-  if (input.schema !== 1) return { ok: false, message: `不支持的 record schema：${String(input.schema)}` };
-  if (typeof input.arenaPath !== 'string' || !contestPathOk(input.arenaPath)) {
-    return { ok: false, message: 'record.arenaPath 不合法' };
-  }
-  if (typeof input.title !== 'string') return { ok: false, message: 'record.title 必须是字符串' };
-  const title = input.title.trim();
-  if (title.length < 1 || title.length > 120) return { ok: false, message: 'record.title 长度必须在 1–120 之间' };
-  if (!isIsoTime(input.savedAt)) return { ok: false, message: 'record.savedAt 不是合法时间' };
+export type WorkArenaGhostParseResult =
+  | { ok: true; ghost: WorkArenaGhost }
+  | { ok: false; message: string };
 
-  if (!isRecord(input.ghost)) return { ok: false, message: 'record.ghost 必须是对象' };
-  if (typeof input.ghost.show !== 'boolean') return { ok: false, message: 'record.ghost.show 必须是布尔值' };
-  if (!Array.isArray(input.ghost.subs)) return { ok: false, message: 'record.ghost.subs 必须是数组' };
-  if (input.ghost.subs.length > 5000) return { ok: false, message: 'record.ghost.subs 太多' };
+/** 逐发清单校验（schema 1 旧档与 schema 2 正式档共用）：非法输入整份拒绝，保存前排序 */
+export function parseWorkArenaGhost(input: unknown): WorkArenaGhostParseResult {
+  if (!isRecord(input)) return { ok: false, message: 'record.ghost 必须是对象' };
+  if (typeof input.show !== 'boolean') return { ok: false, message: 'record.ghost.show 必须是布尔值' };
+  if (!Array.isArray(input.subs)) return { ok: false, message: 'record.ghost.subs 必须是数组' };
+  if (input.subs.length > 5000) return { ok: false, message: 'record.ghost.subs 太多' };
   const subs: WorkArenaGhostSub[] = [];
-  for (const raw of input.ghost.subs) {
+  for (const raw of input.subs) {
     if (!isRecord(raw)) return { ok: false, message: 'record.ghost.subs 含非法项' };
     const p = raw.p;
     const t = raw.t;
@@ -221,6 +233,23 @@ export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult
     subs.push({ p, t, r: r as WorkArenaGhostResult });
   }
   subs.sort((a, b) => a.p - b.p || a.t - b.t);
+  return { ok: true, ghost: { show: input.show, subs } };
+}
+
+/** record.json 校验：savedAt / view / 逐发都在服务端收口一次，坏文件不静默喂给回放 */
+export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult {
+  if (!isRecord(input)) return { ok: false, message: 'record 不是对象' };
+  if (input.schema !== 1) return { ok: false, message: `不支持的 record schema：${String(input.schema)}` };
+  if (typeof input.arenaPath !== 'string' || !contestPathOk(input.arenaPath)) {
+    return { ok: false, message: 'record.arenaPath 不合法' };
+  }
+  if (typeof input.title !== 'string') return { ok: false, message: 'record.title 必须是字符串' };
+  const title = input.title.trim();
+  if (title.length < 1 || title.length > 120) return { ok: false, message: 'record.title 长度必须在 1–120 之间' };
+  if (!isIsoTime(input.savedAt)) return { ok: false, message: 'record.savedAt 不是合法时间' };
+
+  const ghost = parseWorkArenaGhost(input.ghost);
+  if (!ghost.ok) return ghost;
 
   if (!isRecord(input.view)) return { ok: false, message: 'record.view 必须是对象' };
   const mode = input.view.mode;
@@ -237,7 +266,7 @@ export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult
       arenaPath: input.arenaPath,
       title,
       savedAt: input.savedAt,
-      ghost: { show: input.ghost.show, subs },
+      ghost: ghost.ghost,
       view: { mode, viewMs: Math.floor(viewMs), paused: input.view.paused, frozenView: input.view.frozenView },
     },
   };
