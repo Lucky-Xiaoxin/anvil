@@ -1,16 +1,20 @@
 /**
- * 回放榜（docs/contracts/16 §5.2 / §5.3）：s2 跟比赛时钟，s3 跟时间轴滑条 —— 榜体同一份。
+ * 回放榜（docs/contracts/16 §5.2 / §5.3 + docs/contracts/29 §3 / §6）：
+ * 同一张榜上区分「当前练习 / 查看历史 / 编辑历史 / 查看终榜」，历史只读、当前草稿单键保存。
  *
- * 走钟每秒一次，但**榜只在分钟滚过的那一刻重建**（§4 性能口径）：356 队 × 13 题
- * 每秒重排全表是不可接受的，而读数本来就是分钟粒度。行组件 memo 化，
- * 于是 hover / 弹层 / 计时跳动都不会带着整张表重渲。
- *
- * v7 起这份榜体还多一行「我的成绩」幽灵（docs/contracts/20 §2）：顶栏常驻入口 + 录入面板
- * （`GhostPanel.tsx`）+ 引擎侧占名额注入；幽灵签名拼进 `minuteKey`，改了数字才重建得到。
+ * 走钟每秒一次，但**榜只在分钟滚过的那一刻重建**（§4 性能口径）；行组件 memo 化。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkArenaRecordDto } from '@anvil/shared';
-import { ApiError, getArenaContest, saveWorkArenaRecord } from '../../api.ts';
+import type { ArenaRecord, ArenaLegacyRecordDto } from '@anvil/shared';
+import {
+  ApiError,
+  createArenaRecord,
+  getArenaContest,
+  getArenaLegacy,
+  getArenaRecordItem,
+  listArenaRecords,
+  updateArenaRecord,
+} from '../../api.ts';
 import { clockHMS, clockHM, messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { useTip } from '../../tip.tsx';
@@ -18,14 +22,11 @@ import {
   bandRanges,
   buildBoard,
   buildModel,
-  capAt,
   elapsedOf,
-  finish as finishSession,
   inFreezeWindow,
   minutesOf,
-  problemHeadState,
-  type HeadState,
   pause as pauseSession,
+  problemHeadState,
   startSession,
   subsUntil,
   tick,
@@ -43,22 +44,94 @@ import {
 import type { LeafRow } from './catalog.ts';
 import { GhostPanel } from './GhostPanel.tsx';
 import { Popover, PopShell, resClass, type Anchor } from './pops.tsx';
-import { arenaTitleOf, ghostToRecord, ghostsAgree, overwriteHintOf, probeSavedRecord, recordToGhost } from './record.ts';
-import { clearGhost, clearSession, loadGhost, loadSession, saveGhost, saveSession, type GhostData, type Store } from './session.ts';
+import {
+  applySaveSuccess,
+  buildCreatePayload,
+  buildUpdatePayload,
+  canSaveDraft,
+  clearDraft,
+  declareFinished,
+  draftFromLegacyLive,
+  draftFromRecord,
+  draftSummary,
+  finishDraft,
+  isDirty,
+  loadDraft,
+  migrateLegacy,
+  newDraft,
+  newManualDraft,
+  replaceCaseOf,
+  saveDraft,
+  updateReconciled,
+  type ArenaDraft,
+  type ReplaceCase,
+} from './draft.ts';
+import {
+  arenaTitleOf,
+  copySaveName,
+  firstSaveName,
+  newRecordId,
+  recordFinishNote,
+  recordToGhost,
+  resultLabel,
+} from './record.ts';
+import { draftKey } from './draft.ts';
+import type { GhostData, Store } from './session.ts';
+import { ConfirmDialog, HistoryDialog, NameDialog, ReplaceDialog, type HistoryState } from './ArenaDialogs.tsx';
+
+export type ArenaEntryMode = 'practice' | 'review' | 'record' | 'restore-legacy';
 
 interface Props {
   row: LeafRow;
-  /** false = 从目录「查看终榜」或结束后进回顾；true = 「开始模拟」开钟 */
-  live: boolean;
   store: Store;
   onBack: () => void;
-  /** 从工坊「回到回放」带进来的 record.json：幽灵、回顾位置与封榜视角以它为准 */
-  initialRecord?: WorkArenaRecordDto | null;
+  mode: ArenaEntryMode;
+  /** mode=record 时必填；来自 #/arena?...&record= */
+  recordId?: string | null;
+  /** 从目录「历史成绩」进来时直接打开选择层 */
+  openHistory?: boolean;
+  /** 草稿 / 正式档变化后通知目录刷新 */
+  onDraftChanged?: () => void;
 }
 
 type Load = { kind: 'loading' } | { kind: 'error'; text: string; missing: boolean } | { kind: 'ready'; model: ContestModel };
 
-/** 三个弹层（docs/contracts/16 §5.2 + docs/contracts/20 §2.3）：提交明细 / 队伍 / 「我的成绩」面板 */
+type Identity = { kind: 'practice' } | { kind: 'review' } | { kind: 'view'; recordId: string } | { kind: 'edit' };
+
+interface ViewState {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  recordId: string | null;
+  record: ArenaRecord | null;
+  revision: string | null;
+  error: string | null;
+}
+
+interface SwitchAction {
+  kind: 'new-practice' | 'manual' | 'edit' | 'restore-legacy';
+  record?: ArenaRecord;
+  revision?: string;
+  legacy?: ArenaLegacyRecordDto;
+}
+
+interface NameState {
+  mode: 'save' | 'save-as' | 'switch';
+  initial: string;
+  draft: ArenaDraft;
+  action?: SwitchAction;
+}
+
+interface ConflictState {
+  kind: 'conflict' | 'unknown';
+  message: string;
+  recordId: string;
+}
+
+interface LegacyConfirmState {
+  record: ArenaRecord;
+  revision: string;
+  after: 'edit' | 'reload';
+}
+
 type Pop =
   | { anchor: Anchor; kind: 'sub'; ti: number; p: number }
   | { anchor: Anchor; kind: 'team'; ti: number }
@@ -66,38 +139,67 @@ type Pop =
 
 const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
 
-/** 幽灵签名：拼进 minuteKey，改了逐发就重建榜（不然只有分钟滚过才动） */
+/** 幽灵签名：拼进 minuteKey，改了逐发就重建榜 */
 const ghostSig = (g: GhostData | null): string =>
-  g === null
-    ? 'none'
-    : `${g.show ? 1 : 0}|${g.subs.map((s) => `${s.p}:${s.t}:${s.r}`).join(',')}`;
+  g === null ? 'none' : `${g.show ? 1 : 0}|${g.subs.map((s) => `${s.p}:${s.t}:${s.r}`).join(',')}`;
 
-export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: Props) {
+const isUnknownError = (err: unknown): boolean =>
+  err instanceof ApiError && (err.kind === 'timeout' || err.kind === 'offline' || err.kind === 'aborted');
+
+export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHistory = false, onDraftChanged }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
-  /** 手动重试计数：CDN 暂时取不到时，界面上那一脚重试比回目录再进来快 */
   const [tryNo, setTryNo] = useState(0);
-  const [session, setSession] = useState<Session | null>(null);
+  const [draft, setDraft] = useState<ArenaDraft | null>(null);
+  const draftRef = useRef<ArenaDraft | null>(null);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
+  const [storageWarn, setStorageWarn] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const staleRef = useRef(false);
+  staleRef.current = stale;
+  const [reloadNo, setReloadNo] = useState(0);
+  const [draftBooted, setDraftBooted] = useState(false);
+  const [identity, setIdentity] = useState<Identity>(
+    mode === 'record' && recordId !== null ? { kind: 'view', recordId } : mode === 'review' ? { kind: 'review' } : { kind: 'practice' },
+  );
+  const [view, setView] = useState<ViewState>({ status: 'idle', recordId: null, record: null, revision: null, error: null });
+  const [viewGhost, setViewGhost] = useState<GhostData | null>(null);
+  const [viewRetry, setViewRetry] = useState(0);
+  const viewSeq = useRef(0);
   const [elapsed, setElapsed] = useState(0);
-  const [review, setReview] = useState(initialRecord === null ? !live : initialRecord.view.mode === 'review');
+  const [scrubMs, setScrubMs] = useState(0);
+  const [frozenView, setFrozenView] = useState(false);
   const [onlyFormal, setOnlyFormal] = useState(false);
-  /** 回顾模式的封榜视角：默认关 = 解封视界（去回顾先给结果）；开 = 定格回看（封榜段只显 ?） */
-  const [frozenView, setFrozenView] = useState(initialRecord?.view.frozenView ?? false);
-  const [resumed, setResumed] = useState(false);
-  /** 「我的成绩」的录入（docs/contracts/20 §2.1）：每场一条。本地那份是工作副本，工坊存档只补空缺、不顶掉它 */
-  const initialGhost = initialRecord === null ? null : recordToGhost(initialRecord.ghost);
-  const [ghost, setGhost] = useState<GhostData | null>(() => loadGhost(store, row.path) ?? initialGhost);
-  const [ghostNote, setGhostNote] = useState<string | null>(null);
-  const restoredRef = useRef(initialRecord !== null);
-  const [saveState, setSaveState] = useState<'idle' | 'busy' | 'saved' | 'error'>('idle');
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-  /** 覆盖确认：一场只有一份 record.json，第一次点击只点名会被整份替换的那份 */
-  const [armHint, setArmHint] = useState<string | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
-  /** 榜体滚动容器：顶栏读数「跳到自己」用它定位那一行 */
   const boardBox = useRef<HTMLDivElement | null>(null);
   const { show, hide } = useTip();
 
-  /* ---------- 取数：进回放才拉那 1.5MB；失败给重试（jsDelivr 冷缓存会暂时 403） ---------- */
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ConflictState | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(openHistory);
+  const [history, setHistory] = useState<HistoryState>({ status: 'loading', dto: null, error: null });
+  const historySeq = useRef(0);
+
+  const [nameState, setNameState] = useState<NameState | null>(null);
+  const [nameErr, setNameErr] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ action: SwitchAction; case: Exclude<ReplaceCase, 'none'> } | null>(null);
+  const [replaceErr, setReplaceErr] = useState<string | null>(null);
+  const [legacyConfirm, setLegacyConfirm] = useState<LegacyConfirmState | null>(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  /** 切换前被替换的草稿：保存失败时恢复它（进行中不能因保存失败变成已结束） */
+  const switchOriginalRef = useRef<ArenaDraft | null>(null);
+  const bootRestoreRef = useRef(mode === 'restore-legacy');
+  const initialModeRef = useRef(mode);
+  const initialDraftBoot = useRef(true);
+  /** 编辑 / 恢复旧进度的异步入口也要“最后意图胜出” */
+  const editSeq = useRef(0);
+  const restoreSeq = useRef(0);
+
+  /* ---------- 取数：进回放才拉那 1.5MB；失败给重试 ---------- */
   useEffect(() => {
     let cancel = false;
     setLoad({ kind: 'loading' });
@@ -122,171 +224,656 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     };
   }, [row.path, tryNo]);
 
-  /* ---------- 会话：有记录就续钟，没有就开新钟 ---------- */
+  const commit = useCallback(
+    (next: ArenaDraft | null, persist = true): boolean => {
+      if (staleRef.current && persist) {
+        setStale(true);
+        return false;
+      }
+      draftRef.current = next;
+      setDraft(next);
+      if (next === null) {
+        if (persist) clearDraft(store, row.path);
+        return true;
+      }
+      if (!persist) return true;
+      const ok = saveDraft(store, row.path, next);
+      setStorageWarn(ok ? null : '浏览器存储写不进去：当前练习无法自动保留，请勿关闭页面');
+      return ok;
+    },
+    [row.path, store],
+  );
+
+  /* ---------- 草稿：新键优先；旧键只在没有新键时迁移一次（需要本场时长） ---------- */
   useEffect(() => {
     if (load.kind !== 'ready') return;
     const duration = load.model.duration;
-    if (restoredRef.current) {
-      restoredRef.current = false;
-      if (initialRecord !== null) {
-        const viewMs = Math.max(0, Math.min(duration, initialRecord.view.viewMs));
-        if (initialRecord.view.mode === 'review') {
-          // 存档是回顾：停在保存位置，不落 localStorage 会话（避免目录误挂「回放中」）
-          setSession({
-            ...startSession(Date.now()),
-            durationMs: duration,
-            hold: true,
-            paused: false,
-            ended: true,
-            scrubMs: viewMs,
-            at: viewMs,
-          });
-          setReview(true);
-          setElapsed(viewMs);
-          return;
-        }
-        const paused = initialRecord.view.paused;
-        const restored: Session = {
-          started: Date.now() - viewMs,
-          hold: paused,
-          paused,
-          ended: false,
-          scrubMs: viewMs,
-          at: viewMs,
-          durationMs: duration,
-        };
-        setSession(restored);
-        setReview(false);
-        setElapsed(viewMs);
-        saveSession(store, row.path, restored);
-        return;
-      }
-    }
-    const prev = loadSession(store, row.path);
-    if (prev === null) {
-      const s = { ...startSession(Date.now()), durationMs: duration };
-      /*
-       * 「查看终榜」不是「开始模拟」：没有钟在走，就不落会话记录 ——
-       * 否则目录那一行会凭空挂上「回放中」，而它其实只是被人看了一眼终榜。
-       */
-      if (live) {
-        setSession(s);
-        setReview(false);
-        saveSession(store, row.path, s);
-      } else {
-        setSession(finishSession(s, duration));
-        setReview(true);
-      }
+    setSaveErr(null);
+    setSaveNote(null);
+    setConflict(null);
+    const loaded = loadDraft(store, row.path);
+    if (loaded.kind === 'error') {
+      setDraftErr(loaded.message);
+      commit(null, false);
+      setDraftBooted(true);
       return;
     }
-    const withDur: Session = { ...prev, durationMs: duration };
-    if (live && !prev.hold) setResumed(true);
-    setSession(withDur);
-    setReview(prev.hold && prev.ended ? true : !live);
-    saveSession(store, row.path, withDur);
+    if (loaded.kind === 'draft') {
+      let d = loaded.draft;
+      if (d.session !== null && d.session.durationMs === 0) d = { ...d, session: { ...d.session, durationMs: duration } };
+      setDraftErr(null);
+      commit(d);
+      setDraftBooted(true);
+      return;
+    }
+    const migrated = migrateLegacy(store, row.path, duration);
+    if (migrated.kind === 'error') {
+      setDraftErr(migrated.message);
+      commit(null, false);
+      setDraftBooted(true);
+      return;
+    }
+    if (migrated.kind === 'migrated') {
+      setDraftErr(null);
+      commit(migrated.draft);
+      setDraftBooted(true);
+      return;
+    }
+    setDraftErr(null);
+    commit(null, false);
+    if (initialModeRef.current === 'practice' && initialDraftBoot.current) {
+      const s = { ...startSession(Date.now()), durationMs: duration };
+      const d: ArenaDraft = { ...newDraft(Date.now()), session: s };
+      commit(d);
+      setIdentity({ kind: 'practice' });
+    }
+    setDraftBooted(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load.kind === 'ready' ? load.model.duration : 0, row.path, initialRecord]);
+  }, [load.kind === 'ready' ? load.model.duration : 0, reloadNo, row.path]);
 
-  /* 工坊存档只补本地空缺：本地已有录入且与存档不同 → 保留本地并提示，覆盖交给「保存」这一步 */
   useEffect(() => {
-    if (initialRecord === null) return;
-    const local = loadGhost(store, row.path);
-    const fromRecord = recordToGhost(initialRecord.ghost);
-    if (local === null) saveGhost(store, row.path, fromRecord);
-    else if (!ghostsAgree(local, fromRecord)) setGhostNote('本地与存档不同 · 保存即覆盖存档');
+    if (draftBooted) initialDraftBoot.current = false;
+  }, [draftBooted]);
+
+  /* ---------- 查看指定档：失败留在错误态，不退回本地草稿 ---------- */
+  const viewRecordId = identity.kind === 'view' ? identity.recordId : null;
+  useEffect(() => {
+    if (viewRecordId === null) return;
+    const seq = ++viewSeq.current;
+    setView({ status: 'loading', recordId: viewRecordId, record: null, revision: null, error: null });
+    setViewGhost(null);
+    void (async () => {
+      try {
+        const item = await getArenaRecordItem(row.path, viewRecordId);
+        if (seq !== viewSeq.current) return;
+        setView({ status: 'ready', recordId: viewRecordId, record: item.record, revision: item.revision, error: null });
+        setViewGhost(recordToGhost(item.record.ghost));
+      } catch (err) {
+        if (seq !== viewSeq.current) return;
+        setView({ status: 'error', recordId: viewRecordId, record: null, revision: null, error: messageOf(err) });
+      }
+    })();
+  }, [viewRecordId, row.path, viewRetry]);
+
+  /* 查看历史不暂停当前练习：tab 里的 started 不动，回来仍按真实时钟接上 */
+  const practiceRunning = draft?.phase === 'running';
+  useEffect(() => {
+    if (identity.kind === 'view') setFrozenView(false);
+  }, [identity.kind, viewRecordId]);
+
+  const duration = load.kind === 'ready' ? load.model.duration : 0;
+  const runningHere = identity.kind === 'practice' && draft?.phase === 'running' && !stale;
+
+  /* ---------- 进入练习 / 已结束后把滑条摆到停止位置 ---------- */
+  const identityKey = identity.kind === 'view' ? `view:${identity.recordId}` : identity.kind;
+  useEffect(() => {
+    if (load.kind !== 'ready') return;
+    if (identity.kind === 'practice' && draft !== null) {
+      if (draft.phase === 'finished') setScrubMs(draft.result?.stoppedAtMs ?? duration);
+      else if (draft.phase === 'legacy-unconfirmed') setScrubMs(duration);
+      else setElapsed(elapsedOf(draft.session ?? startSession(Date.now()), duration, Date.now()));
+    }
+    if (identity.kind === 'edit' && draft !== null) setScrubMs(draft.result?.stoppedAtMs ?? duration);
+    if (identity.kind === 'view' && view.status === 'ready') setScrubMs(duration);
+    if (identity.kind === 'review') setScrubMs(duration);
+    // 只随身份 / 草稿代次 / 查看目标变化：拖轴、改逐发不重置位置
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [identityKey, draft?.draftId, draft?.phase, view.status, load.kind === 'ready' ? duration : 0]);
 
-  /* ---------- 走钟：每秒一次，分钟才重建 ---------- */
+  /* ---------- 走钟：每秒一次；到点落回顾并写结束信息 ---------- */
   useEffect(() => {
-    if (session === null || load.kind !== 'ready') return;
-    const duration = load.model.duration;
-    let s = session;
+    if (!runningHere || load.kind !== 'ready' || draft === null || draft.session === null) return;
+    const span = load.model.duration;
+    let s = draft.session;
     const run = (): void => {
-      const next = tick(s, duration, Date.now());
+      const next = tick(s, span, Date.now());
       s = next.session;
       setElapsed(next.elapsed);
-      if (next.session !== session) {
-        setSession(next.session);
-        if (next.session.ended) {
-          /*
-           * 钟走到终点：照「结束」按钮的落点走 —— 落回顾屏并清会话记录。
-           * `tick` 到点时已经把 at / scrubMs 摆到 duration，这里不用再动。
-           * 少了这一步，榜冻在回放屏、滑条不出现，目录那行还会挂着「回放中 · 5:00:00」。
-           */
-          setReview(true);
-          clearSession(store, row.path);
-        } else {
-          saveSession(store, row.path, next.session);
-        }
+      if (next.session !== draft.session) {
+        // 用 ref 取最新草稿：计时期间可能刚补录了逐发，不能拿本次 effect 起点的旧快照收尾
+        const current = draftRef.current;
+        if (current === null || current.draftId !== draft.draftId) return;
+        const ended = finishDraft(current, span, span, Date.now());
+        commit(ended);
+        setScrubMs(span);
+        onDraftChanged?.();
       }
     };
     run();
     const id = window.setInterval(run, 1000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.started, session?.hold, session?.durationMs, load.kind === 'ready']);
+  }, [runningHere, draft?.draftId, draft?.session?.hold, draft?.session?.started, load.kind === 'ready' ? load.model.duration : 0]);
 
-  const model = load.kind === 'ready' ? load.model : null;
-  const duration = model?.duration ?? 0;
-  const viewMs = review ? (session?.scrubMs ?? duration) : elapsed;
-  /*
-   * 封榜带：live 照旧（封榜段内定格）；回顾只在「封榜视角」开着且滑条落在封榜段内时显示 ——
-   * 解封视界下格子已经显示真实结果，再挂「结果未知 N 格」就是自相矛盾。
-   */
-  const inFrz =
-    model !== null &&
-    (review
-      ? frozenView && inFreezeWindow(viewMs, duration, model.freezeStart)
-      : inFreezeWindow(elapsed, duration, model.freezeStart));
+  /* ---------- 多标签：另一页改了本场草稿 → 旧页面只读，提示重新读取 ---------- */
+  useEffect(() => {
+    const key = draftKey(row.path);
+    const onStorage = (e: StorageEvent): void => {
+      if (e.key !== key) return;
+      if (e.newValue === null) {
+        setStale(true);
+        return;
+      }
+      try {
+        const next = JSON.parse(e.newValue) as { draftId?: unknown };
+        if (next.draftId !== draftRef.current?.draftId) setStale(true);
+      } catch {
+        setStale(true);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [row.path]);
 
-  /*
-   * 幽灵行是否入榜：「展示我」开着 **且** 至少录了一发（docs/contracts/20 §2.4 验收 2）。
-   * v8 起每发都自带判名与时刻，有一发就是一行成绩，不必再判"有没有填过内容"。
-   */
-  const ghostSubs: GhostSub[] | null = ghost !== null && ghost.show && ghost.subs.length > 0 ? ghost.subs : null;
+  /* ---------- 历史成绩层 ---------- */
+  const loadHistory = useCallback(async (): Promise<void> => {
+    const seq = ++historySeq.current;
+    setHistory((h) => ({ ...h, status: 'loading', error: null }));
+    try {
+      const dto = await listArenaRecords(row.path);
+      if (seq !== historySeq.current) return;
+      setHistory({ status: 'ready', dto, error: null });
+    } catch (err) {
+      if (seq !== historySeq.current) return;
+      setHistory({ status: 'error', dto: null, error: messageOf(err) });
+    }
+  }, [row.path]);
 
-  /* 分钟滚过才重建（回顾模式由滑条驱动，本来就是分钟粒度；封榜视角开关与幽灵录入也要立即重建） */
-  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= duration ? 1 : 0)}|${ghostSig(ghost)}`;
-  const board: Board | null = useMemo(
-    () => (model === null ? null : buildBoard(model, review ? viewMs : Math.min(viewMs, duration), onlyFormal, review && !frozenView, ghostSubs)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [model, minuteKey],
+  useEffect(() => {
+    if (historyOpen) void loadHistory();
+  }, [historyOpen, loadHistory]);
+
+  const openHistoryLayer = useCallback((): void => {
+    setHistoryOpen(true);
+    setActionErr(null);
+  }, []);
+
+  /* ---------- 切换动作 ---------- */
+  const applySwitch = useCallback(
+    (action: SwitchAction): void => {
+      if (load.kind !== 'ready') return;
+      setSaveErr(null);
+      setSaveNote(null);
+      setConflict(null);
+      setActionErr(null);
+      setFrozenView(false);
+      if (action.kind === 'new-practice') {
+        const s = { ...startSession(Date.now()), durationMs: load.model.duration };
+        commit({ ...newDraft(Date.now()), session: s });
+        setIdentity({ kind: 'practice' });
+        setElapsed(0);
+        setScrubMs(0);
+        setNote('新的练习已开始');
+        onDraftChanged?.();
+        return;
+      }
+      if (action.kind === 'manual') {
+        commit(newManualDraft(load.model.duration));
+        setIdentity({ kind: 'practice' });
+        setScrubMs(load.model.duration);
+        setNote('补录草稿已建立 · 录入逐发后保存');
+        onDraftChanged?.();
+        return;
+      }
+      if (action.kind === 'edit' && action.record !== undefined && action.revision !== undefined) {
+        const record = action.record;
+        const legacy = record.result.origin === 'legacy-review';
+        const result = legacy
+          ? { origin: 'manual' as const, finish: 'declared' as const, durationMs: load.model.duration, stoppedAtMs: null }
+          : record.result;
+        commit(draftFromRecord(record, result, action.revision, record.result));
+        setIdentity({ kind: 'edit' });
+        setScrubMs(record.result.stoppedAtMs ?? load.model.duration);
+        setNote(legacy ? '旧回顾已确认结束 · 保存才会升级为正式档' : `正在编辑「${record.name}」`);
+        onDraftChanged?.();
+        return;
+      }
+      if (action.kind === 'restore-legacy' && action.legacy !== undefined) {
+        const legacy = action.legacy;
+        const viewMs = legacy.record.view.viewMs;
+        commit(draftFromLegacyLive(recordToGhost(legacy.record.ghost), viewMs, load.model.duration, Date.now()));
+        setIdentity({ kind: 'practice' });
+        setScrubMs(viewMs);
+        setElapsed(viewMs);
+        setNote('旧进度已恢复为当前练习（暂停）· 点继续才开始走钟');
+        onDraftChanged?.();
+      }
+    },
+    [commit, load, onDraftChanged],
   );
+
+  const requestSwitch = useCallback(
+    (action: SwitchAction): void => {
+      if (saveBusy) {
+        setActionErr('正在保存：先等这次保存结束，再切换');
+        return;
+      }
+      if (draftRef.current?.pendingSave != null) {
+        setSaveErr('上次新建请求的结果还没确认：先重试对账，再切换或另存');
+        return;
+      }
+      const c = replaceCaseOf(draftRef.current);
+      setReplaceErr(null);
+      if (c === 'none') {
+        applySwitch(action);
+        return;
+      }
+      setPending({ action, case: c });
+    },
+    [applySwitch, saveBusy],
+  );
+
+  const fetchRecord = useCallback(
+    async (recordIdValue: string): Promise<{ record: ArenaRecord; revision: string } | null> => {
+      if (identity.kind === 'view' && view.status === 'ready' && view.recordId === recordIdValue && view.record !== null && view.revision !== null) {
+        return { record: view.record, revision: view.revision };
+      }
+      try {
+        const item = await getArenaRecordItem(row.path, recordIdValue);
+        return { record: item.record, revision: item.revision };
+      } catch (err) {
+        setActionErr(`读取存档失败：${messageOf(err)}`);
+        return null;
+      }
+    },
+    [identity, row.path, view.status, view.recordId, view.record, view.revision],
+  );
+
+  const beginEdit = useCallback(
+    async (recordIdValue: string): Promise<void> => {
+      if (saveBusy) {
+        setActionErr('正在保存：先等这次保存结束，再进入编辑');
+        return;
+      }
+      const seq = ++editSeq.current;
+      setHistoryOpen(false);
+      const got = await fetchRecord(recordIdValue);
+      if (seq !== editSeq.current || got === null) return;
+      if (got.record.result.origin === 'legacy-review') {
+        setLegacyConfirm({ record: got.record, revision: got.revision, after: 'edit' });
+        return;
+      }
+      requestSwitch({ kind: 'edit', record: got.record, revision: got.revision });
+    },
+    [fetchRecord, requestSwitch, saveBusy],
+  );
+
+  const beginRestoreLegacy = useCallback(async (): Promise<void> => {
+    if (saveBusy) {
+      setActionErr('正在保存：先等这次保存结束，再恢复旧进度');
+      return;
+    }
+    const seq = ++restoreSeq.current;
+    setHistoryOpen(false);
+    setActionErr(null);
+    try {
+      const legacy = await getArenaLegacy(row.path);
+      if (seq !== restoreSeq.current) return;
+      if (legacy.mode !== 'live') {
+        setActionErr('旧根记录已经升级为正式存档，不能再按旧进度恢复');
+        return;
+      }
+      requestSwitch({ kind: 'restore-legacy', legacy });
+    } catch (err) {
+      if (seq === restoreSeq.current) setActionErr(`读取旧进度失败：${messageOf(err)}`);
+    }
+  }, [requestSwitch, row.path, saveBusy]);
+
+  const beginManual = useCallback((): void => {
+    if (saveBusy) return;
+    if (draftRef.current !== null) requestSwitch({ kind: 'manual' });
+    else applySwitch({ kind: 'manual' });
+  }, [applySwitch, requestSwitch, saveBusy]);
+
+  const beginNewPractice = useCallback((): void => {
+    requestSwitch({ kind: 'new-practice' });
+  }, [requestSwitch]);
+
+  /* mode=restore-legacy 的启动流程：草稿读完、榜单就绪后执行一次 */
+  useEffect(() => {
+    if (!bootRestoreRef.current || !draftBooted || load.kind !== 'ready') return;
+    bootRestoreRef.current = false;
+    void beginRestoreLegacy();
+  }, [beginRestoreLegacy, draftBooted, load.kind]);
+
+  /* ---------- 保存 ---------- */
+  const finishSave = useCallback(
+    (base: ArenaDraft, record: ArenaRecord, revision: string, after?: () => void): void => {
+      const next = applySaveSuccess(base, record, revision);
+      commit(next);
+      setSaveNote(`已保存 · ${record.name}`);
+      setSaveErr(null);
+      setConflict(null);
+      setNameState(null);
+      setReplaceErr(null);
+      setPending(null);
+      switchOriginalRef.current = null;
+      onDraftChanged?.();
+      after?.();
+    },
+    [commit, onDraftChanged],
+  );
+
+  const doCreate = useCallback(
+    async (base: ArenaDraft, name: string, after?: () => void, restoreOnReject?: ArenaDraft): Promise<boolean> => {
+      const recordIdValue = newRecordId();
+      const payload = buildCreatePayload(base, {
+        arenaPath: row.path,
+        contestTitle: arenaTitleOf(row),
+        recordId: recordIdValue,
+        name,
+      });
+      if (payload === null) {
+        setSaveErr('还没有结束信息，不能保存');
+        return false;
+      }
+      const frozen: ArenaDraft = { ...base, pendingSave: { recordId: recordIdValue, payload } };
+      if (staleRef.current) {
+        setStale(true);
+        setSaveErr('另一个标签页改了本场草稿：先重新读取，不能在这里保存');
+        return false;
+      }
+      // pendingSave 必须先落盘再发请求；落盘失败就不发（契约 §5.3）
+      if (!saveDraft(store, row.path, frozen)) {
+        setSaveErr('浏览器存储写不进去：没有发送保存请求');
+        return false;
+      }
+      draftRef.current = frozen;
+      setDraft(frozen);
+      setStorageWarn(null);
+      setSaveBusy(true);
+      try {
+        const res = await createArenaRecord(payload);
+        finishSave(frozen, res.record, res.revision, after);
+        return true;
+      } catch (err) {
+        if (isUnknownError(err)) {
+          setSaveErr('保存结果未知：本次提交已冻结，先点「重试对账」确认结果');
+          return false;
+        }
+        // 明确拒绝：恢复提交前的草稿（进行中的练习不能因为保存失败变成已结束）
+        const restored = restoreOnReject ?? base;
+        if (!saveDraft(store, row.path, restored)) setStorageWarn('浏览器存储写不进去：草稿只在内存里');
+        draftRef.current = restored;
+        setDraft(restored);
+        setSaveErr(messageOf(err));
+        return false;
+      } finally {
+        setSaveBusy(false);
+      }
+    },
+    [finishSave, row.path, store],
+  );
+
+  const doUpdate = useCallback(
+    async (base: ArenaDraft, after?: () => void): Promise<boolean> => {
+      const target = base.target;
+      const payload = target === null ? null : buildUpdatePayload(base, {
+        arenaPath: row.path,
+        recordId: target.recordId,
+        expectedRevision: target.revision,
+      });
+      if (target === null || payload === null) {
+        setSaveErr('没有明确的保存目标');
+        return false;
+      }
+      setSaveBusy(true);
+      setSaveErr(null);
+      try {
+        const res = await updateArenaRecord(payload);
+        finishSave(base, res.record, res.revision, after);
+        return true;
+      } catch (err) {
+        if (isUnknownError(err)) {
+          try {
+            const item = await getArenaRecordItem(row.path, target.recordId);
+            if (updateReconciled(base, item.record)) {
+              finishSave(base, item.record, item.revision, after);
+              return true;
+            }
+          } catch {
+            /* 读不回就按冲突处理，保留本地修改 */
+          }
+          setConflict({ kind: 'unknown', message: '保存结果未知：重新读取后与本次提交不一致', recordId: target.recordId });
+          return false;
+        }
+        if (err instanceof ApiError && err.kind === 'conflict') {
+          setConflict({ kind: 'conflict', message: messageOf(err), recordId: target.recordId });
+          return false;
+        }
+        setSaveErr(messageOf(err));
+        return false;
+      } finally {
+        setSaveBusy(false);
+      }
+    },
+    [finishSave, row],
+  );
+
+  const saveDraftWithName = useCallback(
+    (base: ArenaDraft, name: string, saveAs: boolean, after?: () => void): void => {
+      setSaveErr(null);
+      setSaveNote(null);
+      if (!saveAs && base.target !== null) void doUpdate(base, after);
+      else void doCreate(base, name, after, switchOriginalRef.current ?? undefined);
+    },
+    [doCreate, doUpdate],
+  );
+
+  const requestSaveCurrent = useCallback((): void => {
+    const current = draftRef.current;
+    if (current === null || !canSaveDraft(current)) return;
+    setSaveErr(null);
+    if (current.pendingSave !== null) {
+      void (async () => {
+        setSaveBusy(true);
+        try {
+          const res = await createArenaRecord(current.pendingSave!.payload);
+          finishSave(current, res.record, res.revision);
+        } catch (err) {
+          if (!isUnknownError(err)) {
+            commit({ ...current, pendingSave: null });
+            setSaveErr(messageOf(err));
+          } else {
+            setSaveErr('仍然没有确认到保存结果；稍后再点「重试对账」');
+          }
+        } finally {
+          setSaveBusy(false);
+        }
+      })();
+      return;
+    }
+    if (current.target !== null) {
+      void doUpdate(current);
+      return;
+    }
+    setNameErr(null);
+    setNameState({ mode: 'save', initial: firstSaveName(), draft: current });
+  }, [commit, doUpdate, finishSave]);
+
+  const requestSaveAs = useCallback((): void => {
+    const current = draftRef.current;
+    if (current === null || !canSaveDraft(current)) return;
+    if (current.pendingSave !== null) {
+      setSaveErr('上次新建请求的结果还没确认：先重试对账，再另存');
+      return;
+    }
+    setNameErr(null);
+    setNameState({
+      mode: 'save-as',
+      initial: copySaveName(current.target?.name ?? '成绩'),
+      draft: current,
+    });
+  }, []);
+
+  const confirmName = useCallback(
+    (name: string): void => {
+      if (nameState === null) return;
+      const state = nameState;
+      setNameState(null);
+      saveDraftWithName(state.draft, name, state.mode !== 'save', state.action === undefined ? undefined : () => applySwitch(state.action!));
+    },
+    [applySwitch, nameState, saveDraftWithName],
+  );
+
+  /* 替换确认：进行中先结束再保存；保存失败 / 命名取消都不切换 */
+  const saveAndSwitch = useCallback((): void => {
+    if (pending === null) return;
+    const base = draftRef.current;
+    if (base === null) {
+      applySwitch(pending.action);
+      setPending(null);
+      return;
+    }
+    let ready = base;
+    if (pending.case === 'running') {
+      const span = duration;
+      const at = base.session === null ? 0 : elapsedOf(base.session, span, Date.now());
+      ready = finishDraft(base, span, at, Date.now());
+    } else if (pending.case === 'legacy') {
+      ready = declareFinished(base, duration);
+    }
+    switchOriginalRef.current = base;
+    setReplaceErr(null);
+    if (!canSaveDraft(ready)) {
+      setReplaceErr('还不能保存：缺少结束信息');
+      return;
+    }
+    if (ready.target !== null) {
+      void doUpdate(ready, () => applySwitch(pending.action));
+      return;
+    }
+    setNameErr(null);
+    setNameState({
+      mode: 'switch',
+      initial: firstSaveName(),
+      draft: ready,
+      action: pending.action,
+    });
+  }, [applySwitch, doUpdate, duration, pending]);
+
+  const discardAndSwitch = useCallback((): void => {
+    if (pending === null) return;
+    switchOriginalRef.current = null;
+    commit(null);
+    applySwitch(pending.action);
+    setPending(null);
+  }, [applySwitch, commit, pending]);
+
+  const confirmLegacyEdit = useCallback((): void => {
+    if (legacyConfirm === null) return;
+    const { record, revision, after } = legacyConfirm;
+    setLegacyConfirm(null);
+    const result = { origin: 'manual' as const, finish: 'declared' as const, durationMs: duration, stoppedAtMs: null };
+    if (after === 'edit') requestSwitch({ kind: 'edit', record: { ...record, result: legacyConfirm.record.result }, revision });
+    else {
+      commit(draftFromRecord(record, result, revision, record.result));
+      setIdentity({ kind: 'edit' });
+      setScrubMs(duration);
+      setNote('旧回顾已确认结束 · 保存才会升级为正式档');
+    }
+  }, [commit, duration, legacyConfirm, requestSwitch]);
+
+  /* 更新冲突：重新读取只认服务端现状，本地修改需先另存 */
+  const reloadFromServer = useCallback((): void => {
+    const target = conflict;
+    if (target === null) return;
+    void (async () => {
+      try {
+        const item = await getArenaRecordItem(row.path, target.recordId);
+        if (item.record.result.origin === 'legacy-review') {
+          setLegacyConfirm({ record: item.record, revision: item.revision, after: 'edit' });
+          setConflict(null);
+          return;
+        }
+        commit(draftFromRecord(item.record, item.record.result, item.revision));
+        setIdentity({ kind: 'edit' });
+        setScrubMs(item.record.result.stoppedAtMs ?? duration);
+        setConflict(null);
+        setSaveErr(null);
+        setSaveNote('已重新读取服务端存档');
+      } catch (err) {
+        setSaveErr(`重新读取失败：${messageOf(err)}`);
+      }
+    })();
+  }, [commit, conflict, duration, row.path]);
 
   /* ---------- 操作 ---------- */
-  const patch = useCallback(
-    (next: Session): void => {
-      setSession(next);
-      if (next.ended && next.hold) clearSession(store, row.path);
-      else saveSession(store, row.path, next);
+  const togglePause = (): void => {
+    if (saveBusy || draft === null || draft.session === null) return;
+    const e = elapsedOf(draft.session, duration, Date.now());
+    commit({ ...draft, session: draft.session.paused ? unpauseSession(draft.session, e, Date.now()) : pauseSession(draft.session, e) });
+  };
+
+  const endPractice = (): void => {
+    if (saveBusy || draft === null || draft.session === null) return;
+    const e = elapsedOf(draft.session, duration, Date.now());
+    const ended = finishDraft(draft, duration, e, Date.now());
+    commit(ended);
+    setScrubMs(ended.result?.stoppedAtMs ?? duration);
+    setNote(null);
+    onDraftChanged?.();
+  };
+
+  const confirmLegacyDraft = (): void => {
+    if (saveBusy || draft === null) return;
+    commit(declareFinished(draft, duration));
+    setScrubMs(duration);
+    onDraftChanged?.();
+  };
+
+  const scrub = (minutes: number): void => setScrubMs(minutes * 60_000);
+  const jump = (to: '0' | 'freeze' | 'end'): void => {
+    if (load.kind !== 'ready') return;
+    scrub(to === '0' ? 0 : to === 'end' ? minutesOf(load.model.duration) : minutesOf(load.model.freezeStart) + 1);
+  };
+
+  const onGhostChange = useCallback(
+    (next: GhostData): void => {
+      if (saveBusy) return;
+      setSaveNote(null);
+      setSaveErr(null);
+      setConflict(null);
+      if (identity.kind === 'view') {
+        setViewGhost(next);
+        return;
+      }
+      if (draft === null) return;
+      commit({ ...draft, ghost: next });
     },
-    [row.path, store],
+    [commit, draft, identity.kind, saveBusy],
   );
 
-  const togglePause = (): void => {
-    if (session === null || model === null) return;
-    const e = elapsedOf(session, model.duration, Date.now());
-    patch(session.paused ? unpauseSession(session, e, Date.now()) : pauseSession(session, e));
-  };
+  const onGhostClear = useCallback((): void => {
+    if (saveBusy || identity.kind === 'view') return;
+    if (draft === null) return;
+    setSaveNote(null);
+    setSaveErr(null);
+    commit({ ...draft, ghost: { show: true, subs: [] } });
+  }, [commit, draft, identity.kind, saveBusy]);
 
-  const end = (): void => {
-    if (session === null || model === null) return;
-    patch(finishSession(session, model.duration));
-    setReview(true);
-    setResumed(false);
-    setElapsed(model.duration);
-  };
-
-  const scrub = (minutes: number): void => {
-    if (session === null || model === null) return;
-    patch({ ...session, scrubMs: minutes * 60_000 });
-  };
-
-  const jump = (to: '0' | 'freeze' | 'end'): void => {
-    if (model === null) return;
-    scrub(to === '0' ? 0 : to === 'end' ? minutesOf(model.duration) : minutesOf(model.freezeStart) + 1);
-  };
+  const currentGhost: GhostData | null =
+    identity.kind === 'view' ? viewGhost : draft?.ghost ?? null;
 
   /* ---------- 弹层 ---------- */
   useEffect(() => {
@@ -298,7 +885,6 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     return () => window.removeEventListener('keydown', onKey);
   }, [pop]);
 
-  /* 两个弹层回调必须稳定：每秒走钟会重渲本组件，回调一旦新建就打穿下面 `CellView` / `BoardRowView` 的 memo */
   const openCellPop = useCallback((ev: React.MouseEvent, ti: number, p: number): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     setPop({ kind: 'sub', ti, p, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
@@ -308,81 +894,10 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     if (r === undefined) return;
     setPop({ kind: 'team', ti, anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   }, []);
-
-  /* ---------- 「我的成绩」：每次输入即存即重建（docs/contracts/20 §2.3 响应）；清除 = 删键 + 面板留空 ---------- */
-  const onGhostChange = useCallback(
-    (next: GhostData): void => {
-      setGhost(next);
-      saveGhost(store, row.path, next);
-      setSaveState('idle');
-      setSaveErr(null);
-      setArmHint(null);
-      setGhostNote(null);
-    },
-    [row.path, store],
-  );
-
-  const onGhostClear = useCallback((): void => {
-    clearGhost(store, row.path);
-    setGhost({ show: true, subs: [] });
-    setSaveState('idle');
-    setSaveErr(null);
-    setGhostNote(null);
-  }, [row.path, store]);
-
-  /** 把这份「我的成绩 + 当前回放位置」写进工坊：服务端按 arenaPath 找/建 contest，再写 record.json */
-  const saveRecord = useCallback(async (): Promise<void> => {
-    if (ghost === null || ghost.subs.length === 0 || session === null) return;
-    if (armHint === null) {
-      try {
-        const existing = await probeSavedRecord(row.path);
-        if (existing !== null) {
-          setArmHint(overwriteHintOf(existing));
-          return;
-        }
-      } catch (err) {
-        setSaveState('error');
-        setSaveErr(messageOf(err));
-        return;
-      }
-    }
-    setSaveState('busy');
-    setSaveErr(null);
-    setArmHint(null);
-    try {
-      await saveWorkArenaRecord({
-        arenaPath: row.path,
-        title: arenaTitleOf(row),
-        ghost: ghostToRecord(ghost),
-        view: {
-          mode: review ? 'review' : 'live',
-          viewMs: review ? viewMs : elapsed,
-          paused: session.paused,
-          frozenView,
-        },
-      });
-      setSaveState('saved');
-      setGhostNote(null);
-    } catch (err) {
-      setSaveState('error');
-      setSaveErr(messageOf(err));
-    }
-  }, [ghost, session, row, review, viewMs, elapsed, frozenView, armHint]);
-
   const openGhostPop = (ev: React.MouseEvent): void => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     setPop({ kind: 'ghost', anchor: { left: r.left, top: r.top, width: r.width, height: r.height } });
   };
-
-  /* 顶栏读数点一下 = 滚到榜上那一行并闪一下（几百行的榜里，"我在哪"不该靠滚） */
-  const jumpToGhost = useCallback((): void => {
-    const el = boardBox.current?.querySelector<HTMLElement>('.brow.is-ghost') ?? null;
-    if (el === null) return;
-    el.scrollIntoView({ block: 'center' });
-    el.classList.remove('is-jump');
-    void el.offsetWidth; // 重启同名动画要先断开
-    el.classList.add('is-jump');
-  }, []);
 
   if (load.kind === 'error') {
     return (
@@ -424,7 +939,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     );
   }
 
-  if (model === null || board === null || session === null) {
+  if (load.kind === 'loading' || draftBooted === false) {
     return (
       <div className="content">
         <div className="catwrap">
@@ -437,15 +952,56 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     );
   }
 
+  const model = load.model;
+  const span = model.duration;
+  const review = !runningHere;
+  const viewMs = runningHere ? elapsed : Math.max(0, Math.min(scrubMs, span));
+  const inFrz = review ? frozenView && inFreezeWindow(viewMs, span, model.freezeStart) : inFreezeWindow(elapsed, span, model.freezeStart);
+  const ghostSubs: GhostSub[] | null =
+    currentGhost !== null && currentGhost.show && currentGhost.subs.length > 0 ? currentGhost.subs : null;
+  const minuteKey = `${minutesOf(viewMs)}|${onlyFormal}|${review ? 'r' : 'l'}|${frozenView ? 'fz' : 'un'}|${Math.min(1, viewMs >= span ? 1 : 0)}|${ghostSig(currentGhost)}`;
+  const board: Board = useMemo(
+    () => buildBoard(model, review ? viewMs : Math.min(viewMs, span), onlyFormal, review && !frozenView, ghostSubs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model, minuteKey],
+  );
   const frozen = board.cap < viewMs || inFrz;
   const freezeLabel = clockHM(model.freezeStart);
-  /*
-   * 榜脚「榜上 N 队」与列头「过 N / N 队」的分母都不含幽灵（docs/contracts/20 §2.2 三排除）：
-   * 它占名次，但不是场上的一支队。
-   */
   const teamCount = board.rows.length - (board.ghostTeam ? 1 : 0);
-  /* 顶栏读数那一行的数据：名次随时钟与封榜视角变，题数 / 罚时进 tooltip（榜上本来就有） */
   const ghostRow = board.ghostTeam === null || board.ghostTeam === undefined ? null : board.rows.find((r) => r.ghost === true) ?? null;
+
+  const recordForView = identity.kind === 'view' ? view.record : null;
+  const activeResult =
+    identity.kind === 'view'
+      ? recordForView?.result ?? null
+      : identity.kind === 'edit'
+        ? draft?.result ?? null
+        : identity.kind === 'practice' && draft !== null && draft.phase !== 'running'
+          ? draft.result
+          : null;
+  const finishNote = activeResult === null ? '' : recordFinishNote(activeResult);
+  const identityLabel =
+    identity.kind === 'view'
+      ? `查看：${recordForView?.name ?? '…'}`
+      : identity.kind === 'edit'
+        ? `编辑：${draft?.target?.name ?? '…'}`
+        : identity.kind === 'review'
+          ? '查看终榜'
+          : '当前练习';
+  const identitySub =
+    identity.kind === 'practice'
+      ? draft === null
+        ? '尚未开始'
+        : `${draftSummary(draft)}${finishNote === '' ? '' : ` · ${finishNote}`}`
+      : identity.kind === 'edit'
+        ? `${draft !== null && isDirty(draft) ? '有未保存修改' : '已保存'}${finishNote === '' ? '' : ` · ${finishNote}`}`
+        : identity.kind === 'view'
+          ? recordForView === null ? '' : `${resultLabel(recordForView.result)}${finishNote === '' ? '' : ` · ${finishNote}`}`
+          : '只读';
+  const dirtyMark = (identity.kind === 'practice' || identity.kind === 'edit') && draft !== null && isDirty(draft);
+  const canSaveHere = (identity.kind === 'practice' || identity.kind === 'edit') && canSaveDraft(draft) && !stale && draftErr === null;
+  const showSaveTarget = draft?.target != null && canSaveHere;
+
   const nameTip = {
     x: 0,
     y: 0,
@@ -456,14 +1012,17 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
     sub: [
       `开赛 ${model.startAt}`,
       `封榜 ${freezeLabel}（${model.freezeDeclared ? '本场声明' : '本场未声明 · 按缺省最后 60 分钟'}）`,
-      `时长 ${clockHM(duration)} · ${model.teams.length} 队（正式 ${model.teams.filter((t) => !t.star).length} · 打星 ${model.teams.filter((t) => t.star).length}）`,
+      `时长 ${clockHM(span)} · ${model.teams.length} 队（正式 ${model.teams.filter((t) => !t.star).length} · 打星 ${model.teams.filter((t) => t.star).length}）`,
       model.approx ? '本场快照无逐次提交 · 榜按终局判名近似重建' : '',
     ],
   };
 
+  const viewError = identity.kind === 'view' && view.status === 'error';
+  const viewLoading = identity.kind === 'view' && view.status === 'loading';
+
   return (
     <>
-      <div className="topbar">
+      <div className="topbar arena-topbar">
         <button className="btn btn--ghost btn--sm" onClick={onBack}>
           <Icon id="i-chev" className="flip" />
           回到目录
@@ -479,74 +1038,132 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
         >
           {model.title}
         </h2>
-        {review ? (
-          <span className={`pill pill--over${viewMs >= duration ? '' : ' is-mid'}`}>
-            {viewMs >= duration ? '终榜回顾' : inFreezeWindow(viewMs, duration, model.freezeStart) ? '回顾 · 封榜段' : '回顾模式'}
-          </span>
-        ) : (
+        <span className={`arena-id arena-id--${identity.kind}`} title={`${identityLabel} · ${identitySub}`}>
+          <b>{identityLabel}</b>
+          <span>{identitySub}</span>
+          {dirtyMark ? <i className="arena-id__dirty" title="有未保存修改" /> : null}
+        </span>
+
+        {runningHere && draft?.session != null ? (
           <>
-            <span className={`clock${session.paused ? ' is-paused' : ''}`}>
-              <i className={`dot ${session.paused || elapsed >= duration ? 'dot--idle' : 'dot--live'}`} />
+            <span className={`clock${draft.session.paused ? ' is-paused' : ''}`}>
+              <i className={`dot ${draft.session.paused || elapsed >= span ? 'dot--idle' : 'dot--live'}`} />
               <b>{clockHMS(elapsed)}</b>
             </span>
             <span className="transport">
-              <button className="tbtn" aria-label={session.paused ? '继续' : '暂停'} title={session.paused ? '继续' : '暂停'} onClick={togglePause}>
-                <Icon id={session.paused ? 'i-play' : 'i-pause'} />
+              <button className="tbtn" disabled={saveBusy} aria-label={draft.session.paused ? '继续' : '暂停'} title={draft.session.paused ? '继续' : '暂停'} onClick={togglePause}>
+                <Icon id={draft.session.paused ? 'i-play' : 'i-pause'} />
               </button>
-              <button className="tbtn" aria-label="结束模拟" title="结束模拟" onClick={end}>
+              <button className="tbtn" disabled={saveBusy} aria-label="结束本次练习" title="结束本次练习（提前结束会记录真实停止时间）" onClick={endPractice}>
                 <Icon id="i-stop" />
               </button>
             </span>
-            {inFrz ? <span className="pill">封榜中 · 剩 {clockHMS(duration - elapsed)}</span> : null}
-            {session.paused ? <span className="pill">已暂停</span> : null}
+            {inFrz ? <span className="pill">封榜中 · 剩 {clockHMS(span - elapsed)}</span> : null}
+            {draft.session.paused ? <span className="pill">已暂停</span> : null}
+          </>
+        ) : (
+          <>
+            {identity.kind === 'review' ? (
+              <span className="pill pill--over">终榜回顾</span>
+            ) : identity.kind === 'view' ? (
+              <span className="pill pill--over">{recordForView === null ? '历史成绩' : resultLabel(recordForView.result)}</span>
+            ) : identity.kind === 'edit' ? (
+              <span className="pill">{draft?.target?.name ?? '编辑成绩'}</span>
+            ) : draft?.phase === 'legacy-unconfirmed' ? (
+              <span className="pill">旧成绩 · 未标记结束</span>
+            ) : draft?.phase === 'finished' ? (
+              <span className="pill pill--over">{draft.result === null ? '已结束' : resultLabel(draft.result)}</span>
+            ) : (
+              <span className="pill">已结束</span>
+            )}
           </>
         )}
+
         <span className="topbar__spacer" />
-        {/* 常驻读数（v8）：只在幽灵真在榜上时出现，「展示我」关或一发未录就整块消失、不占位 */}
+
+        {/* 后台仍在走的当前练习：查看 / 编辑历史时只提示，不暂停 */}
+        {practiceRunning && identity.kind !== 'practice' ? (
+          <button className="arena-bgclock" title="当前练习仍在计时 · 回到当前练习" onClick={() => setIdentity({ kind: 'practice' })}>
+            <i className="dot dot--live" />
+            当前练习仍在计时
+          </button>
+        ) : null}
+
         {ghostRow === null ? null : (
-          <button
-            className="ghrank"
-            onClick={jumpToGhost}
-            title={`我的成绩 · ${ghostRow.solved} 题 / ${ghostRow.pen} 罚时 · 点击跳到榜上那一行`}
-          >
+          <button className="ghrank" onClick={() => { const el = boardBox.current?.querySelector<HTMLElement>('.brow.is-ghost') ?? null; if (el !== null) { el.scrollIntoView({ block: 'center' }); el.classList.remove('is-jump'); void el.offsetWidth; el.classList.add('is-jump'); } }} title={`我的成绩 · ${ghostRow.solved} 题 / ${ghostRow.pen} 罚时 · 点击跳到榜上那一行`}>
             <i className="dot dot--ok" />我 <b>第 {ghostRow.rank} 名</b>
           </button>
         )}
-        {/* 「我的成绩」入口常驻顶栏（live 与回顾同一份顶栏）：不随数据出现/消失，每场长相一致 */}
-        <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 VP 成绩，看自己在榜上的位置" onClick={openGhostPop}>
-          <Icon id="i-user" />
+
+        <button className="btn btn--ghost btn--sm" aria-label="历史成绩" title="历史成绩 · 查看 / 编辑这场保存过的成绩" onClick={openHistoryLayer}>
+          <Icon id="i-clock" />
+          历史
         </button>
-        {ghost !== null && ghost.subs.length > 0 ? (
-          <button
-            className="btn btn--sm"
-            disabled={saveState === 'busy'}
-            title={
-              armHint !== null
-                ? '再点一次会把这场已有的 record.json 整份替换；点到别处取消'
-                : '保存到工坊 · 写入比赛对象的 record.json（逐发成绩 + 当前回放位置）'
-            }
-            onBlur={() => setArmHint(null)}
-            onClick={() => void saveRecord()}
-          >
-            <Icon id="i-save" />
-            {saveState === 'busy' ? '保存中…' : armHint !== null ? '确认覆盖' : saveState === 'saved' ? '已保存' : '保存'}
+
+        {identity.kind === 'view' ? (
+          <>
+            <button className="btn btn--sm" disabled={view.status !== 'ready'} onClick={() => void beginEdit(identity.recordId)}>
+              <Icon id="i-pencil" />
+              编辑成绩
+            </button>
+            <button className="btn btn--sm btn--ghost" onClick={() => (draft === null ? beginNewPractice() : setIdentity({ kind: 'practice' }))}>
+              {draft === null ? '开始新练习' : '回到当前练习'}
+            </button>
+          </>
+        ) : identity.kind === 'review' ? (
+          <button className="btn btn--sm" disabled={!draftBooted} onClick={beginManual} title="不经过模拟计时，建立一份已结束的补录草稿">
+            <Icon id="i-plus" />
+            录入已结束的成绩
           </button>
         ) : null}
-        {armHint !== null ? (
-          <span className="tb-arm" title={armHint}>
-            {armHint}
-          </span>
+
+        {identity.kind === 'practice' && draft !== null && draft.phase !== 'running' ? (
+          <button className="btn btn--sm btn--ghost" onClick={beginNewPractice} title="替换当前草稿前会先询问">
+            <Icon id="i-play" />
+            重新练一次
+          </button>
         ) : null}
-        {armHint === null && ghostNote !== null ? (
-          <span className="tb-note" title={ghostNote}>
-            {ghostNote}
-          </span>
+
+        {identity.kind === 'practice' && draft?.phase === 'legacy-unconfirmed' ? (
+          <button className="btn btn--sm btn--go" onClick={confirmLegacyDraft} title="确认这份旧成绩已经结束；保存时按补录处理">
+            确认已结束
+          </button>
         ) : null}
-        {saveErr !== null ? (
-          <span className="tb-err" title={saveErr}>
-            {saveErr}
-          </span>
+
+        {canSaveHere ? (
+          <>
+            <button
+              className="btn btn--sm"
+              disabled={saveBusy || conflict !== null || draft?.pendingSave !== null}
+              title={draft?.pendingSave !== null ? '上次保存结果未确认：先重试对账' : '保存到当前目标'}
+              onClick={requestSaveCurrent}
+            >
+              <Icon id="i-save" />
+              {saveBusy ? '保存中…' : saveNote !== null && draft !== null && !isDirty(draft) ? '已保存' : '保存'}
+            </button>
+            <button className="btn btn--sm btn--ghost" disabled={saveBusy || conflict !== null} onClick={requestSaveAs} title="另存为新档，原档不变">
+              另存
+            </button>
+            {showSaveTarget ? (
+              <span className="arena-target" title={`保存目标：${draft!.target!.name}`}>
+                保存到：{draft!.target!.name}
+              </span>
+            ) : (
+              <span className="arena-target is-dim">首次保存将新建一档</span>
+            )}
+          </>
         ) : null}
+
+        {draft?.pendingSave != null && canSaveHere ? (
+          <button className="btn btn--sm btn--go" disabled={saveBusy} onClick={requestSaveCurrent}>
+            重试对账
+          </button>
+        ) : null}
+
+        <button className="btn btn--ghost btn--sm" aria-label="我的成绩" title="我的成绩 · 录入 / 查看逐发" onClick={openGhostPop}>
+          <Icon id="i-user" />
+        </button>
+
         {model.approx ? (
           <span
             className="pill"
@@ -581,15 +1198,126 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
 
       <div className="content content--fit">
         <div className="simcol">
-          {resumed && !review ? (
-            <div className="alert alert--ok">
-              <Icon id="i-check" />
+          {stale ? (
+            <div className="alert alert--warn" role="status">
+              <Icon id="i-warn" />
               <div>
-                会话已续 · 从 <code>{clockHMS(elapsed)}</code> 接着走（刷新按开始时刻续钟）
+                <b>另一个标签页改了本场草稿</b> · 这个页面不再写入，避免互相覆盖
               </div>
-              <button className="alert__x" onClick={() => setResumed(false)}>
+              <button
+                className="alert__x"
+                type="button"
+                onClick={() => {
+                  setStale(false);
+                  setReloadNo((n) => n + 1);
+                }}
+              >
+                重新读取
+              </button>
+            </div>
+          ) : null}
+          {draftErr !== null ? (
+            <div className="alert alert--err" role="status">
+              <Icon id="i-warn" />
+              <div>
+                <b>当前草稿读不出来</b> · {draftErr}
+              </div>
+              <button className="alert__x" type="button" onClick={() => setResetConfirm(true)}>
+                重置草稿
+              </button>
+            </div>
+          ) : null}
+          {storageWarn !== null ? (
+            <div className="alert alert--warn" role="status">
+              <Icon id="i-warn" />
+              <div>{storageWarn}</div>
+            </div>
+          ) : null}
+          {saveErr !== null ? (
+            <div className="alert alert--err" role="status">
+              <Icon id="i-plug" />
+              <div>{saveErr}</div>
+              {draft?.pendingSave !== null ? (
+                <button className="alert__x" type="button" disabled={saveBusy} onClick={requestSaveCurrent}>
+                  重试对账
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {conflict !== null ? (
+            <div className="alert alert--err" role="status">
+              <Icon id="i-warn" />
+              <div>
+                <b>{conflict.kind === 'conflict' ? '存档在别处改过了' : '保存结果未知'}</b> · {conflict.message}
+                <div className="hint">本地修改还在。可以重新读取服务端现状（会丢掉本地修改），或另存一份保留本地内容。</div>
+              </div>
+              <span className="arena-alert-acts">
+                <button className="btn btn--xs btn--ghost" type="button" onClick={reloadFromServer}>
+                  重新读取
+                </button>
+                <button className="btn btn--xs" type="button" onClick={requestSaveAs}>
+                  另存
+                </button>
+              </span>
+            </div>
+          ) : null}
+          {actionErr !== null ? (
+            <div className="alert alert--err" role="status">
+              <Icon id="i-plug" />
+              <div>{actionErr}</div>
+              <button className="alert__x" type="button" onClick={() => setActionErr(null)}>
                 知道了
               </button>
+            </div>
+          ) : null}
+          {note !== null ? (
+            <div className="alert alert--ok" role="status">
+              <Icon id="i-check" />
+              <div>{note}</div>
+              <button className="alert__x" type="button" onClick={() => setNote(null)}>
+                知道了
+              </button>
+            </div>
+          ) : null}
+          {saveNote !== null && saveErr === null && conflict === null ? (
+            <div className="alert alert--ok" role="status">
+              <Icon id="i-check" />
+              <div>{saveNote}</div>
+              <button className="alert__x" type="button" onClick={() => setSaveNote(null)}>
+                知道了
+              </button>
+            </div>
+          ) : null}
+          {viewError ? (
+            <div className="alert alert--err" role="status">
+              <Icon id="i-plug" />
+              <div>
+                <b>读档失败</b> · {view.error}
+              </div>
+              <span className="arena-alert-acts">
+                <button className="btn btn--xs btn--ghost" type="button" onClick={() => setViewRetry((n) => n + 1)}>
+                  重试
+                </button>
+                <button className="btn btn--xs btn--ghost" type="button" onClick={openHistoryLayer}>
+                  历史成绩
+                </button>
+              </span>
+            </div>
+          ) : null}
+          {draft === null && identity.kind === 'practice' ? (
+            <div className="alert alert--warn" role="status">
+              <Icon id="i-warn" />
+              <div>这场还没有当前练习的草稿。</div>
+              <button className="alert__x" type="button" onClick={beginNewPractice}>
+                开始练习
+              </button>
+            </div>
+          ) : null}
+
+          {viewLoading ? (
+            <div className="skel">
+              <i />
+              正在读取存档…
             </div>
           ) : null}
 
@@ -601,20 +1329,12 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
               </span>
               <span className="tl">
                 <span className="tl__rail" />
-                <span className="tl__fill" style={{ width: pct(viewMs, duration) }} />
-                <span className="tl__frz" style={{ left: pct(model.freezeStart, duration), right: 0 }} />
-                <span className="tl__mk" style={{ left: pct(model.freezeStart, duration) }}>
+                <span className="tl__fill" style={{ width: pct(viewMs, span) }} />
+                <span className="tl__frz" style={{ left: pct(model.freezeStart, span), right: 0 }} />
+                <span className="tl__mk" style={{ left: pct(model.freezeStart, span) }}>
                   <span>封榜 {freezeLabel}</span>
                 </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={minutesOf(duration)}
-                  step={1}
-                  value={minutesOf(viewMs)}
-                  aria-label="时间轴"
-                  onChange={(e) => scrub(Number(e.target.value))}
-                />
+                <input type="range" min={0} max={minutesOf(span)} step={1} value={minutesOf(viewMs)} aria-label="时间轴" onChange={(e) => scrub(Number(e.target.value))} />
               </span>
               <span className="scrub__acts">
                 <button className="btn btn--xs btn--ghost" onClick={() => jump('0')}>
@@ -640,7 +1360,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
                     x: r.left + 220,
                     y: r.bottom,
                     below: true,
-                    date: `封榜段 = 最后 ${clockHM(duration - model.freezeStart)}`,
+                    date: `封榜段 = 最后 ${clockHM(span - model.freezeStart)}`,
                     value: `定格在 ${freezeLabel}`,
                     zero: false,
                     valueClass: 'is-dim',
@@ -713,15 +1433,7 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
               </div>
 
               {board.rows.map((r) => (
-                <BoardRowView
-                  key={r.ti}
-                  row={r}
-                  team={r.ghost ? board.ghostTeam! : model.teams[r.ti]!}
-                  problems={model.problems}
-                  model={model}
-                  onCell={openCellPop}
-                  onTeam={openTeamPop}
-                />
+                <BoardRowView key={r.ti} row={r} team={r.ghost ? board.ghostTeam! : model.teams[r.ti]!} problems={model.problems} model={model} onCell={openCellPop} onTeam={openTeamPop} />
               ))}
             </div>
 
@@ -730,7 +1442,6 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
                 榜上 <b>{teamCount}</b> 队 · 累计过题 <b>{board.solvedTotal}</b>
               </span>
               <span className="spacer" />
-              {/* 列头四档图例：区分度靠颜色，读法在这里给一次，别处不再写解释 */}
               <span className="key key--head">
                 <span className="key__i">
                   <i className="phk is-quiet" />
@@ -776,23 +1487,124 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
       </div>
 
       {pop !== null ? (
-        <Popover
-          anchor={pop.anchor}
-          viewport={{ w: window.innerWidth, h: window.innerHeight }}
-          onClose={() => setPop(null)}
-          width={pop.kind === 'ghost' ? 330 : 270}
-          height={pop.kind === 'ghost' ? 500 : 260}
-          label={pop.kind === 'ghost' ? '我的成绩' : '明细'}
-          cls={pop.kind === 'ghost' ? 'pop--panel' : undefined}
-        >
+        <Popover anchor={pop.anchor} viewport={{ w: window.innerWidth, h: window.innerHeight }} onClose={() => setPop(null)} width={pop.kind === 'ghost' ? 330 : 270} height={pop.kind === 'ghost' ? 500 : 260} label={pop.kind === 'ghost' ? '我的成绩' : '明细'} cls={pop.kind === 'ghost' ? 'pop--panel' : undefined}>
           {pop.kind === 'sub' ? (
-            <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} ghost={ghost} />
+            <SubPop model={model} ti={pop.ti} p={pop.p} viewMs={viewMs} cap={board.cap} ghost={currentGhost} />
           ) : pop.kind === 'team' ? (
             <TeamPop model={model} ti={pop.ti} board={board} />
           ) : (
-            <GhostPanel problems={model.problems} durationMs={duration} data={ghost} onChange={onGhostChange} onClear={onGhostClear} />
+            <GhostPanel
+              problems={model.problems}
+              durationMs={span}
+              data={currentGhost}
+              readOnly={identity.kind === 'view' || saveBusy}
+              onChange={onGhostChange}
+              onClear={onGhostClear}
+            />
           )}
         </Popover>
+      ) : null}
+
+      {historyOpen ? (
+        <HistoryDialog
+          state={history}
+          archived={false}
+          hasDraft={draft !== null}
+          currentId={identity.kind === 'view' ? identity.recordId : null}
+          onRetry={() => void loadHistory()}
+          onView={(id) => {
+            setHistoryOpen(false);
+            setIdentity({ kind: 'view', recordId: id });
+          }}
+          onEdit={(id) => void beginEdit(id)}
+          onRestoreLegacy={() => void beginRestoreLegacy()}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
+
+      {nameState !== null ? (
+        <NameDialog
+          title={nameState.mode === 'save-as' ? '另存一份' : nameState.mode === 'switch' ? '保存后切换' : '保存成绩'}
+          sub={
+            nameState.mode === 'save-as'
+              ? '另存会生成新的存档 ID，原档不变；保存成功后编辑目标切换到新档。'
+              : nameState.mode === 'switch'
+                ? '先给这份成绩起名并保存，成功后才切换；命名取消不会切换。'
+                : '这是第一次保存这份草稿；名称默认本地日期时间，可修改。'
+          }
+          initial={nameState.initial}
+          confirmLabel={saveBusy ? '保存中…' : '保存'}
+          busy={saveBusy}
+          error={nameErr}
+          onCancel={() => {
+            setNameState(null);
+            setNameErr(null);
+            switchOriginalRef.current = null;
+          }}
+          onConfirm={confirmName}
+        />
+      ) : null}
+
+      {pending !== null && nameState === null ? (
+        <ReplaceDialog
+          kind={pending.case}
+          targetLabel={
+            pending.case === 'running'
+              ? '当前练习'
+              : pending.case === 'legacy'
+                ? '旧成绩'
+                : draft?.target !== null && draft !== null
+                  ? `「${draft.target.name}」`
+                  : '当前草稿'
+          }
+          busy={saveBusy}
+          error={replaceErr ?? saveErr ?? conflict?.message ?? null}
+          onCancel={() => {
+            setPending(null);
+            setReplaceErr(null);
+            switchOriginalRef.current = null;
+          }}
+          onSaveSwitch={saveAndSwitch}
+          onDiscardSwitch={discardAndSwitch}
+        />
+      ) : null}
+
+      {legacyConfirm !== null ? (
+        <ConfirmDialog
+          title="旧回顾 · 先确认结束"
+          body={
+            <>
+              这份旧存档保存时停在回顾模式，<b>不能证明它跑满了时长或真实的停止时间</b>。
+              <br />
+              确认“这份成绩已经结束”后，会按补录（manual / declared）进入编辑；保存时才把根文件升级为 schema 2。
+            </>
+          }
+          confirmLabel="确认已结束，编辑成绩"
+          onCancel={() => setLegacyConfirm(null)}
+          onConfirm={confirmLegacyEdit}
+        />
+      ) : null}
+
+      {resetConfirm ? (
+        <ConfirmDialog
+          title="重置本场草稿"
+          body={
+            <>
+              当前草稿的格式读不懂。重置会删掉这份浏览器草稿并重新开始 —— 不会动工坊里的正式存档。
+            </>
+          }
+          confirmLabel="重置草稿"
+          danger
+          onCancel={() => setResetConfirm(false)}
+          onConfirm={() => {
+            setResetConfirm(false);
+            clearDraft(store, row.path);
+            setDraftErr(null);
+            commit(null, false);
+            setReloadNo((n) => n + 1);
+            setIdentity({ kind: 'review' });
+          }}
+        />
       ) : null}
     </>
   );
@@ -800,13 +1612,13 @@ export function ArenaBoard({ row, live, store, onBack, initialRecord = null }: P
 
 /* ---------- 列头 ---------- */
 
-const HEAD_HINT: Record<HeadState, string> = {
+const HEAD_HINT = {
   quiet: '全场无人提交',
   pending: '封榜段内有活动 · 结果未定',
   noone: '有人交 · 无人过',
   any: '封榜前已有人过',
   late: '直到封榜后才被解开',
-};
+} as const;
 
 const ProblemHead = memo(function ProblemHead({
   problem,
@@ -848,13 +1660,7 @@ const ProblemHead = memo(function ProblemHead({
           date: `${problem.alias ?? ''} · ${problem.title ?? ''}`,
           value: `${col.ac} / ${rows} 队过`,
           zero: col.ac === 0,
-          sub: [
-            HEAD_HINT[state],
-            `交 ${col.sub} 次`,
-            fbText,
-            col.frz > 0 ? `另有 ${col.frz} 格封榜未定` : '',
-            col.postAc > 0 && col.postAc < col.ac ? `其中 ${col.postAc} 队封榜后才过` : '',
-          ].filter((s) => s !== ''),
+          sub: [HEAD_HINT[state], `交 ${col.sub} 次`, fbText, col.frz > 0 ? `另有 ${col.frz} 格封榜未定` : '', col.postAc > 0 && col.postAc < col.ac ? `其中 ${col.postAc} 队封榜后才过` : ''].filter((s) => s !== ''),
         });
       }}
       onMouseLeave={hide}
@@ -894,13 +1700,7 @@ const BoardRowView = memo(function BoardRowView(props: RowProps) {
       value: `第 ${row.rank} 名 · 过 ${row.solved} 题 · 罚时 ${row.pen}`,
       zero: false,
       valueClass: row.medal ? `is-${row.medal}` : 'is-dim',
-      /* 幽灵行没有机位可显示（`seat` 是「—」），小字改说录入来源 —— 别在 tip 里留个空 # */
-      sub: row.ghost
-        ? [`VP 手动录入${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题逐发']
-        : [
-            `机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`,
-            team.members.length > 0 ? '点击查看队员' : '队员名单未收录 · 点击看队伍信息',
-          ],
+      sub: row.ghost ? [`VP 手动录入${row.medal ? ` · ${row.medalTitle}` : ''}`, '点击看每题逐发'] : [`机位 #${team.seat}${row.star ? ' · 打星不占奖牌' : row.medal ? ` · ${row.medalTitle}` : ' · 正式队'}`, team.members.length > 0 ? '点击查看队员' : '队员名单未收录 · 点击看队伍信息'],
     });
   };
 
@@ -998,10 +1798,6 @@ const CellView = memo(function CellView({
 
 function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti: number; p: number; viewMs: number; cap: number; ghost: GhostData | null }) {
   const problem = model.problems[p];
-  /*
-   * 幽灵行（`ti === -1`）：数据只在 `ghost` 里，**绝不查 `model.teams[-1]`**。
-   * v8 起逐发都带判名与时刻，明细与真队同一套行式（封榜段内一样显 Frozen），不再另造读法。
-   */
   if (ti === -1) {
     if (problem === undefined) return null;
     const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: '你 @我的成绩' };
@@ -1034,15 +1830,10 @@ function SubPop({ model, ti, p, viewMs, cap, ghost }: { model: ContestModel; ti:
   const team = model.teams[ti];
   if (team === undefined || problem === undefined) return null;
   const list = subsUntil(team.subs[p] ?? [], viewMs, cap, team.verdicts[p]);
-  /* 终局判名不是 FB 时，solutions 里残留的 FB 是重判前的旧标记，别拿它说「本题首杀」 */
   const verdict = team.verdicts[p];
   const fb = verdict === undefined || verdict === 'FB' ? team.subs[p]?.find((x) => x.result === 'FB') : undefined;
   const who = team.name === '' ? team.org || '队伍信息未收录' : team.org === '' ? team.name : `${team.name} @${team.org}`;
   const head = { title: `${problem.alias ?? ''} · ${problem.title ?? ''}`, sub: `${who}${fb !== undefined && toCap(fb) <= cap ? ' · 本题首杀' : ''}` };
-  /*
-   * 没有逐次提交时：只要这题有终局摘要就按摘要回吐，不能按整场 `approx` 一刀切。
-   * 混合快照里也可能只有某队/某题缺 `solutions[]`；这里显示「本场未提交」会和格子自相矛盾。
-   */
   if (list.length === 0) {
     const s = team.summaries[p];
     if (s === undefined || s.t > viewMs) return <PopShell head={head}><div className="hint">本场未提交。</div></PopShell>;
@@ -1079,7 +1870,6 @@ const toCap = (x: SrkSolution): number => toMs(x.time);
 
 function TeamPop({ model, ti, board }: { model: ContestModel; ti: number; board: Board }) {
   const row = board.rows.find((r) => r.ti === ti);
-  /* 幽灵行：队伍是引擎合成的（`board.ghostTeam`），队员与机位都没有 —— 一行说明代替 */
   if (ti === -1) {
     const g = board.ghostTeam;
     if (g === null || g === undefined) return null;

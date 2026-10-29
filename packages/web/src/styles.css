@@ -1720,3 +1720,68 @@ code,.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-fea
   .wk-import__createdrow{grid-template-columns:auto minmax(0,1fr)}
   .wk-import__createdrow code{display:none}
 }
+
+/* ==========================================================================
+   榜单多存档（docs/contracts/29）：身份条 / 目标名 / 历史层 / 工坊成绩区
+   ========================================================================== */
+.arena-topbar{gap:10px}
+.arena-id{
+  display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;flex:0 1 auto;min-width:0;
+  border:1px solid var(--line);border-radius:999px;background:var(--panel-2);
+  font-size:11px;color:var(--text-dim);white-space:nowrap;
+}
+.arena-id b{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arena-id span{font-family:var(--font-num);font-size:10px;color:var(--text-mute);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arena-id--practice{border-color:rgba(245,165,36,.35);background:rgba(245,165,36,.07)}
+.arena-id--edit{border-color:rgba(76,201,240,.35);background:rgba(76,201,240,.06)}
+.arena-id--view{border-color:rgba(76,201,240,.28)}
+.arena-id__dirty{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:0 0 auto}
+.arena-target{
+  font-family:var(--font-num);font-size:10.5px;color:var(--text-dim);
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.arena-target.is-dim{color:var(--text-mute)}
+.arena-bgclock{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;flex:0 0 auto;
+  border:1px dashed rgba(245,165,36,.4);border-radius:999px;background:rgba(245,165,36,.05);
+  font-family:var(--font-num);font-size:10.5px;color:var(--accent);white-space:nowrap;
+}
+.arena-alert-acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
+.arena-dlg__sub{margin:-4px 0 10px}
+.arena-dlg__lead{font-size:12.5px;color:var(--text-dim);line-height:1.8}
+.arena-dlg__acts{display:flex;align-items:center;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft);flex-wrap:wrap}
+.wk-modal__box.is-wide{width:min(760px,92vw)}
+.arena-hist{display:flex;flex-direction:column;border-top:1px solid var(--line-soft);margin-top:10px}
+.arena-hist__row,.arena-hist__legacy{display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid var(--line-soft)}
+.arena-hist__row.is-on{background:rgba(76,201,240,.05)}
+.arena-hist__legacy{background:rgba(210,153,34,.04);padding-left:8px;padding-right:8px;border-radius:var(--r-s);margin-top:8px}
+.arena-hist__main{min-width:0;flex:1 1 auto}
+.arena-hist__name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arena-hist__meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:3px;font-family:var(--font-num);font-size:10.5px;color:var(--text-mute)}
+.arena-hist__acts{display:flex;gap:6px;flex:0 0 auto}
+.arena-hist__errors{margin-top:12px}
+.crow__status{
+  display:inline-block;margin-left:8px;font-family:var(--font-num);font-size:9.5px;font-style:normal;
+  color:var(--text-mute);border:1px solid var(--line);border-radius:999px;padding:1px 7px;vertical-align:1px;white-space:nowrap;
+}
+.crow__status.is-dirty{color:var(--accent);border-color:rgba(245,165,36,.35)}
+.crow.has-draft{background:rgba(245,165,36,.02)}
+.wk-records__refresh{margin-left:auto}
+.wk-rec{display:flex;align-items:center;gap:12px;padding:8px 2px;border-bottom:1px solid var(--line-soft)}
+.wk-rec__main{min-width:0;flex:1 1 auto}
+.wk-rec__name{font-size:12.5px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-rec__meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:3px;font-family:var(--font-num);font-size:10px;color:var(--text-mute)}
+.wk-rec__acts{display:flex;gap:6px;flex:0 0 auto}
+.wk-rec--legacy{background:rgba(210,153,34,.04);border-radius:var(--r-s);padding-left:8px;padding-right:8px}
+.wk-records__errors{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.wk-trashbadge{display:inline-flex;align-items:center;height:17px;padding:0 5px;margin-right:7px;border:1px solid var(--line);border-radius:3px;font-size:9px;color:var(--text-mute)}
+.wk-trashbadge--record{color:var(--accent-2);border-color:rgba(76,201,240,.3)}
+@media (max-width:1460px){
+  .arena-topbar .rbname{max-width:200px}
+  .arena-id span{display:none}
+  .arena-target{max-width:110px}
+}
+@media (max-width:1320px){
+  .arena-topbar{gap:7px}
+  .arena-target{display:none}
+}

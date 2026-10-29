@@ -29,16 +29,32 @@ import { XcpcClaim } from './components/xcpc/XcpcClaim.tsx';
 import { XcpcDossier } from './components/xcpc/XcpcDossier.tsx';
 import { decideSwitch } from './switcher.ts';
 
-function routeFromHash(): { view: View; arenaPath: string | null } {
+interface ArenaRoute {
+  path: string;
+  /** 工坊 / 深链指定要打开的存档；null = 该场当前练习 / 终榜 */
+  recordId: string | null;
+  /** &legacy=restore：把旧 live 恢复为当前练习 */
+  restoreLegacy: boolean;
+}
+
+function routeFromHash(): { view: View; arena: ArenaRoute | null } {
   const h = window.location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = h.split('?');
   const view: View = path === 'settings' || path === 'master' || path === 'arena' ? path : 'dashboard';
-  let arenaPath: string | null = null;
+  let arena: ArenaRoute | null = null;
   if (view === 'arena' && query !== '') {
-    const p = new URLSearchParams(query).get('path');
-    if (p !== null && p !== '') arenaPath = p;
+    const params = new URLSearchParams(query);
+    const p = params.get('path');
+    if (p !== null && p !== '') {
+      const record = params.get('record');
+      arena = {
+        path: p,
+        recordId: record === null || record === '' ? null : record,
+        restoreLegacy: params.get('legacy') === 'restore',
+      };
+    }
   }
-  return { view, arenaPath };
+  return { view, arena };
 }
 
 /** 服务端把任务丢了（进程重启）时，别把进度条永远挂在那儿 */
@@ -106,7 +122,7 @@ export function App() {
   const [states, setStates] = useState<SyncStatesDto | null>(null);
   const [today, setToday] = useState(() => new Date());
   const [view, setView] = useState<View>(() => routeFromHash().view);
-  const [arenaEntry, setArenaEntry] = useState<string | null>(() => routeFromHash().arenaPath);
+  const [arenaEntry, setArenaEntry] = useState<ArenaRoute | null>(() => routeFromHash().arena);
   const [busy, setBusy] = useState<Record<SourceId, boolean>>({ cf: false, at: false, xcpc: false });
   const [delta, setDelta] = useState<{ source: SyncSourceId; stored: number } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -132,7 +148,7 @@ export function App() {
     const onHash = () => {
       const route = routeFromHash();
       setView(route.view);
-      setArenaEntry(route.arenaPath);
+      setArenaEntry(route.arena);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -383,7 +399,7 @@ export function App() {
   const screen = () => {
     if (view === 'master') return <Workbench />;
     /* 模拟榜单两块屏自带整条顶栏（计时 / 走带 / 封榜 pill），壳交出去（bare） */
-    if (view === 'arena') return <Arena onCount={setArenaCount} entryPath={arenaEntry} onEntryConsumed={consumeArenaEntry} />;
+    if (view === 'arena') return <Arena onCount={setArenaCount} entry={arenaEntry} onEntryConsumed={consumeArenaEntry} />;
     if (view === 'settings') {
       const configuredNeither = status !== null && !status.sources.cf.configured && !status.sources.at.configured;
       if (status === null || configuredNeither || wizardActive) {

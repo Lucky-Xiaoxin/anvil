@@ -1,15 +1,21 @@
 import type {
   ArenaCatalogDto,
   ArenaContestDto,
+  ArenaRecordCreateInput,
+  ArenaRecordCreateResult,
+  ArenaRecordItemDto,
+  ArenaRecordRenameInput,
+  ArenaRecordsListDto,
+  ArenaRecordRestoreResult,
+  ArenaRecordTrashInput,
+  ArenaRecordTrashResult,
+  ArenaRecordUpdateInput,
+  ArenaLegacyRecordDto,
   DashboardDto,
   SourceId,
   StatusDto,
   SyncSourceId,
   SyncStatesDto,
-  WorkArenaGhost,
-  WorkArenaRecordDto,
-  WorkArenaSaveResult,
-  WorkArenaView,
   WorkImportCommitInput,
   WorkImportPlanDto,
   WorkImportResultDto,
@@ -208,13 +214,40 @@ export const getWorkTemplate = (id: string): Promise<WorkTemplateFileDto> =>
 export const saveWorkTemplate = (id: string, content: string, baseRevision: string | null): Promise<WorkTemplateFileDto> =>
   request<WorkTemplateFileDto>('/api/work/template', post({ id, content, baseRevision }), 30_000);
 
-/** VP 成绩存档：按榜单路径找工坊 contest 对象，读/写对象文件夹里的 record.json */
-export const getWorkArenaRecord = (path: string): Promise<WorkArenaRecordDto> =>
-  request<WorkArenaRecordDto>(`/api/work/arena-record?path=${encodeURIComponent(path)}`, undefined, 30_000);
+/* 榜单多存档（docs/contracts/29）：列表 / 指定档 / 旧根文件 / 创建 / 更新 / 改名 / 回收 / 恢复 */
 
-export const saveWorkArenaRecord = (body: {
-  arenaPath: string;
-  title?: string;
-  ghost: WorkArenaGhost;
-  view: WorkArenaView;
-}): Promise<WorkArenaSaveResult> => request<WorkArenaSaveResult>('/api/work/arena-record', post(body), 30_000);
+export const listArenaRecords = (path: string): Promise<ArenaRecordsListDto> =>
+  request<ArenaRecordsListDto>(`/api/work/arena-records?path=${encodeURIComponent(path)}`, undefined, 30_000);
+
+export const getArenaRecordItem = (path: string, recordId: string): Promise<ArenaRecordItemDto> =>
+  request<ArenaRecordItemDto>(
+    `/api/work/arena-records/item?path=${encodeURIComponent(path)}&recordId=${encodeURIComponent(recordId)}`,
+    undefined,
+    30_000,
+  );
+
+export const getArenaLegacy = (path: string): Promise<ArenaLegacyRecordDto> =>
+  request<ArenaLegacyRecordDto>(`/api/work/arena-records/legacy?path=${encodeURIComponent(path)}`, undefined, 30_000);
+
+export const createArenaRecord = (input: ArenaRecordCreateInput): Promise<ArenaRecordCreateResult> =>
+  request<ArenaRecordCreateResult>('/api/work/arena-records/create', post(input), 60_000);
+
+export const updateArenaRecord = (input: ArenaRecordUpdateInput): Promise<{ record: ArenaRecordCreateResult['record']; revision: string }> =>
+  request<{ record: ArenaRecordCreateResult['record']; revision: string }>(
+    '/api/work/arena-records/update',
+    post(input),
+    60_000,
+  );
+
+export const renameArenaRecord = (input: ArenaRecordRenameInput): Promise<{ record: ArenaRecordCreateResult['record']; revision: string }> =>
+  request<{ record: ArenaRecordCreateResult['record']; revision: string }>(
+    '/api/work/arena-records/rename',
+    post(input),
+    30_000,
+  );
+
+export const trashArenaRecord = (input: ArenaRecordTrashInput): Promise<ArenaRecordTrashResult> =>
+  request<ArenaRecordTrashResult>('/api/work/arena-records/trash', post(input), 30_000);
+
+export const restoreArenaRecord = (trashId: string): Promise<ArenaRecordRestoreResult> =>
+  request<ArenaRecordRestoreResult>('/api/work/arena-records/restore', post({ trashId }), 30_000);

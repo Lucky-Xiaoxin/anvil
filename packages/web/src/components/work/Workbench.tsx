@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkKind, WorkObjectDetailDto, WorkObjectDto, WorkTreeDto } from '@anvil/shared';
+import type { WorkKind, WorkObjectDetailDto, WorkObjectDto, WorkTrashDto, WorkTreeDto } from '@anvil/shared';
 import {
   ApiError,
   getWorkObject,
@@ -7,6 +7,7 @@ import {
   initWork,
   openWork,
   purgeWorkTrash,
+  restoreArenaRecord,
   restoreWork,
   rescanWork,
   trashWork,
@@ -545,9 +546,23 @@ export function Workbench() {
               busyId={busy}
               filterKey={`${kindFilter}|${nodeFilter ?? ''}|${labelFilter ?? ''}|${query}`}
               onAdopt={(target) => setDialog({ mode: 'adopt', target })}
-              onRestore={(id) => {
+              onRestoreEntry={(item) => {
                 setTrashView(false);
-                void afterMutation('restore', () => restoreWork(id));
+                setBusy('restore');
+                setNotice(null);
+                void (async () => {
+                  try {
+                    if (item.entryType === 'object') await restoreWork(item.id);
+                    else await restoreArenaRecord(item.id);
+                    await load(archivedRef.current, false);
+                    setNotice({ kind: 'ok', text: item.entryType === 'object' ? '对象已恢复' : '成绩存档已恢复' });
+                  } catch (error) {
+                    const api = error instanceof ApiError ? error : new ApiError(messageOf(error));
+                    setNotice({ kind: 'err', text: api.message });
+                  } finally {
+                    setBusy(null);
+                  }
+                })();
               }}
               onPurge={() => {
                 if (busy !== null) return;
@@ -610,6 +625,17 @@ export function Workbench() {
                   if (detail !== null) void afterMutation('link', () => updateWork({ id: detail.id, parentId }));
                 }}
                 onSelectObject={(id) => selectObject(id)}
+                onOpenArenaRecord={(recordId) => {
+                  if (detail === null || detail.links.arenaPath === undefined) return;
+                  window.location.hash = `/arena?path=${encodeURIComponent(detail.links.arenaPath)}&record=${encodeURIComponent(recordId)}`;
+                }}
+                onRestoreArenaLegacy={() => {
+                  if (detail === null || detail.links.arenaPath === undefined) return;
+                  window.location.hash = `/arena?path=${encodeURIComponent(detail.links.arenaPath)}&legacy=restore`;
+                }}
+                onRecordsChanged={() => {
+                  void load(archivedRef.current, false);
+                }}
                 onTrash={() => {
                   if (detail === null) return;
                   const id = detail.id;

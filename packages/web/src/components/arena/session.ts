@@ -156,7 +156,7 @@ export interface GhostData {
   subs: GhostSub[];
 }
 
-const intOf = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
+export const intOf = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 
 /**
  * 单发录入的 sanitize：读不懂就整条丢（宁可少一发，也不按猜出来的判名占名次）。
@@ -172,21 +172,24 @@ const subOf = (v: unknown): GhostSub | null => {
   return { p, t, r };
 };
 
+/** 逐发对象清洗：旧键与草稿共用一份（v7 的 marks 形状不迁，读出来当没有） */
+export function ghostDataOf(v: unknown): GhostData | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as { show?: unknown; subs?: unknown };
+  if (!Array.isArray(o.subs)) return null;
+  const subs: GhostSub[] = [];
+  for (const x of o.subs) {
+    const s = subOf(x);
+    if (s !== null) subs.push(s);
+  }
+  return { show: o.show !== false, subs: subs.sort(ghostOrder) };
+}
+
 export function loadGhost(store: Store, path: string): GhostData | null {
   try {
     const raw = store.getItem(ghostKey(path));
     if (raw === null || raw === '') return null;
-    const v = JSON.parse(raw) as unknown;
-    if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
-    const o = v as { show?: unknown; subs?: unknown };
-    // v7 那份是 { show, marks:[{p,ac,fails}] } —— 形状换了就不迁，读出来当没有（面板全空重录）
-    if (!Array.isArray(o.subs)) return null;
-    const subs: GhostSub[] = [];
-    for (const x of o.subs) {
-      const s = subOf(x);
-      if (s !== null) subs.push(s);
-    }
-    return { show: o.show !== false, subs: subs.sort(ghostOrder) };
+    return ghostDataOf(JSON.parse(raw));
   } catch {
     return null;
   }

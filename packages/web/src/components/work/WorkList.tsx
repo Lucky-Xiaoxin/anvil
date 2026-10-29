@@ -32,7 +32,7 @@ interface Props {
   trash: WorkTrashDto[];
   trashView: boolean;
   onAdopt: (item: WorkUnregisteredDto) => void;
-  onRestore: (id: string) => void;
+  onRestoreEntry: (item: WorkTrashDto) => void;
   onPurge: () => void;
   busyId: string | null;
   /** 筛选条件变化时重置折叠状态，避免搜索命中藏在收起的组里 */
@@ -454,23 +454,72 @@ export function WorkList(props: Props) {
         {trash.length === 0 ? (
           <div className="wk-empty">回收站是空的。</div>
         ) : (
-          trash.map((item) => (
-            <div className="wk-row wk-row--trash" key={`${item.id}-${item.trashedAt}`}>
-              <div className="wk-row__main">
-                <div className="wk-row__title">{item.title}</div>
-                <div className="wk-row__meta">
-                  <span>{isoDate(item.trashedAt)}</span>
-                  <span className="wk-dot" />
-                  <code>{item.originalRelPath}</code>
+          trash.map((item) => {
+            if (item.entryType === 'object') {
+              return (
+                <div className="wk-row wk-row--trash" key={`obj-${item.id}-${item.trashedAt}`}>
+                  <div className="wk-row__main">
+                    <div className="wk-row__title">
+                      <span className="wk-trashbadge">对象</span>
+                      {item.title}
+                    </div>
+                    <div className="wk-row__meta">
+                      <span>{isoDate(item.trashedAt)}</span>
+                      <span className="wk-dot" />
+                      <code>{item.originalRelPath}</code>
+                    </div>
+                  </div>
+                  <button className="btn btn--sm" disabled={props.busyId !== null} onClick={() => props.onRestoreEntry(item)}>
+                    恢复
+                  </button>
                 </div>
+              );
+            }
+            const parent = props.allById.get(item.contestId) ?? null;
+            const parentTrashed = props.trash.some((t) => t.entryType === 'object' && t.id === item.contestId);
+            const parentArchived = parent?.effectiveArchived === true;
+            const blocked = parent === null || parentArchived;
+            const hint = parentTrashed
+              ? '原比赛在回收站：先恢复比赛'
+              : parent === null
+                ? '原比赛不存在：不能恢复'
+                : parentArchived
+                  ? '原比赛已归档：先取消归档'
+                  : '';
+            return (
+              <div className="wk-row wk-row--trash" key={`rec-${item.id}-${item.trashedAt}`}>
+                <div className="wk-row__main">
+                  <div className="wk-row__title">
+                    <span className="wk-trashbadge wk-trashbadge--record">成绩</span>
+                    {item.title}
+                  </div>
+                  <div className="wk-row__meta">
+                    <span>{isoDate(item.trashedAt)}</span>
+                    <span className="wk-dot" />
+                    <span title={item.arenaPath}>所属比赛 · {parent?.title ?? item.arenaPath.split('/').pop()}</span>
+                    <span className="wk-dot" />
+                    <code>{item.fileName}</code>
+                    {hint !== '' ? (
+                      <>
+                        <span className="wk-dot" />
+                        <span className="wk-row__tag" title="父比赛尚在回收站或已缺失，先恢复原比赛">{hint}</span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+                <button
+                  className="btn btn--sm"
+                  disabled={props.busyId !== null || blocked}
+                  title={blocked ? hint : '恢复到原比赛目录；目标已存在会拒绝'}
+                  onClick={() => props.onRestoreEntry(item)}
+                >
+                  恢复
+                </button>
               </div>
-              <button className="btn btn--sm" disabled={props.busyId !== null} onClick={() => props.onRestore(item.id)}>
-                恢复
-              </button>
-            </div>
-          ))
+            );
+          })
         )}
-        <p className="wk-hint">恢复按原路径移回；原路径被占或父目录缺失时会拒绝，不会自动改名。清空会永久删除回收站里的条目。</p>
+        <p className="wk-hint">恢复按类型分派：对象回原路径，成绩回原比赛的 .anvil-records / 旧根文件；原位置被占或父比赛缺失时会拒绝，不会自动改名。清空会永久删除两类合法条目。</p>
       </div>
     );
   }

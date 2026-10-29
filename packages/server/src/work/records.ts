@@ -679,6 +679,30 @@ export function restoreRecordFile(
   if (sourceStat === null || sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
     throw new WorkError('not-found', '回收条目里找不到存档文件');
   }
+  if (sourceStat.size > ARENA_RECORD_FILE_MAX_BYTES) {
+    throw new WorkError('invalid', '回收里的存档超过 1 MiB，拒绝恢复');
+  }
+  // 恢复前先读一遍：清单说的 ID / 场次与文件正文不一致时，不把坏档搬回比赛目录
+  let sourceRaw: unknown;
+  try {
+    sourceRaw = JSON.parse(readFileSync(source, 'utf8'));
+  } catch {
+    throw new WorkError('internal', '回收里的存档读不出来，未恢复');
+  }
+  const sourceRecord = parseArenaRecordFile(sourceRaw);
+  if (sourceRecord.ok) {
+    if (sourceRecord.record.recordId !== manifest.recordId || sourceRecord.record.arenaPath !== manifest.arenaPath) {
+      throw new WorkError('conflict', '回收清单与存档正文不一致，未恢复');
+    }
+  } else {
+    const sourceLegacy = parseWorkArenaRecord(sourceRaw);
+    if (!sourceLegacy.ok || manifest.recordId !== LEGACY_RECORD_ID) {
+      throw new WorkError('internal', '回收里的旧存档不合法，未恢复');
+    }
+    if (sourceLegacy.record.arenaPath !== manifest.arenaPath) {
+      throw new WorkError('conflict', '回收清单与旧存档正文不一致，未恢复');
+    }
+  }
 
   if (manifest.recordId === LEGACY_RECORD_ID) {
     if (manifest.fileName !== LEGACY_FILE_NAME) {

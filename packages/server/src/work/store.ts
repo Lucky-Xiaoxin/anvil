@@ -1451,6 +1451,9 @@ export class WorkService {
     const trashDirs = new Map<string, string>();
     const trashRoot = join(root, '.anvil', 'trash');
     const trashStat = lstatOrNull(trashRoot);
+    if (trashStat !== null && (trashStat.isSymbolicLink() || !trashStat.isDirectory())) {
+      errors.push({ relPath: '.anvil/trash', kind: 'meta-invalid', message: '回收站必须是普通目录，不允许符号链接' });
+    }
     if (trashStat !== null && trashStat.isDirectory()) {
       let entries: Dirent[];
       try {
