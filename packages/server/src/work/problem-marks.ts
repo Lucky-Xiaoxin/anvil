@@ -13,11 +13,9 @@ import {
   parseProblemMarksInput,
   parseProblemSnapshot,
   prefillProblemMarks,
-  problemMarkSummaryOf,
   problemMarksToJson,
   type ProblemMark,
   type ProblemMarkInput,
-  type ProblemMarkSummary,
   type ProblemMarksDto,
   type ProblemMarksFile,
   type ProblemMarksProblem,
@@ -241,16 +239,5 @@ export function problemMarksDetailOf(host: RecordHostInfo): { dto: ProblemMarksD
   if (read.kind === 'missing') return { dto: null };
   if (read.kind === 'error') return { dto: null, error: read.message };
   return { dto: dtoOf(host, read.file, read.revision) };
-}
-
-/** 列表徽章用：坏文件 / 无文件都返回 null（不阻塞其它对象） */
-export function problemMarkSummaryOfHost(host: RecordHostInfo): ProblemMarkSummary | null {
-  try {
-    const read = readProblemMarks(host);
-    if (read.kind !== 'ok') return null;
-    return problemMarkSummaryOf(read.file);
-  } catch {
-    return null;
-  }
 }
 

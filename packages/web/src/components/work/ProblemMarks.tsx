@@ -87,7 +87,6 @@ export function ProblemMarks(props: Props) {
   const localRef = useRef(local);
   const pendingRef = useRef<Record<string, ProblemMarkInput>>({});
   const versionRef = useRef(0);
-  const sentRef = useRef(0);
   const dirtyRef = useRef(false);
   const inFlightRef = useRef(false);
 
@@ -151,7 +150,6 @@ export function ProblemMarks(props: Props) {
         setUnreadable(res.problemMarks.unreadableMarks ?? 0);
         dirtyRef.current = false;
         setUnsaved(false);
-        sentRef.current = version;
         setSaveState('saved');
       } else {
         setSaveState('saving');
