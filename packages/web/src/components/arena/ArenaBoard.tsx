@@ -13,6 +13,7 @@ import {
   getArenaLegacy,
   getArenaRecordItem,
   listArenaRecords,
+  syncProblemMarks,
   updateArenaRecord,
 } from '../../api.ts';
 import { clockHMS, clockHM, messageOf } from '../../format.ts';
@@ -70,6 +71,9 @@ import { draftKey } from './draft.ts';
 import type { GhostData, Store } from './session.ts';
 import { ConfirmDialog, HistoryDialog, NameDialog, ReplaceDialog, type HistoryState } from './ArenaDialogs.tsx';
 import { ArenaMenu, type ArenaMenuItem } from './ArenaMenu.tsx';
+import { problemsFromArena } from '../work/derive.ts';
+import { getWorkObject } from '../../api.ts';
+import type { ProblemMarksProblem } from '@anvil/shared';
 
 export type ArenaEntryMode = 'practice' | 'review' | 'record' | 'restore-legacy';
 
@@ -129,6 +133,20 @@ type Pop =
   | { anchor: Anchor; kind: 'team'; ti: number }
   | { anchor: Anchor; kind: 'ghost' };
 
+/** 保存成功后的顶层提示（docs/contracts/30 §6.1）：不阻塞、不自动跳转 */
+type MarksPrompt =
+  | { status: 'syncing'; contestId: string }
+  | { status: 'ok'; contestId: string; archived: boolean }
+  | {
+      status: 'failed';
+      contestId: string;
+      recordId: string;
+      problems: ProblemMarksProblem[];
+      message: string;
+      /** 题目清单 alias 集合变化：重试不会成功，且详情里没有「从榜单补齐」 */
+      mismatch: boolean;
+    };
+
 const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
 
 /** 幽灵签名：拼进 minuteKey，改了逐发就重建榜 */
@@ -169,6 +187,8 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [marksPrompt, setMarksPrompt] = useState<MarksPrompt | null>(null);
+  const marksSyncSeq = useRef(0);
   const flashTimer = useRef<number | null>(null);
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -572,6 +592,45 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
   }, [beginRestoreLegacy, draftBooted, load.kind]);
 
   /* ---------- 保存 ---------- */
+  /** 保存成功后同步题目清单并预填 AC（30 §3.4 / §6.1）；失败只影响提示条，不回滚成绩 */
+  const runMarksSync = useCallback(
+    (contestId: string, recordId: string, problems: ProblemMarksProblem[]): void => {
+      const seq = ++marksSyncSeq.current;
+      setMarksPrompt({ status: 'syncing', contestId });
+      void (async () => {
+        try {
+          const [res, detail] = await Promise.all([
+            syncProblemMarks({ arenaPath: row.path, problems, recordId }),
+            getWorkObject(contestId).catch(() => null),
+          ]);
+          if (seq !== marksSyncSeq.current) return;
+          setMarksPrompt({ status: 'ok', contestId: res.problemMarks.contestId, archived: detail?.archived === true });
+        } catch (err) {
+          if (seq !== marksSyncSeq.current) return;
+          setMarksPrompt({
+            status: 'failed',
+            contestId,
+            recordId,
+            problems,
+            message: messageOf(err),
+            mismatch: err instanceof ApiError && err.kind === 'problem-set-mismatch',
+          });
+        }
+      })();
+    },
+    [row.path],
+  );
+
+  const syncMarksAfterSave = useCallback(
+    (record: ArenaRecord, model: ContestModel | null): void => {
+      if (model === null) return;
+      const problems = problemsFromArena({ problems: model.problems });
+      if (problems.length === 0) return;
+      runMarksSync(record.contestId, record.recordId, problems);
+    },
+    [runMarksSync],
+  );
+
   const flashSaved = useCallback((name: string): void => {
     if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     setSaveFlash(`已保存到 ${name}`);
@@ -596,6 +655,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         return;
       }
       flashSaved(record.name);
+      syncMarksAfterSave(record, load.kind === 'ready' ? load.model : null);
       setSaveErr(null);
       setConflict(null);
       setNameState(null);
@@ -606,7 +666,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
       onDraftChanged?.();
       after?.();
     },
-    [commit, flashSaved, loadHistory, onDraftChanged],
+    [commit, flashSaved, load, loadHistory, onDraftChanged, syncMarksAfterSave],
   );
 
   const doCreate = useCallback(
@@ -660,6 +720,26 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     [finishSave, row.path, store],
   );
 
+  /** 目标存档被删（404）：解除 target，保留本地成绩，直接改名保存为新档（29 §6.2） */
+  const detachMissingTarget = useCallback(
+    (base: ArenaDraft): boolean => {
+      const detached: ArenaDraft = { ...base, target: null, savedBaseline: null };
+      if (!saveDraft(store, row.path, detached)) {
+        setSaveErr('原存档已不存在；本地成绩还在，但浏览器存储写不进去，先别离开本页');
+        return false;
+      }
+      draftRef.current = detached;
+      setDraft(detached);
+      setSaveErr(null);
+      setConflict(null);
+      setNote('原存档已被删除：本地成绩还在，确认名称后保存为新档。');
+      setNameErr(null);
+      setNameState({ mode: 'save', initial: firstSaveName(), draft: detached });
+      return true;
+    },
+    [row.path, store],
+  );
+
   const doUpdate = useCallback(
     async (base: ArenaDraft, after?: () => void): Promise<boolean> => {
       if (staleRef.current) {
@@ -684,6 +764,10 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         finishSave(base, res.record, res.revision, after);
         return true;
       } catch (err) {
+        if (err instanceof ApiError && err.kind === 'not-found') {
+          detachMissingTarget(base);
+          return false;
+        }
         if (isUnknownError(err)) {
           try {
             const item = await getArenaRecordItem(row.path, target.recordId);
@@ -707,7 +791,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         setSaveBusy(false);
       }
     },
-    [finishSave, row],
+    [detachMissingTarget, finishSave, row],
   );
 
   const saveDraftWithName = useCallback(
@@ -1228,6 +1312,85 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
       </div>
       <div className="content content--fit">
         <div className="simcol">
+          {marksPrompt !== null ? (
+            <div className={`alert ${marksPrompt.status === 'failed' ? 'alert--warn' : 'alert--ok'} marks-prompt`} role="status">
+              <Icon id={marksPrompt.status === 'failed' ? 'i-warn' : 'i-check'} />
+              <div>
+                {marksPrompt.status === 'syncing' ? (
+                  <b>成绩已保存 · 正在同步题目清单…</b>
+                ) : marksPrompt.status === 'ok' ? (
+                  <>
+                    <b>成绩已保存 · 去标记这场题目？</b>
+                    <div className="hint">只标记你在意的题；没标记的不影响统计。</div>
+                    {marksPrompt.archived ? <div className="hint">这场已归档，题目标记仍可修改。</div> : null}
+                  </>
+                ) : marksPrompt.mismatch ? (
+                  <>
+                    <b>成绩已保存 · 题目清单与当前榜单不一致</b>
+                    <div className="hint">
+                      这场已有题目清单，alias 集合与当前榜单不同；暂不自动重建，避免丢标记。成绩与已有标记不受影响。
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <b>成绩已保存 · 题目清单同步失败</b> · {marksPrompt.message}
+                    <div className="hint">成绩不受影响；可重试，或到工坊详情处理。</div>
+                  </>
+                )}
+              </div>
+              {marksPrompt.status === 'ok' ? (
+                <span className="arena-alert-acts">
+                  <button
+                    className="btn btn--xs btn--primary"
+                    onClick={() => {
+                      window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
+                    }}
+                  >
+                    去标记
+                  </button>
+                  <button className="btn btn--xs btn--ghost" onClick={() => setMarksPrompt(null)}>
+                    暂不
+                  </button>
+                </span>
+              ) : marksPrompt.status === 'failed' ? (
+                <span className="arena-alert-acts">
+                  {marksPrompt.mismatch ? (
+                    <>
+                      <button
+                        className="btn btn--xs btn--primary"
+                        onClick={() => {
+                          window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
+                        }}
+                      >
+                        去工坊
+                      </button>
+                      <button className="btn btn--xs btn--ghost" onClick={() => setMarksPrompt(null)}>
+                        知道了
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn--xs"
+                        disabled={saveBusy}
+                        onClick={() => runMarksSync(marksPrompt.contestId, marksPrompt.recordId, marksPrompt.problems)}
+                      >
+                        重试
+                      </button>
+                      <button
+                        className="btn btn--xs btn--ghost"
+                        onClick={() => {
+                          window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
+                        }}
+                      >
+                        去工坊
+                      </button>
+                    </>
+                  )}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {stale ? (
             <div className="alert alert--warn" role="status">
               <Icon id="i-warn" />

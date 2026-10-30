@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { WorkKind, WorkObjectDto, WorkTreeDto, WorkUnregisteredDto } from '@anvil/shared';
+import type { WorkKind, WorkObjectDto, WorkUnregisteredDto } from '@anvil/shared';
 import { ApiError, createWork, adoptWork } from '../../api.ts';
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
@@ -23,7 +23,6 @@ const MODES: ReadonlyArray<{ mode: CreateMode; label: string; hint: string }> = 
 ];
 
 interface Props {
-  tree: WorkTreeDto;
   /** 活动比赛（27 §5.2）：关联选择器只列活动对象 */
   contests: WorkObjectDto[];
   dialog: WorkDialog;
@@ -39,18 +38,16 @@ function modeOfHint(kind: WorkKind | null): CreateMode {
   return 'problemset';
 }
 
-export function WorkCreate({ tree, contests, dialog, onDone, onClose }: Props) {
+export function WorkCreate({ contests, dialog, onDone, onClose }: Props) {
   const adopting = dialog.mode === 'adopt';
   const target = adopting ? dialog.target : null;
   const [mode, setMode] = useState<CreateMode>(target === null ? 'problemset' : modeOfHint(target.kindHint));
   const [title, setTitle] = useState(() => (target === null ? '' : (target.relPath.split('/').pop() ?? '')));
-  const [topId, setTopId] = useState('');
   const [arenaPath, setArenaPath] = useState('');
   const [parentId, setParentId] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const topNodes = tree.taxonomy?.nodes ?? [];
   const parentOptions = availableContests(contests);
   const current = MODES.find((item) => item.mode === mode) ?? MODES[0]!;
   const canSubmit = adopting || title.trim() !== '';
@@ -76,7 +73,6 @@ export function WorkCreate({ tree, contests, dialog, onDone, onClose }: Props) {
           kind,
           title: title.trim(),
           ...(mode === 'contest' && arenaPath.trim() !== '' ? { arenaPath: arenaPath.trim() } : {}),
-          ...(mode === 'template' && topId !== '' ? { topId } : {}),
           ...link,
         });
         onDone(made.title, made.id);
@@ -125,20 +121,6 @@ export function WorkCreate({ tree, contests, dialog, onDone, onClose }: Props) {
               onChange={(e) => setTitle(e.target.value)}
             />
           </label>
-
-          {mode === 'template' ? (
-            <label className="wk-field">
-              <span className="wk-label">一级分类（可选）</span>
-              <select className="wk-select" value={topId} onChange={(e) => setTopId(e.target.value)}>
-                <option value="">_unsorted</option>
-                {topNodes.map((node) => (
-                  <option value={node.id} key={node.id}>
-                    {node.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
 
           {mode === 'contest' ? (
             <label className="wk-field">

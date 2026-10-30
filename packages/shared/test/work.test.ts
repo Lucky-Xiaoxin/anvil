@@ -3,12 +3,9 @@ import {
   buildWorkRelPath,
   cleanLabels,
   defaultTemplateOf,
-  flattenTaxonomy,
   localDateParts,
-  parseTaxonomy,
   parseWorkArenaRecord,
   parseWorkMeta,
-  seedTaxonomy,
   slugForAttempt,
   slugify,
   unregisteredKindHint,
@@ -25,7 +22,6 @@ const meta = (patch: Record<string, unknown> = {}) => ({
   createdAt: '2026-10-21T02:00:00.000Z',
   updatedAt: '2026-10-21T02:10:00.000Z',
   parentId: null,
-  tags: { primary: 'graph/tree', related: ['dp/tree-dp'] },
   labels: ['赛时', '没调出来'],
   links: { problemKey: 'cf:2184:F' },
   archived: false,
@@ -81,7 +77,6 @@ describe('受管路径（契约 §5.1 / 26 §2.1）', () => {
       ok: true,
       value: { slug: 'cherry-tree', relPath: 'contests/2026-10-21_shanghai/cherry-tree' },
     });
-    expect(buildWorkRelPath('template', { title: 'DSU', topId: 'ds', date: D }).ok).toBe(true);
     expect(buildWorkRelPath('template', { title: 'DSU', date: D })).toEqual({
       ok: true,
       value: { slug: 'dsu', relPath: 'templates/_unsorted/dsu' },
@@ -144,7 +139,6 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(parsed.record.meta.title).toBe('Shanghai');
     expect(parsed.record.meta.updatedAt).toBe('2026-10-21T02:00:00.000Z');
     expect(parsed.record.meta.parentId).toBeNull();
-    expect(parsed.record.meta.tags).toEqual({ primary: null, related: [] });
     expect(parsed.record.meta.labels).toEqual([]);
     expect(parsed.record.meta.links).toEqual({});
     expect(parsed.record.meta.archived).toBe(false);
@@ -167,10 +161,7 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(parseWorkMeta(meta({ kind: 'template', parentId: 'obj_1a2b3c4d5e', links: {} })).ok).toBe(false);
   });
 
-  it('related 去重、不得含 primary；labels 清洗与上限', () => {
-    const ok = parseWorkMeta(meta({ tags: { primary: 'graph', related: ['dp', 'dp'] } }));
-    expect(ok.ok && ok.record.meta.tags.related).toEqual(['dp']);
-    expect(parseWorkMeta(meta({ tags: { primary: 'graph', related: ['graph'] } })).ok).toBe(false);
+  it('labels 清洗与上限', () => {
     const labelsParsed = parseWorkMeta(meta({ labels: ['#赛时', '  赛后 ', '赛时'] }));
     expect(labelsParsed.ok && labelsParsed.record.meta.labels).toEqual(['赛时', '赛后']);
     expect(cleanLabels(Array.from({ length: 21 }, (_, i) => `l${i}`)).ok).toBe(false);
@@ -207,33 +198,15 @@ describe('meta 校验（契约 §4.2）', () => {
     expect(written.custom).toEqual({ keep: 1 });
     expect(written.note).toBe('手写扩展');
   });
-});
 
-describe('taxonomy（契约 §7）', () => {
-  it('种子词表可解析，13 个一级轴', () => {
-    const seed = seedTaxonomy();
-    expect(seed.nodes).toHaveLength(13);
-    const parsed = parseTaxonomy(seed);
+  it('对象级主题标签退役：读时不校验、写回原样保留（30 §3.6）', () => {
+    const legacy = meta({ tags: { primary: 'graph/tree', related: ['dp/tree-dp'] } });
+    const parsed = parseWorkMeta(legacy);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.taxonomy.version).toBe(1);
-    expect(flattenTaxonomy(parsed.taxonomy.nodes)).toHaveLength(13 + seed.nodes.reduce((n, x) => n + (x.children?.length ?? 0), 0));
-  });
-
-  it('最多两级 / 重复 ID / 非法 ID / 别名', () => {
-    const base = { schema: 1, version: 1, nodes: [{ id: 'graph', name: '图论', children: [{ id: 'graph/hld', name: '树链剖分' }] }] };
-    expect(parseTaxonomy(base).ok).toBe(true);
-    expect(parseTaxonomy({ ...base, nodes: [{ id: 'graph', name: '图论', children: [{ id: 'graph/hld', name: '树', children: [{ id: 'graph/hld/x', name: 'x' }] }] }] }).ok).toBe(false);
-    expect(parseTaxonomy({ ...base, nodes: [{ id: 'graph', name: '图论' }, { id: 'graph', name: '重复' }] }).ok).toBe(false);
-    expect(parseTaxonomy({ ...base, nodes: [{ id: 'Graph', name: '图论' }] }).ok).toBe(false);
-    expect(parseTaxonomy({ ...base, aliases: { 树剖: 'graph/hld' } }).ok).toBe(true);
-    expect(parseTaxonomy({ ...base, aliases: { 树剖: 'graph/nope' } }).ok).toBe(false);
-  });
-
-  it('悬空引用不在这里判（扫描时进 tag-missing），词表自身坏才 null', () => {
-    const parsed = parseTaxonomy({ schema: 1, version: 1, nodes: [{ id: 'graph', name: '图论' }], aliases: {} });
-    expect(parsed.ok).toBe(true);
-    expect(parseTaxonomy({ schema: 2, version: 1, nodes: [] }).ok).toBe(false);
+    expect((parsed.record.meta as unknown as { tags?: unknown }).tags).toBeUndefined();
+    expect(workMetaToJson(parsed.record).tags).toEqual({ primary: 'graph/tree', related: ['dp/tree-dp'] });
+    expect(parseWorkMeta(meta({ tags: 'not-an-object' })).ok).toBe(true);
   });
 });
 

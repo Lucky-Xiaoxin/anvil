@@ -9,7 +9,9 @@ import { listArenaRecords, renameArenaRecord, trashArenaRecord } from '../../api
 import { messageOf } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import { ConfirmDialog, NameDialog } from '../arena/ArenaDialogs.tsx';
+import { detachDraftTarget } from '../arena/draft.ts';
 import { recordStamp } from '../arena/record.ts';
+import { browserStore } from '../arena/session.ts';
 
 interface Props {
   arenaPath: string;
@@ -28,6 +30,7 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [rename, setRename] = useState<ArenaRecordSummaryDto | null>(null);
   const [renameErr, setRenameErr] = useState<string | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -85,14 +88,21 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
     const legacyTarget = trashLegacy;
     setBusy('trash');
     setErr(null);
+    setNotice(null);
     void (async () => {
       try {
+        const recordId = target?.recordId ?? 'legacy';
         await trashArenaRecord({
           arenaPath,
-          recordId: target?.recordId ?? 'legacy',
+          recordId,
           expectedRevision: target?.revision ?? legacyTarget!.revision,
           confirm: true,
         });
+        // 同一浏览器里可能还有指向这份档的草稿：解除 target，保留成绩，下次保存新建
+        const store = browserStore();
+        if (store !== null && detachDraftTarget(store, arenaPath, recordId)) {
+          setNotice('原存档已删除；这场本地草稿已解除保存目标，下次保存会新建一份。');
+        }
         setTrashTarget(null);
         setTrashLegacy(null);
         await refresh();
@@ -133,6 +143,15 @@ export function WorkRecords({ arenaPath, contestTitle, archived, onOpenRecord, o
           <Icon id="i-warn" />
           <div>{err}</div>
           <button className="alert__x" type="button" onClick={() => setErr(null)}>
+            知道了
+          </button>
+        </div>
+      ) : null}
+      {notice !== null ? (
+        <div className="alert alert--ok" role="status">
+          <Icon id="i-check" />
+          <div>{notice}</div>
+          <button className="alert__x" type="button" onClick={() => setNotice(null)}>
             知道了
           </button>
         </div>

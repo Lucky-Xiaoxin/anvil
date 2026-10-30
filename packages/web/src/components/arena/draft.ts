@@ -185,6 +185,16 @@ export function listDraftPaths(store: Store): string[] {
   return out;
 }
 
+/**
+ * 删除存档后解除同场草稿的编辑目标（docs/contracts/29 §6.2）：
+ * 保留 ghost / result，下次保存按「新建一份」走，避免一直对着已不存在的 recordId 更新。
+ */
+export function detachDraftTarget(store: Store, arenaPath: string, recordId: string): boolean {
+  const loaded = loadDraft(store, arenaPath);
+  if (loaded.kind !== 'draft' || loaded.draft.target === null || loaded.draft.target.recordId !== recordId) return false;
+  return saveDraft(store, arenaPath, { ...loaded.draft, target: null, savedBaseline: null });
+}
+
 export function newDraftId(): string {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);

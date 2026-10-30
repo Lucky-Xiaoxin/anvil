@@ -1,8 +1,9 @@
 /**
- * 工坊（切片 5a）的共享契约：DTO、`.anvil.json` / taxonomy 校验、slug 与受管路径纯函数。
- * 口径见 docs/contracts/23-工坊-代码管辖契约.md；服务端只做 IO 与索引，判据尽量留在这里。
+ * 工坊的共享契约：对象 DTO、`.anvil.json` 校验、slug 与受管路径纯函数。
+ * 对象口径见 docs/contracts/23 / 26 / 27；题目标记在 problem-marks.ts（docs/contracts/30）。
  */
 import { contestPathOk } from './arena-path.ts';
+import type { ProblemMarkSummary, ProblemMarksDto } from './problem-marks.ts';
 import { cleanSourcePath } from './work-import.ts';
 
 /**
@@ -17,11 +18,6 @@ export function isWorkKind(v: unknown): v is WorkKind {
   return typeof v === 'string' && (WORK_KINDS as readonly string[]).includes(v);
 }
 
-export interface WorkTags {
-  primary: string | null;
-  related: string[];
-}
-
 export interface WorkLinks {
   problemKey?: string;
   arenaPath?: string;
@@ -33,7 +29,6 @@ export interface WorkObjectDto {
   title: string;
   relPath: string;
   parentId: string | null;
-  tags: WorkTags;
   labels: string[];
   links: WorkLinks;
   archived: boolean;
@@ -45,6 +40,8 @@ export interface WorkObjectDto {
   sourceCount: number;
   /** 导入来源（源根相对 POSIX 路径）；手动创建 / 旧对象没有 */
   sourcePath?: string;
+  /** 仅带 arenaPath 的比赛：题目标记汇总（docs/contracts/30 §3.5）；无合法文件时不返回 */
+  problemMarkSummary?: ProblemMarkSummary;
 }
 
 export interface WorkFileDto {
@@ -57,18 +54,10 @@ export interface WorkFileDto {
 export interface WorkObjectDetailDto extends WorkObjectDto {
   files: WorkFileDto[];
   filesTruncated: boolean;
-}
-
-export interface WorkTaxonomyNodeDto {
-  id: string;
-  name: string;
-  count: number;
-  children?: WorkTaxonomyNodeDto[];
-}
-
-export interface WorkTaxonomyDto {
-  version: number;
-  nodes: WorkTaxonomyNodeDto[];
+  /** 仅比赛：题目标记；没有 arenaPath / 没有快照时为 null */
+  problemMarks?: ProblemMarksDto | null;
+  /** 标记文件损坏 / schema 过高 / 宿主不一致时的原因（成绩与对象不受影响） */
+  problemMarksError?: string;
 }
 
 export interface WorkUnregisteredDto {
@@ -78,7 +67,7 @@ export interface WorkUnregisteredDto {
 
 export interface WorkScanErrorDto {
   relPath: string;
-  kind: 'meta-invalid' | 'parent-missing' | 'tag-missing' | 'symlink' | 'scan';
+  kind: 'meta-invalid' | 'parent-missing' | 'symlink' | 'scan';
   message: string;
 }
 
@@ -117,8 +106,8 @@ export interface WorkTreeDto {
   objects: WorkObjectDto[];
   unregistered: WorkUnregisteredDto[];
   errors: WorkScanErrorDto[];
-  taxonomy: WorkTaxonomyDto | null;
-  taxonomyError: string | null;
+  /** 本工作区所有合法题目标记里用过的标签（去重、最多 200，次数降序再字母序） */
+  problemTags: string[];
   trash: WorkTrashDto[];
 }
 
@@ -278,16 +267,11 @@ export function parseWorkArenaRecord(input: unknown): WorkArenaRecordParseResult
 /* ------------------------------------------------------------------ */
 
 export const WORK_ID_RE = /^obj_[0-9a-f]{10}$/;
-export const WORK_NODE_ID_RE = /^[a-z0-9-]+(\/[a-z0-9-]+)?$/;
 export const SLUG_MAX = 40;
 export const OBJ_REL_PATH_MAX = 160;
 
 export function workIdOk(v: unknown): v is string {
   return typeof v === 'string' && WORK_ID_RE.test(v);
-}
-
-export function workNodeIdOk(v: unknown): v is string {
-  return typeof v === 'string' && WORK_NODE_ID_RE.test(v);
 }
 
 export function isIsoTime(v: unknown): v is string {
@@ -302,7 +286,6 @@ export interface WorkMeta {
   createdAt: string;
   updatedAt: string;
   parentId: string | null;
-  tags: WorkTags;
   labels: string[];
   links: WorkLinks;
   archived: boolean;
@@ -335,35 +318,6 @@ export function cleanLabels(input: unknown): { ok: true; labels: string[] } | { 
   }
   if (out.length > 20) return { ok: false, message: `label 太多（${out.length} > 20）` };
   return { ok: true, labels: out };
-}
-
-function parseTags(input: unknown): { ok: true; tags: WorkTags } | { ok: false; message: string } {
-  if (input === undefined) return { ok: true, tags: { primary: null, related: [] } };
-  if (!isRecord(input)) return { ok: false, message: 'tags 必须是对象' };
-
-  let primary: string | null = null;
-  if (input.primary !== undefined && input.primary !== null) {
-    if (!workNodeIdOk(input.primary)) return { ok: false, message: 'tags.primary 不是合法节点 ID' };
-    primary = input.primary;
-  }
-
-  let related: string[] = [];
-  if (input.related !== undefined) {
-    if (!Array.isArray(input.related)) return { ok: false, message: 'tags.related 必须是数组' };
-    const seen = new Set<string>();
-    for (const id of input.related) {
-      if (!workNodeIdOk(id)) return { ok: false, message: 'tags.related 含非法节点 ID' };
-      if (id === primary) return { ok: false, message: 'tags.related 不能包含 primary' };
-      if (!seen.has(id)) {
-        seen.add(id);
-        related.push(id);
-      }
-    }
-  } else if (primary === null) {
-    related = [];
-  }
-
-  return { ok: true, tags: { primary, related } };
 }
 
 function parseLinks(input: unknown): { ok: true; links: WorkLinks } | { ok: false; message: string } {
@@ -413,9 +367,7 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
     return { ok: false, message: '只有 problemset / problem 可以有 parentId' };
   }
 
-  const tags = parseTags(input.tags);
-  if (!tags.ok) return tags;
-
+  // 对象级主题标签已退役（30 §3.6）：旧文件里的 tags 字段原样保留，不读、不校验、不重写
   const labels = cleanLabels(input.labels);
   if (!labels.ok) return labels;
 
@@ -451,7 +403,6 @@ export function parseWorkMeta(input: unknown): WorkMetaParseResult {
         createdAt: input.createdAt,
         updatedAt,
         parentId,
-        tags: tags.tags,
         labels: labels.labels,
         links: links.links,
         archived,
@@ -474,147 +425,10 @@ export function workMetaToJson(record: WorkMetaRecord): Record<string, unknown> 
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
     parentId: meta.parentId,
-    tags: { primary: meta.tags.primary, related: [...meta.tags.related] },
     labels: [...meta.labels],
     links: { ...meta.links },
     archived: meta.archived,
     ...(meta.sourcePath === undefined ? {} : { sourcePath: meta.sourcePath }),
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* 词表                                                                */
-/* ------------------------------------------------------------------ */
-
-export interface WorkTaxonomyNodeFile {
-  id: string;
-  name: string;
-  children?: WorkTaxonomyNodeFile[];
-}
-
-export interface WorkTaxonomyFile {
-  schema: 1;
-  version: number;
-  nodes: WorkTaxonomyNodeFile[];
-  aliases: Record<string, string>;
-}
-
-export type TaxonomyParseResult =
-  | { ok: true; taxonomy: WorkTaxonomyFile }
-  | { ok: false; message: string };
-
-function parseTaxonomyNodes(input: unknown): { ok: true; nodes: WorkTaxonomyNodeFile[]; ids: Set<string> } | { ok: false; message: string } {
-  if (!Array.isArray(input)) return { ok: false, message: 'nodes 必须是数组' };
-  const ids = new Set<string>();
-  const nodes: WorkTaxonomyNodeFile[] = [];
-
-  const readNode = (raw: unknown, parentId: string | null): WorkTaxonomyNodeFile | string => {
-    if (!isRecord(raw)) return '节点必须是对象';
-    if (!workNodeIdOk(raw.id)) return '节点 ID 不合法';
-    if (ids.has(raw.id)) return `节点 ID 重复：${raw.id}`;
-    if (typeof raw.name !== 'string') return '节点 name 必须是字符串';
-    const name = raw.name.trim();
-    if (name.length < 1 || name.length > 24) return `节点 name 长度必须在 1–24 之间：${raw.id}`;
-    ids.add(raw.id);
-
-    if (raw.children !== undefined) {
-      if (parentId !== null) return '词表最多两级';
-      if (!Array.isArray(raw.children)) return 'children 必须是数组';
-      const children: WorkTaxonomyNodeFile[] = [];
-      for (const childRaw of raw.children) {
-        const child = readNode(childRaw, raw.id);
-        if (typeof child === 'string') return child;
-        children.push(child);
-      }
-      return { id: raw.id, name, children };
-    }
-    return { id: raw.id, name };
-  };
-
-  for (const raw of input) {
-    const node = readNode(raw, null);
-    if (typeof node === 'string') return { ok: false, message: node };
-    nodes.push(node);
-  }
-  return { ok: true, nodes, ids };
-}
-
-export function parseTaxonomy(input: unknown): TaxonomyParseResult {
-  if (!isRecord(input)) return { ok: false, message: 'taxonomy 不是对象' };
-  if (input.schema !== 1) return { ok: false, message: `不支持的 taxonomy schema：${String(input.schema)}` };
-  if (typeof input.version !== 'number' || !Number.isInteger(input.version) || input.version < 1) {
-    return { ok: false, message: 'version 必须是正整数' };
-  }
-  const parsed = parseTaxonomyNodes(input.nodes);
-  if (!parsed.ok) return { ok: false, message: parsed.message };
-
-  let aliases: Record<string, string> = {};
-  if (input.aliases !== undefined) {
-    if (!isRecord(input.aliases)) return { ok: false, message: 'aliases 必须是对象' };
-    aliases = {};
-    for (const [key, value] of Object.entries(input.aliases)) {
-      const name = key.trim();
-      if (name === '') return { ok: false, message: 'aliases 的键不能为空' };
-      if (typeof value !== 'string' || !parsed.ids.has(value)) return { ok: false, message: `别名 ${name} 指向不存在的节点` };
-      aliases[name] = value;
-    }
-  }
-
-  return { ok: true, taxonomy: { schema: 1, version: input.version, nodes: parsed.nodes, aliases } };
-}
-
-export interface FlatTaxonomyNode {
-  id: string;
-  name: string;
-  parentId: string | null;
-}
-
-export function flattenTaxonomy(nodes: readonly WorkTaxonomyNodeFile[]): FlatTaxonomyNode[] {
-  const out: FlatTaxonomyNode[] = [];
-  for (const node of nodes) {
-    out.push({ id: node.id, name: node.name, parentId: null });
-    for (const child of node.children ?? []) out.push({ id: child.id, name: child.name, parentId: node.id });
-  }
-  return out;
-}
-
-/** 种子词表（契约附录 A）：自写起步集，不复制第三方映射文件 */
-export function seedTaxonomy(): WorkTaxonomyFile {
-  const n = (id: string, name: string, children?: [string, string][]): WorkTaxonomyNodeFile => ({
-    id,
-    name,
-    ...(children === undefined ? {} : { children: children.map(([cid, cname]) => ({ id: `${id}/${cid}`, name: cname })) }),
-  });
-  return {
-    schema: 1,
-    version: 1,
-    nodes: [
-      n('thinking', '思维与模拟', [['implementation', '实现与模拟'], ['constructive', '构造'], ['greedy', '贪心'], ['brute-force', '枚举与暴力'], ['sortings', '排序与扫描']]),
-      n('basics', '基础技巧', [['prefix-sum', '前缀和与差分'], ['two-pointers', '双指针'], ['binary-search', '二分'], ['bit', '位运算'], ['discretization', '离散化'], ['bigint', '高精度']]),
-      n('search', '搜索', [['dfs-bfs', '深搜与广搜'], ['backtracking', '回溯'], ['pruning', '剪枝'], ['meet-in-middle', '折半搜索']]),
-      n('divide', '分治与离线', [['cdq', 'CDQ 分治'], ['parallel-binary', '整体二分'], ['mo', '莫队'], ['sqrt-decomp', '根号分治'], ['centroid', '点分治']]),
-      n('random', '随机与近似', [['randomized', '随机化'], ['annealing', '模拟退火'], ['hill-climb', '爬山']]),
-      n('ds', '数据结构', [['stack-queue', '栈与队列'], ['heap', '堆'], ['dsu', '并查集'], ['fenwick', '树状数组'], ['segment-tree', '线段树'], ['balanced-tree', '平衡树'], ['persistent', '可持久化'], ['monotonic', '单调栈与队列']]),
-      n('graph', '图论', [['shortest-path', '最短路'], ['mst', '最小生成树'], ['topo', '拓扑排序'], ['connectivity', '连通性'], ['tree', '树'], ['hld', '树链剖分'], ['lca', 'LCA'], ['bipartite', '二分图'], ['functional-graph', '基环树']]),
-      n('flow', '网络流与匹配', [['max-flow', '最大流'], ['min-cost-flow', '费用流'], ['matching', '匹配'], ['lower-bound', '上下界流']]),
-      n('dp', '动态规划', [['knapsack', '背包'], ['interval-dp', '区间 DP'], ['tree-dp', '树形 DP'], ['bitmask-dp', '状压 DP'], ['digit-dp', '数位 DP'], ['prob-dp', '概率 DP'], ['dp-opt', 'DP 优化']]),
-      n('string', '字符串', [['hash', '哈希'], ['kmp', 'KMP'], ['z-function', 'Z 函数'], ['suffix-array', '后缀数组'], ['ac-automaton', 'AC 自动机'], ['palindrome', '回文'], ['trie', '字典树']]),
-      n('math', '数学', [['number-theory', '数论'], ['combinatorics', '组合计数'], ['linear-algebra', '线性代数'], ['polynomial', '多项式'], ['inclusion-exclusion', '容斥'], ['modular', '同余']]),
-      n('game', '概率与博弈', [['probability', '概率与期望'], ['game-theory', '博弈论']]),
-      n('geometry', '计算几何', [['points-lines', '点线面'], ['convex-hull', '凸包'], ['sweep-line', '扫描线'], ['half-plane', '半平面交']]),
-    ],
-    aliases: {
-      树剖: 'graph/hld',
-      点分: 'divide/centroid',
-      状压: 'dp/bitmask-dp',
-      数位dp: 'dp/digit-dp',
-      最短路: 'graph/shortest-path',
-      并查集: 'ds/dsu',
-      线段树: 'ds/segment-tree',
-      字符串哈希: 'string/hash',
-      容斥: 'math/inclusion-exclusion',
-      凸包: 'geometry/convex-hull',
-    },
   };
 }
 
@@ -685,7 +499,6 @@ export interface WorkPathInput {
   problemKey?: string | null;
   arenaPath?: string | null;
   parentRelPath?: string | null;
-  topId?: string | null;
   /** 服务端分配冲突后缀时直接给 slug，跳过 title 来源 */
   slugOverride?: string;
   date: Date;
@@ -732,9 +545,8 @@ export function buildWorkRelPath(
       relPath = `practice/${parts.month}/${slug}`;
     }
   } else if (kind === 'template') {
-    const top = input.topId ?? '_unsorted';
-    if (top !== '_unsorted' && !/^[a-z0-9-]+$/.test(top)) return { ok: false, message: 'topId 只能是词表一级节点 ID' };
-    relPath = `templates/${top}/${slug}`;
+    // 词表退役（30 §3.6）：新建模板统一落 _unsorted；旧模板已在别的分类目录里的不搬
+    relPath = `templates/_unsorted/${slug}`;
   } else {
     relPath = `notes/${parts.year}/${parts.monthNum}/${parts.date}_${slug}`;
   }

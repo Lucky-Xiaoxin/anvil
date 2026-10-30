@@ -153,19 +153,24 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     await initApi();
     const contest = await create('contest', 'Shanghai');
     const problem = await create('problem', 'Cherry Tree', { parentId: contest.id });
-    await create('template', 'DSU', { topId: 'ds' });
+    await create('template', 'DSU');
     await create('note', 'Week 1');
 
     let tree = (await app.inject({ method: 'GET', url: '/api/work/tree' })).json();
     expect(tree.objects).toHaveLength(4);
-    expect(tree.taxonomy.nodes).toHaveLength(13);
+    expect(tree.problemTags).toEqual([]);
 
     let detail = (await app.inject({ method: 'GET', url: `/api/work/object?id=${problem.id}` })).json();
     expect(detail.files).toEqual([]);
 
-    let res = await post('/api/work/update', { id: problem.id, tags: { primary: 'graph/tree', related: ['dp/tree-dp'] }, labels: ['赛时'] });
+    // 对象级主题标签退役：旧客户端传 tags 按 400 拒绝，不静默忽略（30 §3.6）
+let res = await post('/api/work/update', { id: problem.id, tags: { primary: 'graph/tree' } });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error.kind).toBe('invalid');
+    res = await post('/api/work/update', { id: problem.id, labels: ['赛时'] });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json().tags.primary).toBe('graph/tree');
+    expect(res.json().labels).toEqual(['赛时']);
+    expect(res.json().tags).toBeUndefined();
 
     res = await post('/api/work/trash', { id: problem.id });
     expect(res.statusCode, res.body).toBe(200);
@@ -519,7 +524,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
   it('template：读空文件 / 保存 / 冲突 / 非模板拒绝 / 新建题目自动复制默认模板', async () => {
     await boot();
     await initApi();
-    const template = await create('template', 'DSU', { topId: 'ds' });
+    const template = await create('template', 'DSU');
 
     let res = await app.inject({ method: 'GET', url: `/api/work/template?id=${template.id}` });
     expect(res.statusCode, res.body).toBe(200);
@@ -713,7 +718,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     expect(res.json().parentId).toBe(contest.id);
   });
 
-  it('归档冻结 API：归档对象 retitle / tags / labels / parentId / trash 全拒绝，取消归档是唯一写操作（契约 27 §4）', async () => {
+  it('归档冻结 API：归档对象 retitle / labels / parentId / trash 全拒绝，取消归档是唯一写操作（契约 27 §4）', async () => {
     await boot();
     await initApi();
     const contest = await create('contest', 'Shanghai');
@@ -724,7 +729,7 @@ describe('工坊 API 状态机（契约 §9.2）', () => {
     res = await post('/api/work/update', { id: set.id, title: 'Renamed' });
     expect(res.statusCode).toBe(409);
     expect(res.json().error.kind).toBe('conflict');
-    res = await post('/api/work/update', { id: set.id, tags: { primary: null, related: [] } });
+    res = await post('/api/work/update', { id: set.id, labels: [] });
     expect(res.statusCode).toBe(409);
     res = await post('/api/work/update', { id: set.id, labels: ['x'] });
     expect(res.statusCode).toBe(409);

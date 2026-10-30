@@ -14,7 +14,7 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { seedTaxonomy, type ArenaRecordResult } from '@anvil/shared';
+import type { ArenaRecordResult } from '@anvil/shared';
 import { initSchema } from '../src/db.ts';
 import { codeExeFromWherePath, codeLaunchFor, type SpawnFn, type SpawnLike } from '../src/work/open.ts';
 import { WorkService } from '../src/work/store.ts';
@@ -123,12 +123,15 @@ describe('init / 根状态（契约 §3.2）', () => {
 
     const tree = await service.init({ path: root });
     expect(tree.root).toBe(root);
-    expect(tree.taxonomy?.nodes).toHaveLength(13);
+    expect(tree.problemTags).toEqual([]);
     expect(existsSync(join(root, '.anvil', 'root.json'))).toBe(true);
+    // 词表已退役（30 §3.6）：新工作区不再生成 taxonomy.json
+    expect(existsSync(join(root, '.anvil', 'taxonomy.json'))).toBe(false);
     for (const dir of ['contests', 'practice', 'templates', 'notes']) expect(existsSync(join(root, dir)), dir).toBe(true);
 
+    // 旧词表原样保留、不读取：坏内容也不影响扫描
     writeFileSync(join(root, '.anvil', 'taxonomy.json'), JSON.stringify({ schema: 1, version: 9, nodes: [], aliases: {} }));
-    await service.init({ path: root });
+    await service.tree({ rescan: true });
     expect(JSON.parse(readFileSync(join(root, '.anvil', 'taxonomy.json'), 'utf8')).version).toBe(9);
   });
 
@@ -149,25 +152,8 @@ describe('init / 根状态（契约 §3.2）', () => {
     await expect(service.init({ path: root })).rejects.toMatchObject({ kind: 'root-version' });
   });
 
-  it('root.json / taxonomy.json 是符号链接：拒绝跟随', async () => {
+  it('root.json 是符号链接：拒绝跟随', async () => {
     await initRoot();
-    const tax = join(root, '.anvil', 'taxonomy.json');
-    const outsideTax = join(base, 'outside-taxonomy.json');
-    writeFileSync(outsideTax, JSON.stringify({ schema: 1, version: 9, nodes: [], aliases: {} }));
-    unlinkSync(tax);
-    try {
-      symlinkSync(outsideTax, tax, 'file');
-    } catch {
-      return; // Windows 未开启开发者模式时跳过
-    }
-    const tree = await service.tree({ rescan: true });
-    expect(tree.taxonomy).toBeNull();
-    expect(tree.taxonomyError).toContain('普通文件');
-
-    unlinkSync(tax);
-    writeFileSync(tax, JSON.stringify(seedTaxonomy(), null, 2));
-    await service.tree({ rescan: true });
-
     const rootJson = join(root, '.anvil', 'root.json');
     const outsideRoot = join(base, 'outside-root.json');
     writeFileSync(outsideRoot, JSON.stringify({ schema: 1, app: 'anvil' }));
@@ -182,13 +168,13 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
     const problem = await service.create({ kind: 'problem', title: 'Cherry Tree', parentId: contest.id });
-    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'DSU' });
     const note = await service.create({ kind: 'note', title: 'Week 1' });
 
     expect(contest.relPath).toBe('contests/2026-10-21_shanghai');
     expect(problem.relPath).toBe('contests/2026-10-21_shanghai/cherry-tree');
     expect(problem.parentId).toBe(contest.id);
-    expect(template.relPath).toBe('templates/ds/dsu');
+    expect(template.relPath).toBe('templates/_unsorted/dsu');
     expect(note.relPath).toBe('notes/2026/10/2026-10-21_week-1');
     expect(existsSync(join(absOf(note.relPath), 'note.md'))).toBe(true);
     expect((await service.tree()).objects).toHaveLength(4);
@@ -208,7 +194,7 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
 
   it('templateId 只复制模板主文件，test.cpp 与其它文件都不带', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'DSU' });
     const templateUrl = absOf(template.relPath);
     writeFileSync(join(templateUrl, 'template.cpp'), '// template');
     writeFileSync(join(templateUrl, 'test.cpp'), '// test');
@@ -225,7 +211,7 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
 
   it('模板主文件本身叫 solution.cpp 时也复制为 solution.cpp', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'DSU2', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'DSU2' });
     writeFileSync(join(absOf(template.relPath), 'solution.cpp'), '// sol-only');
     const problem = await service.create({ kind: 'problem', title: 'Template Use 2', templateId: template.id });
     expect(readFileSync(join(absOf(problem.relPath), 'solution.cpp'), 'utf8')).toBe('// sol-only');
@@ -245,7 +231,7 @@ describe('四类对象与路径（契约 §4 / §5 / §6.1）', () => {
 describe('模板文件读写（切片 5a.1）', () => {
   it('读取主文件并带 SHA-256；revision 命中时原子保存并刷新文件列表', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'DSU' });
     const file = join(absOf(template.relPath), 'template.cpp');
     writeFileSync(file, 'int main() {}\n');
 
@@ -265,7 +251,7 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('revision 过期 → conflict，文件不被覆盖', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'DSU', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'DSU' });
     const file = join(absOf(template.relPath), 'template.cpp');
     writeFileSync(file, 'one\n');
     const read = service.getTemplate(template.id);
@@ -279,7 +265,7 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('文件不存在时 revision 为 null；保存创建 template.cpp；之后再用 null 保存 → conflict', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'Empty', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'Empty' });
     const read = service.getTemplate(template.id);
     expect(read).toMatchObject({ path: 'template.cpp', exists: false, content: '', revision: null });
 
@@ -293,7 +279,7 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('没有 template.cpp 时编辑首个 .cpp；非模板对象拒绝', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'Alt', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'Alt' });
     writeFileSync(join(absOf(template.relPath), 'a.cpp'), '// a\n');
     writeFileSync(join(absOf(template.relPath), 'b.cpp'), '// b\n');
     const read = service.getTemplate(template.id);
@@ -309,7 +295,7 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('主文件是符号链接或内容超限 → 拒绝', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'Link', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'Link' });
     const outside = join(base, 'outside.cpp');
     writeFileSync(outside, '// outside\n');
     try {
@@ -323,8 +309,8 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('模板文件夹被外部移走 → not-found，不重建原目录', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'Moved', topId: 'ds' });
-    renameSync(absOf(template.relPath), join(root, 'templates', 'ds', 'moved-away'));
+    const template = await service.create({ kind: 'template', title: 'Moved' });
+    renameSync(absOf(template.relPath), join(root, 'templates', '_unsorted', 'moved-away'));
     await expect(service.saveTemplate({ id: template.id, content: 'x', baseRevision: null })).rejects.toMatchObject({
       kind: 'not-found',
     });
@@ -333,7 +319,7 @@ describe('模板文件读写（切片 5a.1）', () => {
 
   it('内容超过 64KB / 含 NUL → invalid', async () => {
     await initRoot();
-    const template = await service.create({ kind: 'template', title: 'Big', topId: 'ds' });
+    const template = await service.create({ kind: 'template', title: 'Big' });
     await expect(
       service.saveTemplate({ id: template.id, content: 'a'.repeat(64 * 1024 + 1), baseRevision: null }),
     ).rejects.toMatchObject({ kind: 'invalid' });
@@ -346,10 +332,10 @@ describe('模板文件读写（切片 5a.1）', () => {
 describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () => {
   it('未指定模板时用 updatedAt 最新的非归档模板放入 solution.cpp', async () => {
     await initRoot();
-    const older = await service.create({ kind: 'template', title: 'Older', topId: 'ds' });
+    const older = await service.create({ kind: 'template', title: 'Older' });
     writeFileSync(join(absOf(older.relPath), 'template.cpp'), '// older\n');
     now = new Date(2026, 9, 21, 12, 5, 0);
-    const newer = await service.create({ kind: 'template', title: 'Newer', topId: 'ds' });
+    const newer = await service.create({ kind: 'template', title: 'Newer' });
     writeFileSync(join(absOf(newer.relPath), 'template.cpp'), '// newer\n');
 
     const auto = await service.create({ kind: 'problem', title: 'Auto Template' });
@@ -358,10 +344,10 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
 
   it('显式模板优先；null / 空串表示不复制；归档模板不参与默认', async () => {
     await initRoot();
-    const a = await service.create({ kind: 'template', title: 'Alpha', topId: 'ds' });
+    const a = await service.create({ kind: 'template', title: 'Alpha' });
     writeFileSync(join(absOf(a.relPath), 'template.cpp'), '// alpha\n');
     now = new Date(2026, 9, 21, 12, 5, 0);
-    const b = await service.create({ kind: 'template', title: 'Beta', topId: 'ds' });
+    const b = await service.create({ kind: 'template', title: 'Beta' });
     writeFileSync(join(absOf(b.relPath), 'template.cpp'), '// beta\n');
 
     const chosen = await service.create({ kind: 'problem', title: 'Chosen', templateId: a.id });
@@ -382,7 +368,7 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
     const bare = await service.create({ kind: 'problemset', title: 'Bare' });
     expect(service.object(bare.id).files.some((f) => f.path === 'solution.cpp')).toBe(false);
 
-    const tpl = await service.create({ kind: 'template', title: 'Base', topId: 'ds' });
+    const tpl = await service.create({ kind: 'template', title: 'Base' });
     writeFileSync(join(absOf(tpl.relPath), 'template.cpp'), '// base\n');
     writeFileSync(join(absOf(tpl.relPath), 'test.cpp'), 'int main() { return 0; }\n');
 
@@ -393,9 +379,9 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
 
   it('题组也接受显式 templateId / null（不复制）；比赛仍拒绝 templateId', async () => {
     await initRoot();
-    const alpha = await service.create({ kind: 'template', title: 'Alpha', topId: 'ds' });
+    const alpha = await service.create({ kind: 'template', title: 'Alpha' });
     writeFileSync(join(absOf(alpha.relPath), 'template.cpp'), '// alpha\n');
-    const beta = await service.create({ kind: 'template', title: 'Beta', topId: 'ds' });
+    const beta = await service.create({ kind: 'template', title: 'Beta' });
     writeFileSync(join(absOf(beta.relPath), 'template.cpp'), '// beta\n');
 
     const chosen = await service.create({ kind: 'problemset', title: 'Chosen', templateId: alpha.id });
@@ -408,38 +394,25 @@ describe('默认模板（切片 5a.1；题组沿用，2026-10-26 补记）', () 
   });
 });
 
-describe('标签、计数、改标题、归档（契约 §6.3 / §6.4 / §6.5 / §7）', () => {
-  it('primary 进树与一级父计数，related / labels 不计数', async () => {
+describe('自由标签、改标题、归档（契约 §6.3 / §6.4 / §6.5）', () => {
+  it('对象级自由标签仍可写；旧主题标签字段不读、原样保留', async () => {
     await initRoot();
     const problem = await service.create({ kind: 'problem', title: 'Cherry Tree' });
-    await service.update({
-      id: problem.id,
-      tags: { primary: 'graph/tree', related: ['dp/tree-dp'] },
-      labels: ['#赛时', '没调出来'],
-    });
+    await service.update({ id: problem.id, labels: ['#赛时', '没调出来'] });
     const tree = await service.tree();
-    const graph = tree.taxonomy?.nodes.find((n) => n.id === 'graph');
-    const graphTree = graph?.children?.find((n) => n.id === 'graph/tree');
-    const dp = tree.taxonomy?.nodes.find((n) => n.id === 'dp');
-    expect(graphTree?.count).toBe(1);
-    expect(graph?.count).toBe(1);
-    expect(dp?.count).toBe(0);
     const updated = tree.objects.find((o) => o.id === problem.id);
     expect(updated?.labels).toEqual(['赛时', '没调出来']);
-  });
+    expect((updated as unknown as { tags?: unknown }).tags).toBeUndefined();
 
-  it('悬空标签保留对象但计数忽略', async () => {
-    await initRoot();
-    const problem = await service.create({ kind: 'problem', title: 'Cherry Tree' });
     const metaPath = join(absOf(problem.relPath), '.anvil.json');
     const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
     meta.tags = { primary: 'graph/nope', related: [] };
     writeFileSync(metaPath, JSON.stringify(meta));
     await service.rescan();
-    const tree = await service.tree();
-    expect(tree.objects.some((o) => o.id === problem.id)).toBe(true);
-    expect(tree.errors.some((e) => e.kind === 'tag-missing')).toBe(true);
-    expect(tree.taxonomy?.nodes.find((n) => n.id === 'graph')?.count).toBe(0);
+    await service.update({ id: problem.id, labels: ['赛后'] });
+    const after = JSON.parse(readFileSync(metaPath, 'utf8'));
+    expect(after.tags).toEqual({ primary: 'graph/nope', related: [] });
+    expect(after.labels).toEqual(['赛后']);
   });
 
   it('改标题不动目录；归档父对象隐式归档子对象', async () => {
@@ -460,19 +433,7 @@ describe('标签、计数、改标题、归档（契约 §6.3 / §6.4 / §6.5 / 
     expect(child?.effectiveArchived).toBe(true);
   });
 
-  it('归档视图的标签计数按归档对象算，活动视图不含归档', async () => {
-    await initRoot();
-    const active = await service.create({ kind: 'problem', title: 'Active Tagged' });
-    const archived = await service.create({ kind: 'problem', title: 'Archived Tagged' });
-    await service.update({ id: active.id, tags: { primary: 'graph/tree' } });
-    await service.update({ id: archived.id, tags: { primary: 'graph/tree' }, archived: true });
-
-    const activeTree = await service.tree();
-    expect(activeTree.taxonomy?.nodes.find((n) => n.id === 'graph')?.count).toBe(1);
-    const archivedTree = await service.tree({ archived: true });
-    expect(archivedTree.taxonomy?.nodes.find((n) => n.id === 'graph')?.count).toBe(1);
   });
-});
 
 describe('扫描 / 未登记 / 外部改动（契约 §6.8 / §8）', () => {
   it('外部新文件 rescan 可见；外部改名按 id 认回；移出根则消失', async () => {
@@ -1200,7 +1161,7 @@ describe('题组对象与关联（契约 26 §2 / §4 / §5；0..n 见契约 27�
     expect(set.relPath).toBe('practice/2026-10/treedp');
     expect(set.parentId).toBe(contest.id);
     await expect(service.create({ kind: 'problemset', title: 'Bad', arenaPath: 'official/icpc/x/y.srk.json' })).rejects.toMatchObject({ kind: 'invalid' });
-    const tpl = await service.create({ kind: 'template', title: 'T', topId: 'ds' });
+    const tpl = await service.create({ kind: 'template', title: 'T' });
     const withTpl = await service.create({ kind: 'problemset', title: 'WithTpl', templateId: tpl.id });
     expect(withTpl.kind).toBe('problemset');
     await expect(service.create({ kind: 'problemset', title: 'Bad', parentId: 'obj_0000000099' })).rejects.toMatchObject({ kind: 'parent-missing' });
@@ -1312,18 +1273,15 @@ describe('归档冻结与跨归档关联（契约 27 §1 / §3 / §4）', () => 
     expect(active.objects.some((o) => o.id === contest.id)).toBe(true);
     const archived = await service.tree({ archived: true });
     expect(archived.objects.some((o) => o.id === set.id)).toBe(true);
-    // 归档计数只按归档视图
-    expect(active.taxonomy).not.toBeNull();
   });
 
-  it('归档冻结：retitle / tags / labels / parentId 被拒绝；取消归档后可编辑', async () => {
+  it('归档冻结：retitle / labels / parentId 被拒绝；取消归档后可编辑', async () => {
     await initRoot();
     const contest = await service.create({ kind: 'contest', title: 'Shanghai' });
     const set = await service.create({ kind: 'problemset', title: 'TreeDP', parentId: contest.id });
     await service.update({ id: set.id, archived: true });
 
     await expect(service.update({ id: set.id, title: 'Renamed' })).rejects.toMatchObject({ kind: 'conflict' });
-    await expect(service.update({ id: set.id, tags: { primary: null, related: [] } })).rejects.toMatchObject({ kind: 'conflict' });
     await expect(service.update({ id: set.id, labels: ['x'] })).rejects.toMatchObject({ kind: 'conflict' });
     await expect(service.update({ id: set.id, parentId: null })).rejects.toMatchObject({ kind: 'conflict' });
     await expect(service.update({ id: set.id, parentId: contest.id })).rejects.toMatchObject({ kind: 'conflict' });

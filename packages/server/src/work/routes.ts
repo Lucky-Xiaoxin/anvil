@@ -19,7 +19,6 @@ const createBody = z.object({
   parentId: z.string().max(40).optional(),
   problemKey: z.string().max(80).optional(),
   arenaPath: z.string().max(300).optional(),
-  topId: z.string().max(80).optional(),
   templateId: z.union([z.string().max(40), z.null()]).optional(),
 });
 
@@ -33,15 +32,22 @@ const adoptBody = z.object({
 const updateBody = z.object({
   id: z.string().max(40),
   title: z.string().max(200).optional(),
-  tags: z
-    .object({
-      primary: z.union([z.string().max(80), z.null()]).optional(),
-      related: z.array(z.string().max(80)).max(50).optional(),
-    })
-    .optional(),
   labels: z.array(z.string()).max(50).optional(),
   archived: z.boolean().optional(),
   parentId: z.union([z.string().max(40), z.null()]).optional(),
+});
+
+/* 赛后题目标记（docs/contracts/30）：形状由 shared 解析器收口，这里只挡体量与寻址 */
+const problemMarksSyncBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  problems: z.array(z.unknown()).min(1).max(40),
+  recordId: z.string().regex(/^(rec_[0-9a-f]{32}|legacy)$/, 'recordId 形状不合法').optional(),
+});
+
+const problemMarksUpdateBody = z.object({
+  arenaPath: z.string().min(1).max(300),
+  expectedRevision: z.string().min(1).max(128),
+  marks: z.record(z.unknown()),
 });
 
 const idBody = z.object({ id: z.string().max(40) });
@@ -304,6 +310,26 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
     }
   });
 
+  app.post('/api/work/problem-marks/sync', async (request, reply) => {
+    const parsed = problemMarksSyncBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '题目同步参数不合法');
+    try {
+      return { problemMarks: await work.syncProblemMarks(parsed.data) };
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
+  app.post('/api/work/problem-marks/update', async (request, reply) => {
+    const parsed = problemMarksUpdateBody.safeParse(request.body ?? {});
+    if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '标记参数不合法');
+    try {
+      return { problemMarks: await work.updateProblemMarks(parsed.data) };
+    } catch (err) {
+      return sendWorkError(reply, err);
+    }
+  });
+
   app.post('/api/work/create', async (request, reply) => {    const parsed = createBody.safeParse(request.body ?? {});
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '创建参数不合法');
     try {
@@ -324,6 +350,10 @@ export function registerWorkRoutes(app: FastifyInstance, work: WorkService): voi
   });
 
   app.post('/api/work/update', async (request, reply) => {
+    // 旧客户端仍传对象级主题标签：按 400 明确拒绝，不静默忽略（30 §3.6）
+    if (typeof request.body === 'object' && request.body !== null && 'tags' in request.body) {
+      return invalid(reply, '对象级主题标签已退役；题目请用题目标记');
+    }
     const parsed = updateBody.safeParse(request.body ?? {});
     if (!parsed.success) return invalid(reply, parsed.error.issues[0]?.message ?? '更新参数不合法');
     try {

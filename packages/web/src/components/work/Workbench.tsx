@@ -16,7 +16,6 @@ import {
 import { messageOf } from '../../format.ts';
 import { NoticeBar } from '../Dashboard.tsx';
 import { Icon } from '../ui.tsx';
-import { TagTree } from './TagTree.tsx';
 import { WorkCreate, type WorkDialog } from './WorkCreate.tsx';
 import { WorkDetail } from './WorkDetail.tsx';
 import { WorkImport } from './WorkImport.tsx';
@@ -30,12 +29,24 @@ interface Notice {
   text: string;
 }
 
+export interface MasterEntry {
+  objectId: string;
+  panel: 'problems' | null;
+}
+
+interface Props {
+  /** 深链 `#/master?object=...&panel=problems`：只在活动视图里定位；归档 / 回收站按不可用处理 */
+  entry: MasterEntry | null;
+  onEntryConsumed: () => void;
+}
+
 interface SetupState {
   kind: string;
   message: string;
 }
 
 const SETUP_KINDS = new Set(['workspace-unconfigured', 'workspace-uninitialized', 'root-missing', 'root-invalid', 'root-version']);
+const LEAVE_MARKS_TEXT = '标记尚未保存：离开会丢掉本地未提交的修改。继续？';
 
 function RootSetup({ setup, onReady }: { setup: SetupState; onReady: (tree: WorkTreeDto) => void }) {
   const [path, setPath] = useState('');
@@ -122,7 +133,7 @@ function RootSetup({ setup, onReady }: { setup: SetupState; onReady: (tree: Work
   );
 }
 
-export function Workbench() {
+export function Workbench({ entry, onEntryConsumed }: Props) {
   const [tree, setTree] = useState<WorkTreeDto | null>(null);
   /** 全量对象（活动 + 归档两个视图合并，27 §5.3）：关联状态 / 关联展示统一走这一份派生 */
   const [allObjects, setAllObjects] = useState<WorkObjectDto[]>([]);
@@ -131,7 +142,7 @@ export function Workbench() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [archived, setArchived] = useState(false);
   const [kindFilter, setKindFilter] = useState<WorkKind | 'all'>('all');
-  const [nodeFilter, setNodeFilter] = useState<string | null>(null);
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -147,7 +158,23 @@ export function Workbench() {
   /** 当前视图 / 选中项的同步镜像：异步响应回来时按“此刻”判定，不用闭包里的旧值 */
   const archivedRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
+  const detailRef = useRef<WorkObjectDetailDto | null>(null);
+  detailRef.current = detail;
   const [busy, setBusy] = useState<string | null>(null);
+  /** 题目标记有未落盘修改：切对象 / 切视图前确认，不静默丢（30 §6.2） */
+  const marksUnsaved = useRef(false);
+  /** 只确认、不清标志：调用方失败或对话框被取消时面板还在，保护必须继续生效 */
+  const confirmLeaveMarks = useCallback((): boolean => {
+    if (!marksUnsaved.current) return true;
+    return window.confirm(LEAVE_MARKS_TEXT);
+  }, []);
+  /** 确认并清标志：只给「确认后一定会卸载面板 / 路由离开」的入口用，避免 App 的 hashchange 守卫二次弹窗 */
+  const canLeaveMarks = useCallback((): boolean => {
+    if (!confirmLeaveMarks()) return false;
+    marksUnsaved.current = false;
+    (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved = false;
+    return true;
+  }, [confirmLeaveMarks]);
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -265,6 +292,68 @@ export function Workbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* 深链（30 §6.4）：只在活动视图定位；归档 / 回收站 / 不存在一律不可用，停在列表 */
+  /** 记录已处理的那一个 entry 对象（App 每次 hashchange 都会新建）；同 key 的新深链仍会重新处理 */
+  const entryHandled = useRef<MasterEntry | null>(null);
+  const focusAfterDetail = useRef<{ objectId: string; panel: 'problems' } | null>(null);
+  useEffect(() => {
+    if (entry === null) return;
+    // 未初始化 / 根不可用：走设置引导，深链不追加班（30 §6.4）
+    if (setup !== null) {
+      onEntryConsumed();
+      return;
+    }
+    if (tree === null || loading) return;
+    if (entryHandled.current === entry) return;
+    const exists = tree.objects.some((obj) => obj.id === entry.objectId && obj.kind === 'contest');
+    if (!exists) {
+      entryHandled.current = entry;
+      setNotice({ kind: 'err', text: '这场比赛不可用' });
+      onEntryConsumed();
+      return;
+    }
+    // 同一个对象已经在看：只定位，不重载详情（重载会卸载面板、丢掉未保存的标记）
+    if (entry.objectId === selectedIdRef.current && detailRef.current?.id === entry.objectId) {
+      entryHandled.current = entry;
+      setTrashView(false);
+      if (entry.panel === 'problems') {
+        const el = document.getElementById('wk-problems');
+        if (el !== null) {
+          el.scrollIntoView({ block: 'start' });
+          el.focus({ preventScroll: true });
+        } else {
+          focusAfterDetail.current = { objectId: entry.objectId, panel: 'problems' };
+        }
+      }
+      onEntryConsumed();
+      return;
+    }
+    if (!canLeaveMarks()) {
+      // 用户选择保留本地修改：地址栏退回当前对象，避免 URL 与界面不一致
+      entryHandled.current = entry;
+      onEntryConsumed();
+      const current = selectedIdRef.current;
+      window.history.replaceState(null, '', current === null ? '#/master' : `#/master?object=${encodeURIComponent(current)}`);
+      return;
+    }
+    entryHandled.current = entry;
+    setTrashView(false);
+    setSelected(entry.objectId);
+    void loadDetail(entry.objectId);
+    if (entry.panel === 'problems') focusAfterDetail.current = { objectId: entry.objectId, panel: 'problems' };
+    onEntryConsumed();
+  }, [entry, tree, loading, setup, loadDetail, onEntryConsumed, setSelected, canLeaveMarks]);
+
+  useEffect(() => {
+    const target = focusAfterDetail.current;
+    if (target === null || detail === null || detail.id !== target.objectId) return;
+    const el = document.getElementById('wk-problems');
+    if (el === null) return;
+    focusAfterDetail.current = null;
+    el.scrollIntoView({ block: 'start' });
+    el.focus({ preventScroll: true });
+  }, [detail]);
+
   useEffect(
     () => () => {
       treeGate.invalidate();
@@ -280,15 +369,19 @@ export function Workbench() {
       setTrashView(false);
       return;
     }
+    if (!canLeaveMarks()) return;
     setTrashView(true);
     setSelected(null);
     clearDetail();
-    setNodeFilter(null);
+    setPendingOnly(false);
     setLabelFilter(null);
     setKindFilter('all');
   };
 
   const selectObject = (id: string): void => {
+    // 点当前行不重载：重载会卸载标记面板，白白丢掉未保存的本地修改
+    if (id === selectedIdRef.current && detailRef.current?.id === id) return;
+    if (!canLeaveMarks()) return;
     setTrashView(false);
     setSelected(id);
     void loadDetail(id);
@@ -296,6 +389,8 @@ export function Workbench() {
 
   const afterMutation = async (label: string, make: () => Promise<WorkObjectDetailDto>): Promise<void> => {
     if (busy !== null) return;
+    // 改标题 / 标签 / 归档 / 关联完成后会重载详情、卸载标记面板（30 §6.2）
+    if (!confirmLeaveMarks()) return;
     const viewAtStart = archivedRef.current;
     const selectionAtStart = selectedIdRef.current;
     setBusy(label);
@@ -325,6 +420,8 @@ export function Workbench() {
 
   const rescan = async (): Promise<void> => {
     if (busy !== null) return;
+    // 重新扫描后会重载选中对象详情，标记面板会重新挂载（30 §6.2）
+    if (!confirmLeaveMarks()) return;
     setBusy('rescan');
     setNotice(null);
     try {
@@ -341,6 +438,7 @@ export function Workbench() {
   };
 
   const toggleArchived = (): void => {
+    if (!canLeaveMarks()) return;
     const next = !archivedRef.current;
     setViewArchived(next);
     setTrashView(false);
@@ -350,8 +448,8 @@ export function Workbench() {
   };
 
   const filtered = useMemo(
-    () => filterWorkObjects(tree?.objects ?? [], tree?.taxonomy ?? null, { kind: kindFilter, nodeId: nodeFilter, label: labelFilter, query }),
-    [tree, kindFilter, nodeFilter, labelFilter, query],
+    () => filterWorkObjects(tree?.objects ?? [], { kind: kindFilter, label: labelFilter, query, pendingOnly }),
+    [tree, kindFilter, labelFilter, query, pendingOnly],
   );
   const counts = useMemo(() => kindCounts(tree?.objects ?? []), [tree]);
   const allById = useMemo(() => new Map(allObjects.map((obj) => [obj.id, obj])), [allObjects]);
@@ -414,6 +512,8 @@ export function Workbench() {
           className={`btn btn--sm${importOpen ? ' is-on' : ''}`}
           disabled={busy !== null || importOpen}
           onClick={() => {
+            // 打开导入会把整块工作区换成导入页，标记面板立即卸载
+            if (!canLeaveMarks()) return;
             setNotice(null);
             setImportOpen(true);
           }}
@@ -426,17 +526,6 @@ export function Workbench() {
           新建
         </button>
       </div>
-
-      {tree.taxonomyError !== null ? (
-        <div className="alert alert--warn" role="status">
-          <Icon id="i-warn" />
-          <div>
-            <b>词表坏了</b> · 对象照常列出，标签编辑已禁用
-            <br />
-            {tree.taxonomyError}
-          </div>
-        </div>
-      ) : null}
 
       {importOpen ? (
         <WorkImport
@@ -488,19 +577,6 @@ export function Workbench() {
               ))}
             </div>
 
-            <div className="wk-sec__title wk-sec__title--tree">
-              <span>标签树</span>
-            </div>
-            <TagTree
-              taxonomy={tree.taxonomy}
-              error={tree.taxonomyError}
-              selected={nodeFilter}
-              onSelect={(id) => {
-                setNodeFilter(id);
-                setTrashView(false);
-              }}
-            />
-
             <button className={`wk-trashbtn${trashView ? ' is-on' : ''}`} onClick={openTrash}>
               <Icon id="i-trash" />
               <span>回收站</span>
@@ -524,6 +600,17 @@ export function Workbench() {
                 onChange={(e) => setQuery(e.target.value)}
                 aria-label="搜索对象"
               />
+              <button
+                className={`wk-chip wk-chip--filter${pendingOnly ? ' is-on' : ''}`}
+                aria-pressed={pendingOnly}
+                title="只列还有待补题的比赛"
+                onClick={() => {
+                  setPendingOnly((v) => !v);
+                  setTrashView(false);
+                }}
+              >
+                有待补题
+              </button>
               {labelFilter !== null ? (
                 <button className="wk-chip wk-chip--filter" onClick={() => setLabelFilter(null)}>
                   {labelFilter} <span aria-hidden="true">×</span>
@@ -536,15 +623,15 @@ export function Workbench() {
               objects={filtered}
               allObjects={tree.objects}
               allById={allById}
-              taxonomy={tree.taxonomy}
               selectedId={selectedId}
+              emptyText={pendingOnly ? '没有待补题' : undefined}
               onSelect={selectObject}
               unregistered={tree.unregistered}
               errors={tree.errors}
               trash={tree.trash}
               trashView={trashView}
               busyId={busy}
-              filterKey={`${kindFilter}|${nodeFilter ?? ''}|${labelFilter ?? ''}|${query}`}
+              filterKey={`${kindFilter}|${pendingOnly ? 'p' : ''}|${labelFilter ?? ''}|${query}`}
               onAdopt={(target) => setDialog({ mode: 'adopt', target })}
               onRestoreEntry={(item) => {
                 setTrashView(false);
@@ -604,16 +691,12 @@ export function Workbench() {
             ) : detail !== null ? (
               <WorkDetail
                 detail={detail}
-                taxonomy={tree.taxonomy}
-                taxonomyError={tree.taxonomyError}
+                problemTags={tree.problemTags}
                 parentTitle={parentTitle}
                 objects={allObjects}
                 busy={busy}
                 onRetitle={(title) => {
                   if (detail !== null) void afterMutation('retitle', () => updateWork({ id: detail.id, title }));
-                }}
-                onTags={(tags) => {
-                  if (detail !== null) void afterMutation('tags', () => updateWork({ id: detail.id, tags }));
                 }}
                 onLabels={(labels: string[]) => {
                   if (detail !== null) void afterMutation('labels', () => updateWork({ id: detail.id, labels }));
@@ -626,18 +709,25 @@ export function Workbench() {
                 }}
                 onSelectObject={(id) => selectObject(id)}
                 onOpenArenaRecord={(recordId) => {
-                  if (detail === null || detail.links.arenaPath === undefined) return;
+                  if (detail === null || detail.links.arenaPath === undefined || !canLeaveMarks()) return;
                   window.location.hash = `/arena?path=${encodeURIComponent(detail.links.arenaPath)}&record=${encodeURIComponent(recordId)}`;
                 }}
                 onRestoreArenaLegacy={() => {
-                  if (detail === null || detail.links.arenaPath === undefined) return;
+                  if (detail === null || detail.links.arenaPath === undefined || !canLeaveMarks()) return;
                   window.location.hash = `/arena?path=${encodeURIComponent(detail.links.arenaPath)}&legacy=restore`;
                 }}
                 onRecordsChanged={() => {
                   void load(archivedRef.current, false);
                 }}
+                onProblemMarksChanged={() => {
+                  void load(archivedRef.current, false);
+                }}
+                onProblemMarksUnsaved={(unsaved) => {
+                  marksUnsaved.current = unsaved;
+                }}
                 onTrash={() => {
-                  if (detail === null) return;
+                  // 回收失败时面板还在，确认后不清标志，保护继续生效
+                  if (detail === null || !confirmLeaveMarks()) return;
                   const id = detail.id;
                   void (async () => {
                     setBusy('trash');
@@ -665,11 +755,8 @@ export function Workbench() {
                   });
                 }}
                 onOpenArena={(arenaPath) => {
+                  if (!canLeaveMarks()) return;
                   window.location.hash = `/arena?path=${encodeURIComponent(arenaPath)}`;
-                }}
-                onSelectTag={(id) => {
-                  setNodeFilter(id);
-                  setTrashView(false);
                 }}
                 onFilterLabel={(label) => setLabelFilter(label)}
                 onTemplateSaved={() => {
@@ -687,11 +774,16 @@ export function Workbench() {
 
       {dialog !== null ? (
         <WorkCreate
-          tree={tree}
           contests={activeContests}
           dialog={dialog}
           onDone={(title, id) => {
             setDialog(null);
+            // 新建/登记已经落盘；这里才真正切换对象。标记未保存时先确认，取消就留在当前对象
+            if (!confirmLeaveMarks()) {
+              void load(archivedRef.current, false);
+              setNotice({ kind: 'ok', text: `已保存「${title}」` });
+              return;
+            }
             setTrashView(false);
             // 在「看归档」里新建 / 登记出来的是未归档对象，先切回活动视图再拉树，否则会“保存成功但看不见”
             setViewArchived(false);

@@ -16,13 +16,15 @@ import type {
   StatusDto,
   SyncSourceId,
   SyncStatesDto,
+  ProblemMarkInput,
+  ProblemMarksDto,
+  ProblemMarksProblem,
   WorkImportCommitInput,
   WorkImportPlanDto,
   WorkImportResultDto,
   WorkKind,
   WorkObjectDetailDto,
   WorkOpenApp,
-  WorkTags,
   WorkTemplateFileDto,
   WorkTrashPurgeResult,
   WorkTreeDto,
@@ -163,7 +165,6 @@ export const createWork = (body: {
   parentId?: string;
   problemKey?: string;
   arenaPath?: string;
-  topId?: string;
   /** 省略 = 默认模板；null / '' = 不复制 */
   templateId?: string | null;
 }): Promise<WorkObjectDetailDto> => request<WorkObjectDetailDto>('/api/work/create', post(body), 30_000);
@@ -174,7 +175,6 @@ export const adoptWork = (body: { relPath: string; kind: WorkKind; title?: strin
 export const updateWork = (body: {
   id: string;
   title?: string;
-  tags?: { primary?: string | null; related?: string[] };
   labels?: string[];
   archived?: boolean;
   /** 仅题组：关联 / 清除关联比赛（26 §4.2） */
@@ -251,3 +251,19 @@ export const trashArenaRecord = (input: ArenaRecordTrashInput): Promise<ArenaRec
 
 export const restoreArenaRecord = (trashId: string): Promise<ArenaRecordRestoreResult> =>
   request<ArenaRecordRestoreResult>('/api/work/arena-records/restore', post({ trashId }), 30_000);
+
+/* 赛后题目标记（docs/contracts/30） */
+
+export const syncProblemMarks = (body: {
+  arenaPath: string;
+  problems: ProblemMarksProblem[];
+  recordId?: string;
+}): Promise<{ problemMarks: ProblemMarksDto }> =>
+  request<{ problemMarks: ProblemMarksDto }>('/api/work/problem-marks/sync', post(body), 30_000);
+
+export const updateProblemMarks = (body: {
+  arenaPath: string;
+  expectedRevision: string;
+  marks: Record<string, ProblemMarkInput>;
+}): Promise<{ problemMarks: ProblemMarksDto }> =>
+  request<{ problemMarks: ProblemMarksDto }>('/api/work/problem-marks/update', post(body), 30_000);

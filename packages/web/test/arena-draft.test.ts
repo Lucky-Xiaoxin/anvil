@@ -4,6 +4,7 @@ import {
   applySaveSuccess,
   canSaveDraft,
   declareFinished,
+  detachDraftTarget,
   draftFromLegacyLive,
   draftFromRecord,
   draftKey,
@@ -59,6 +60,39 @@ const record: ArenaRecord = {
   result: timed,
   ghost,
 };
+
+describe('删除目标存档后的草稿解绑（契约 29 §6.2）', () => {
+  it('目标记录被删：清 target / baseline，保留 ghost 与 result', () => {
+    const store = memoryStore();
+    const draft = draftFromRecord(record, timed, 'rev-1');
+    expect(saveDraft(store, PATH, draft)).toBe(true);
+
+    expect(detachDraftTarget(store, PATH, REC_ID)).toBe(true);
+    const loaded = loadDraft(store, PATH);
+    expect(loaded.kind).toBe('draft');
+    if (loaded.kind !== 'draft') return;
+    expect(loaded.draft.target).toBeNull();
+    expect(loaded.draft.savedBaseline).toBeNull();
+    expect(loaded.draft.result).toEqual(timed);
+    expect(loaded.draft.ghost.subs).toEqual(ghost.subs);
+    expect(isDirty(loaded.draft)).toBe(true);
+  });
+
+  it('recordId / 场次不匹配或草稿没有目标时不动', () => {
+    const store = memoryStore();
+    const draft = draftFromRecord(record, timed, 'rev-1');
+    saveDraft(store, PATH, draft);
+
+    expect(detachDraftTarget(store, PATH, `rec_${'b'.repeat(32)}`)).toBe(false);
+    expect(detachDraftTarget(store, 'official/icpc/other.srk.json', REC_ID)).toBe(false);
+    const loaded = loadDraft(store, PATH);
+    expect(loaded.kind === 'draft' && loaded.draft.target?.recordId).toBe(REC_ID);
+
+    const noTarget = { ...draft, target: null, savedBaseline: null };
+    saveDraft(store, PATH, noTarget);
+    expect(detachDraftTarget(store, PATH, REC_ID)).toBe(false);
+  });
+});
 
 describe('草稿状态与结束（契约 §3.2 / §4.3）', () => {
   it('新草稿 running；到时写满时长，提前结束保留真实停止位置', () => {
