@@ -22,6 +22,15 @@ export interface Store {
   readonly length?: number;
 }
 
+/** 浏览器 localStorage 的安全包装：隐私模式下访问本身就可能抛 */
+export function browserStore(): Store | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 const PREFIX = 'arena:session:';
 const GHOST_PREFIX = 'arena:ghost:';
 

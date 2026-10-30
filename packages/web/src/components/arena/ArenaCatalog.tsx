@@ -235,6 +235,17 @@ export function ArenaCatalog({ store, onEnter, sessionEpoch, onCount, entry, onE
           return false;
         }
       } catch (err) {
+        // 目标存档被删（404）：保留本地成绩，解除 target 并改名保存为新档（29 §6.2）
+        if (err instanceof ApiError && err.kind === 'not-found' && draft.target !== null) {
+          const detached: ArenaDraft = { ...draft, target: null, savedBaseline: null };
+          if (saveDraft(store, row.path, detached)) {
+            setDraftRev((n) => n + 1);
+            setSessionRev((n) => n + 1);
+            setSaveErr(null);
+            setNameState({ row, draft: detached, initial: firstSaveName() });
+            return false;
+          }
+        }
         setSaveErr({ path: row.path, text: messageOf(err) });
         return false;
       } finally {

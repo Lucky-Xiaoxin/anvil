@@ -8,16 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArenaCatalog } from './ArenaCatalog.tsx';
 import { ArenaBoard, type ArenaEntryMode } from './ArenaBoard.tsx';
 import type { LeafRow } from './catalog.ts';
-import type { Store } from './session.ts';
-
-/** 访问器本身在隐私模式下会直接抛：进函数再取 + try */
-function safeStore(): Store | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
+import { browserStore } from './session.ts';
 
 export interface ArenaEntry {
   path: string;
@@ -40,7 +31,7 @@ interface Props {
 }
 
 export function Arena({ onCount, entry, onEntryConsumed }: Props) {
-  const [store] = useState(safeStore);
+  const [store] = useState(browserStore);
   const [open, setOpen] = useState<OpenState | null>(null);
   /** 离开回放屏 / 草稿变化就 +1：目录的状态标记要立刻反映 */
   const [epoch, setEpoch] = useState(0);

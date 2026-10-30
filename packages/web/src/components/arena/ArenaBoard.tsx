@@ -705,6 +705,26 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
     [finishSave, row.path, store],
   );
 
+  /** 目标存档被删（404）：解除 target，保留本地成绩，直接改名保存为新档（29 §6.2） */
+  const detachMissingTarget = useCallback(
+    (base: ArenaDraft): boolean => {
+      const detached: ArenaDraft = { ...base, target: null, savedBaseline: null };
+      if (!saveDraft(store, row.path, detached)) {
+        setSaveErr('原存档已不存在；本地成绩还在，但浏览器存储写不进去，先别离开本页');
+        return false;
+      }
+      draftRef.current = detached;
+      setDraft(detached);
+      setSaveErr(null);
+      setConflict(null);
+      setNote('原存档已被删除：本地成绩还在，确认名称后保存为新档。');
+      setNameErr(null);
+      setNameState({ mode: 'save', initial: firstSaveName(), draft: detached });
+      return true;
+    },
+    [row.path, store],
+  );
+
   const doUpdate = useCallback(
     async (base: ArenaDraft, after?: () => void): Promise<boolean> => {
       if (staleRef.current) {
@@ -729,6 +749,10 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         finishSave(base, res.record, res.revision, after);
         return true;
       } catch (err) {
+        if (err instanceof ApiError && err.kind === 'not-found') {
+          detachMissingTarget(base);
+          return false;
+        }
         if (isUnknownError(err)) {
           try {
             const item = await getArenaRecordItem(row.path, target.recordId);
@@ -752,7 +776,7 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
         setSaveBusy(false);
       }
     },
-    [finishSave, row],
+    [detachMissingTarget, finishSave, row],
   );
 
   const saveDraftWithName = useCallback(
