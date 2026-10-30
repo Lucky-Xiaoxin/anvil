@@ -155,6 +155,15 @@ export function App() {
   useEffect(() => {
     const onHash = () => {
       const route = routeFromHash();
+      // 工坊题目标记有未落盘修改：侧栏 / 前进后退 / 直接改 hash 离开 master 时先确认
+      const marksUnsaved = (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved === true;
+      if (route.view !== 'master' && marksUnsaved) {
+        if (!window.confirm('标记尚未保存：离开会丢掉本地未提交的修改。继续？')) {
+          window.history.replaceState(null, '', '#/master');
+          return;
+        }
+        (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved = false;
+      }
       setView(route.view);
       setArenaEntry(route.arena);
       setMasterEntry(route.master);

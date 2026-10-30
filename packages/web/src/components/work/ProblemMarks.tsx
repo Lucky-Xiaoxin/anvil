@@ -78,6 +78,11 @@ export function ProblemMarks(props: Props) {
   const [tagDrafts, setTagDrafts] = useState<Record<string, string>>({});
   const [tagWarn, setTagWarn] = useState<string | null>(null);
 
+  const setUnsaved = (unsaved: boolean): void => {
+    (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved = unsaved;
+    props.onUnsavedChange?.(unsaved);
+  };
+
   const revisionRef = useRef(props.marks?.revision ?? '');
   const localRef = useRef(local);
   const pendingRef = useRef<Record<string, ProblemMarkInput>>({});
@@ -100,7 +105,7 @@ export function ProblemMarks(props: Props) {
     setTagDrafts({});
     dirtyRef.current = false;
     pendingRef.current = {};
-    props.onUnsavedChange?.(false);
+    setUnsaved(false);
   };
 
   useEffect(() => {
@@ -118,7 +123,7 @@ export function ProblemMarks(props: Props) {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
-      props.onUnsavedChange?.(false);
+      setUnsaved(false);
     };
     // onUnsavedChange 是父级稳定回调，不随每次渲染重挂监听
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,7 +150,7 @@ export function ProblemMarks(props: Props) {
         setLocal(next);
         setUnreadable(res.problemMarks.unreadableMarks ?? 0);
         dirtyRef.current = false;
-        props.onUnsavedChange?.(false);
+        setUnsaved(false);
         sentRef.current = version;
         setSaveState('saved');
       } else {
@@ -156,12 +161,12 @@ export function ProblemMarks(props: Props) {
         setSaveState('conflict');
         setSaveError('另一页面已更新，重新载入后再改');
         dirtyRef.current = true;
-        props.onUnsavedChange?.(true);
+        setUnsaved(true);
       } else {
         setSaveState('error');
         setSaveError(messageOf(err));
         dirtyRef.current = true;
-        props.onUnsavedChange?.(true);
+        setUnsaved(true);
       }
     } finally {
       inFlightRef.current = false;
@@ -175,7 +180,7 @@ export function ProblemMarks(props: Props) {
     pendingRef.current = next;
     versionRef.current += 1;
     dirtyRef.current = true;
-    props.onUnsavedChange?.(true);
+    setUnsaved(true);
     setSaveState('saving');
     setSaveError(null);
     void pump();

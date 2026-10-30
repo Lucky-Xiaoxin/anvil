@@ -160,8 +160,13 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   /** 题目标记有未落盘修改：切对象 / 切视图前确认，不静默丢（30 §6.2） */
   const marksUnsaved = useRef(false);
-  const canLeaveMarks = (): boolean =>
-    !marksUnsaved.current || window.confirm('标记尚未保存：离开会丢掉本地未提交的修改。继续？');
+  const canLeaveMarks = (): boolean => {
+    if (!marksUnsaved.current) return true;
+    if (!window.confirm('标记尚未保存：离开会丢掉本地未提交的修改。继续？')) return false;
+    marksUnsaved.current = false;
+    (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved = false;
+    return true;
+  };
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
   const [importOpen, setImportOpen] = useState(false);
