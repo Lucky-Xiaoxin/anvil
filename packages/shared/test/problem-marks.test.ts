@@ -204,3 +204,49 @@ describe('客户端 marks 校验（30 §4.2）', () => {
     expect(ok).toEqual({ ok: true, marks: { A: { progress: 'todo', star: true, tags: ['dp'] } } });
   });
 });
+describe('原型键收口（30 §5）', () => {
+  it('外来 __proto__ 条目：不污染原型，重写时原样保留', () => {
+    const raw = JSON.parse(
+      `{"schema":1,"arenaPath":"${ARENA}","problems":[{"alias":"A","title":""}],"marks":{"__proto__":{"progress":"todo","star":false,"tags":[],"updatedAt":"2026-10-30T12:00:00.000Z"},"Z":{"progress":"todo","star":false,"tags":[],"updatedAt":"2026-10-30T12:00:00.000Z"}},"prefillApplied":[]}`,
+    );
+    const parsed = parseProblemMarksFile(raw, ARENA);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(Object.getPrototypeOf(parsed.file.foreignMarks)).toBeNull();
+    expect(Object.hasOwn(parsed.file.foreignMarks, '__proto__')).toBe(true);
+    expect(parsed.file.unreadableMarks).toBe(2);
+
+    const text = JSON.stringify(problemMarksToJson(parsed.file));
+    expect(text).toContain('"__proto__"');
+    const back = JSON.parse(text) as { marks: Record<string, unknown> };
+    expect(Object.hasOwn(back.marks, '__proto__')).toBe(true);
+  });
+
+  it('alias 为 toString / valueOf：预填、重写、整份输入都不崩', () => {
+    const problems = [
+      { alias: 'toString', title: 'T' },
+      { alias: 'valueOf', title: 'V' },
+    ];
+    const file: ProblemMarksFile = {
+      schema: 1,
+      arenaPath: ARENA,
+      problems,
+      marks: Object.create(null) as Record<string, never>,
+      foreignMarks: Object.create(null) as Record<string, never>,
+      prefillApplied: [],
+      raw: {},
+      unreadableMarks: 0,
+    };
+    const filled = prefillProblemMarks(file, [{ p: 0, r: 'AC' }, { p: 1, r: 'AC' }], '2026-10-30T12:00:00.000Z');
+    expect(filled.changed).toBe(true);
+    expect(filled.marks['toString']?.progress).toBe('contest-ac');
+    expect(filled.marks['valueOf']?.progress).toBe('contest-ac');
+
+    const text = JSON.stringify(
+      problemMarksToJson({ ...file, marks: filled.marks, prefillApplied: filled.prefillApplied }),
+    );
+    expect(text).toContain('"toString"');
+    expect(text).toContain('"valueOf"');
+    expect(parseProblemMarksInput({ toString: { progress: 'todo', star: false, tags: [] } }, problems).ok).toBe(true);
+  });
+});

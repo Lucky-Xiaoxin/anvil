@@ -185,8 +185,8 @@ export function parseProblemMarksFile(input: unknown, expectedArenaPath?: string
   const { problems } = snapshot;
   const aliases = new Set(problems.map((p) => p.alias));
 
-  const marks: Record<string, ProblemMark> = {};
-  const foreignMarks: Record<string, unknown> = {};
+  const marks: Record<string, ProblemMark> = Object.create(null) as Record<string, ProblemMark>;
+  const foreignMarks: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   let unreadableMarks = 0;
   if (input.marks !== undefined) {
     if (!isRecord(input.marks)) return { ok: false, code: 'invalid', message: 'marks 必须是对象' };
@@ -228,7 +228,7 @@ export function parseProblemMarksFile(input: unknown, expectedArenaPath?: string
 
 /** 写回文件：已知字段整组覆盖，未知顶层字段与快照外条目保留 */
 export function problemMarksToJson(file: ProblemMarksFile): Record<string, unknown> {
-  const marks: Record<string, unknown> = {};
+  const marks: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const problem of file.problems) {
     const mark = file.marks[problem.alias];
     if (mark !== undefined) marks[problem.alias] = { ...mark, tags: [...mark.tags] };
@@ -254,7 +254,7 @@ export function parseProblemMarksInput(
   const entries = Object.entries(input);
   if (entries.length > PROBLEMS_MAX) return { ok: false, message: `marks 条目太多（${entries.length} > ${PROBLEMS_MAX}）` };
 
-  const out: Record<string, ProblemMarkInput> = {};
+  const out: Record<string, ProblemMarkInput> = Object.create(null) as Record<string, ProblemMarkInput>;
   for (const [alias, raw] of entries) {
     if (!PROBLEM_ALIAS_RE.test(alias) || !known.has(alias)) {
       return { ok: false, message: `alias 不在题目快照里：${alias}` };
@@ -292,7 +292,7 @@ export function prefillProblemMarks(
   subs: readonly { p: number; r: string }[],
   nowIso: string,
 ): PrefillOutcome {
-  const marks: Record<string, ProblemMark> = {};
+  const marks: Record<string, ProblemMark> = Object.create(null) as Record<string, ProblemMark>;
   for (const [alias, mark] of Object.entries(file.marks)) marks[alias] = { ...mark, tags: [...mark.tags] };
   const prefillApplied = [...file.prefillApplied];
   let changed = false;

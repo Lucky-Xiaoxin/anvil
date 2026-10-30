@@ -89,7 +89,7 @@ function dtoOf(host: RecordHostInfo, file: ProblemMarksFile, revision: string): 
 }
 
 function cloneMarks(marks: Readonly<Record<string, ProblemMark>>): Record<string, ProblemMark> {
-  const out: Record<string, ProblemMark> = {};
+  const out: Record<string, ProblemMark> = Object.create(null) as Record<string, ProblemMark>;
   for (const [alias, mark] of Object.entries(marks)) out[alias] = { ...mark, tags: [...mark.tags] };
   return out;
 }
@@ -151,8 +151,8 @@ export function syncProblemMarks(
       schema: 1,
       arenaPath: host.arenaPath,
       problems,
-      marks: {},
-      foreignMarks: {},
+      marks: Object.create(null) as Record<string, ProblemMark>,
+      foreignMarks: Object.create(null) as Record<string, unknown>,
       prefillApplied: [],
       raw: {},
       unreadableMarks: 0,
@@ -215,7 +215,7 @@ export function updateProblemMarks(
   if (!parsed.ok) throw new WorkError('invalid', parsed.message);
 
   const nowIso = opts.now.toISOString();
-  const marks: Record<string, ProblemMark> = {};
+  const marks: Record<string, ProblemMark> = Object.create(null) as Record<string, ProblemMark>;
   for (const [alias, next] of Object.entries(parsed.marks)) {
     const previous = existing.file.marks[alias];
     marks[alias] = {

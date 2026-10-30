@@ -299,3 +299,41 @@ describe('题目标记 API（30 §4.2 / §4.3）', () => {
     expect(res.json().problemMarks.marks.B.progress).toBe('todo');
   });
 });
+describe('题目标记原型键回归（30 §5）', () => {
+  it('alias=toString：sync / update 不再 500', async () => {
+    await contestWithRecord();
+    const synced = await post('/api/work/problem-marks/sync', {
+      arenaPath: ARENA,
+      problems: [{ alias: 'toString', title: 'T' }],
+    });
+    expect(synced.statusCode, synced.body).toBe(200);
+    const updated = await post('/api/work/problem-marks/update', {
+      arenaPath: ARENA,
+      expectedRevision: synced.json().problemMarks.revision,
+      marks: { toString: { progress: 'todo', star: false, tags: [] } },
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().problemMarks.marks.toString.progress).toBe('todo');
+  });
+
+  it('手写外来 __proto__ 标记：update 后原样保留', async () => {
+    const { contestId, relPath } = await contestWithRecord();
+    await service.syncProblemMarks({ arenaPath: ARENA, problems });
+    const filePath = join(cont(relPath), 'problem-marks.json');
+    const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { problems: unknown };
+    writeFileSync(
+      filePath,
+      `{"schema":1,"arenaPath":${JSON.stringify(ARENA)},"problems":${JSON.stringify(raw.problems)},"marks":{"__proto__":{"progress":"todo","star":false,"tags":[],"updatedAt":"2026-10-30T12:00:00.000Z"}},"prefillApplied":[]}`,
+    );
+    await service.rescan();
+    const detail = service.object(contestId);
+    expect(detail.problemMarks?.unreadableMarks).toBe(1);
+    const updated = await service.updateProblemMarks({
+      arenaPath: ARENA,
+      expectedRevision: detail.problemMarks!.revision,
+      marks: { A: { progress: 'todo', star: false, tags: [] } },
+    });
+    expect(updated.marks.A?.progress).toBe('todo');
+    expect(readFileSync(filePath, 'utf8')).toContain('"__proto__"');
+  });
+});

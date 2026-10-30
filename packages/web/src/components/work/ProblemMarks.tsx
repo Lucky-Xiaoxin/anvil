@@ -36,7 +36,7 @@ const PROGRESS_OPTIONS: ReadonlyArray<{ value: ProblemMarkProgress | null; label
 ];
 
 function inputsOf(dto: ProblemMarksDto | null): Record<string, ProblemMarkInput> {
-  const out: Record<string, ProblemMarkInput> = {};
+  const out: Record<string, ProblemMarkInput> = Object.create(null) as Record<string, ProblemMarkInput>;
   for (const [alias, mark] of Object.entries(dto?.marks ?? {})) {
     out[alias] = { progress: mark.progress, star: mark.star, tags: [...mark.tags] };
   }
@@ -195,7 +195,7 @@ export function ProblemMarks(props: Props) {
   };
 
   const markOf = (alias: string): ProblemMarkInput =>
-    local[alias] ?? { progress: null, star: false, tags: [] };
+    Object.hasOwn(local, alias) ? local[alias]! : { progress: null, star: false, tags: [] };
 
   const setProgress = (alias: string, progress: ProblemMarkProgress | null): void => {
     commit(alias, { ...markOf(alias), progress });
@@ -212,7 +212,7 @@ export function ProblemMarks(props: Props) {
       setTagWarn(`每题最多 ${PROBLEM_TAGS_MAX} 个标签`);
       return;
     }
-    const raw = (tagDrafts[alias] ?? '').trim();
+    const raw = (Object.hasOwn(tagDrafts, alias) ? tagDrafts[alias]! : '').trim();
     if (raw === '') return;
     if (raw.length > PROBLEM_TAG_LEN_MAX) {
       setTagWarn(`标签最多 ${PROBLEM_TAG_LEN_MAX} 个字`);
@@ -340,7 +340,7 @@ export function ProblemMarks(props: Props) {
           <div className="wk-marks__rows">
             {problems.map((problem) => {
               const mark = markOf(problem.alias);
-              const marked = local[problem.alias] !== undefined;
+              const marked = Object.hasOwn(local, problem.alias);
               const disabled = saveState === 'conflict';
               return (
                 <div className={`wk-mark${marked ? ' is-marked' : ''}`} key={problem.alias}>
@@ -396,7 +396,7 @@ export function ProblemMarks(props: Props) {
                     ))}
                     <input
                       className="wk-labelinput wk-mark__taginput"
-                      value={tagDrafts[problem.alias] ?? ''}
+                      value={Object.hasOwn(tagDrafts, problem.alias) ? (tagDrafts[problem.alias] ?? '') : ''}
                       placeholder={mark.tags.length >= PROBLEM_TAGS_MAX ? '最多 8 个' : '加标签（如 dp / 字符串）'}
                       maxLength={PROBLEM_TAG_LEN_MAX}
                       list="wk-problem-tag-suggest"
@@ -405,6 +405,8 @@ export function ProblemMarks(props: Props) {
                       onChange={(e) => setTagDrafts((d) => ({ ...d, [problem.alias]: e.target.value }))}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
+                          // 输入法选词的回车不算提交
+                          if (e.nativeEvent.isComposing) return;
                           e.preventDefault();
                           addTag(problem.alias);
                         }
