@@ -1,39 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkObjectDto, WorkTaxonomyDto } from '@anvil/shared';
+import type { WorkObjectDto } from '@anvil/shared';
 import {
   allLabels,
   availableContests,
   contestCountLabel,
   expandKeysForSelection,
-  fileSize,
   filterWorkObjects,
   folderActionsOf,
-  flatNodes,
   groupWorkObjects,
   groupWorkObjectsBySource,
   kindCounts,
   linkedProblemsetsOf,
-  matchesTag,
   pathBreadcrumb,
-  primaryName,
   problemsetLinkOf,
+  problemsFromArena,
 } from '../src/components/work/derive.ts';
-
-const taxonomy: WorkTaxonomyDto = {
-  version: 1,
-  nodes: [
-    {
-      id: 'graph',
-      name: '图论',
-      count: 1,
-      children: [
-        { id: 'graph/tree', name: '树', count: 1 },
-        { id: 'graph/hld', name: '树链剖分', count: 0 },
-      ],
-    },
-    { id: 'dp', name: '动态规划', count: 0, children: [{ id: 'dp/tree-dp', name: '树形 DP', count: 0 }] },
-  ],
-};
 
 const obj = (patch: Partial<WorkObjectDto> = {}): WorkObjectDto => ({
   id: 'obj_0000000001',
@@ -41,7 +22,6 @@ const obj = (patch: Partial<WorkObjectDto> = {}): WorkObjectDto => ({
   title: 'Cherry Tree',
   relPath: 'practice/2026-10/cherry-tree',
   parentId: null,
-  tags: { primary: 'graph/tree', related: ['dp/tree-dp'] },
   labels: ['赛时'],
   links: {},
   archived: false,
@@ -53,27 +33,44 @@ const obj = (patch: Partial<WorkObjectDto> = {}): WorkObjectDto => ({
   ...patch,
 });
 
-describe('工坊派生（契约 §7.3 筛选口径）', () => {
-  it('一级标签筛选包含直属二级；related 也参与导航', () => {
-    const one = obj();
-    expect(matchesTag(one, taxonomy, 'graph')).toBe(true);
-    expect(matchesTag(one, taxonomy, 'graph/tree')).toBe(true);
-    expect(matchesTag(one, taxonomy, 'graph/hld')).toBe(false);
-    expect(matchesTag(one, taxonomy, 'dp')).toBe(true);
-    expect(matchesTag(one, taxonomy, 'dp/tree-dp')).toBe(true);
+describe('工坊派生（30 §3.6：对象检索只覆盖 title / labels / relPath）', () => {
+  it('kind / label / 搜索条件 AND；搜索覆盖标题、自由标签、路径', () => {
+    const a = obj();
+    const b = obj({
+      id: 'obj_0000000002',
+      kind: 'contest',
+      title: 'Shanghai',
+      labels: [],
+      relPath: 'contests/2026-10-21_shanghai',
+    });
+    const base = { kind: 'all' as const, label: null, query: '' };
+    expect(filterWorkObjects([a, b], base)).toHaveLength(2);
+    expect(filterWorkObjects([a, b], { ...base, kind: 'contest' })).toEqual([b]);
+    expect(filterWorkObjects([a, b], { ...base, label: '赛时' })).toEqual([a]);
+    expect(filterWorkObjects([a, b], { ...base, query: '赛时' })).toEqual([a]);
+    expect(filterWorkObjects([a, b], { ...base, query: 'shanghai' })).toEqual([b]);
   });
 
-  it('kind / label / 搜索条件 AND；搜索覆盖标题、标签名、路径', () => {
-    const a = obj();
-    const b = obj({ id: 'obj_0000000002', kind: 'contest', title: 'Shanghai', tags: { primary: null, related: [] }, labels: [], relPath: 'contests/2026-10-21_shanghai' });
-    const base = { kind: 'all' as const, nodeId: null, label: null, query: '' };
-    expect(filterWorkObjects([a, b], taxonomy, base)).toHaveLength(2);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, kind: 'contest' })).toEqual([b]);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, label: '赛时' })).toEqual([a]);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, query: '树形' })).toEqual([a]);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, query: 'shanghai' })).toEqual([b]);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, nodeId: 'graph' })).toEqual([a]);
-    expect(filterWorkObjects([a, b], taxonomy, { ...base, kind: 'contest', nodeId: 'graph' })).toEqual([]);
+  it('有待补题筛选只列 todo > 0 的比赛；未标记不计数（30 §6.3）', () => {
+    const todo = obj({
+      id: 'obj_0000000010',
+      kind: 'contest',
+      title: 'Has Todo',
+      relPath: 'contests/t',
+      problemMarkSummary: { total: 3, marked: 1, todo: 1, starred: 0 },
+    });
+    const noTodo = obj({
+      id: 'obj_0000000011',
+      kind: 'contest',
+      title: 'No Todo',
+      relPath: 'contests/n',
+      problemMarkSummary: { total: 3, marked: 1, todo: 0, starred: 2 },
+    });
+    const plain = obj({ id: 'obj_0000000012', kind: 'contest', title: 'Plain', relPath: 'contests/p' });
+    const set = obj({ id: 'obj_0000000013', kind: 'problemset', relPath: 'practice/2026-10/x' });
+    const base = { kind: 'all' as const, label: null, query: '', pendingOnly: true };
+    expect(filterWorkObjects([todo, noTodo, plain, set], base)).toEqual([todo]);
+    expect(filterWorkObjects([todo, noTodo, plain, set], { ...base, query: 'nomatch' })).toEqual([]);
   });
 
   it('kind 筛选只看 kind（26 §8）：arenaPath / sourcePath 不参与分类', () => {
@@ -92,15 +89,12 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
       relPath: 'contests/s',
       sourcePath: '2026/10/x',
     });
-    const base = { kind: 'all' as const, nodeId: null, label: null, query: '' };
-    expect(filterWorkObjects([plain, arena, sourced], taxonomy, { ...base, kind: 'contest' })).toHaveLength(3);
-    expect(filterWorkObjects([plain, arena, sourced], taxonomy, { ...base, kind: 'problemset' })).toEqual([]);
+    const base = { kind: 'all' as const, label: null, query: '' };
+    expect(filterWorkObjects([plain, arena, sourced], { ...base, kind: 'contest' })).toHaveLength(3);
+    expect(filterWorkObjects([plain, arena, sourced], { ...base, kind: 'problemset' })).toEqual([]);
   });
 
-  it('flatNodes / 名字 / 计数 / labels（五类对象计数互不包含）', () => {
-    expect(flatNodes(taxonomy)).toHaveLength(5);
-    expect(flatNodes(null)).toEqual([]);
-    expect(primaryName(obj(), taxonomy)).toBe('树');
+  it('计数 / labels（五类对象计数互不包含）', () => {
     expect(
       kindCounts([
         obj(),
@@ -134,6 +128,35 @@ describe('工坊派生（契约 §7.3 筛选口径）', () => {
     // 0..n：没有旧子题的比赛行也要显示关联题组数（27 §1.8）
     expect(contestCountLabel(emptyContest, 0, 3)).toBe('题组 3');
     expect(contestCountLabel(emptyContest, 2, 3)).toBe('2 题 · 题组 3');
+  });
+});
+
+describe('榜单 problems[] → 题目快照（30 §3.2；缺 / 坏 alias 按题序补）', () => {
+  it('保留合法 alias / title；缺 alias 补字母；重复与非法值也补', () => {
+    expect(
+      problemsFromArena({
+        problems: [
+          { alias: 'A', title: ' Alpha ' },
+          { title: 'No Alias' },
+          { alias: '题一', title: 'Bad Alias' },
+          { alias: 'A', title: 'Duplicate' },
+        ],
+      }),
+    ).toEqual([
+      { alias: 'A', title: 'Alpha' },
+      { alias: 'B', title: 'No Alias' },
+      { alias: 'C', title: 'Bad Alias' },
+      { alias: 'D', title: 'Duplicate' },
+    ]);
+  });
+
+  it('超过 26 题用 P<n>；标题截到 200；非榜单 / 空题目返回空数组', () => {
+    const many = Array.from({ length: 27 }, (_, i) => ({ title: `T${i}` }));
+    expect(problemsFromArena({ problems: many })[26]?.alias).toBe('P27');
+    expect(problemsFromArena({ problems: [{ alias: 'A', title: 'x'.repeat(300) }] })[0]?.title).toHaveLength(200);
+    expect(problemsFromArena({})).toEqual([]);
+    expect(problemsFromArena({ problems: [] })).toEqual([]);
+    expect(problemsFromArena(null)).toEqual([]);
   });
 });
 

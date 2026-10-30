@@ -10,15 +10,14 @@ import {
   arenaTrashIdOk,
   buildWorkRelPath,
   cleanLabels,
+  collectProblemTags,
   contestPathOk,
   defaultTemplateOf,
-  flattenTaxonomy,
   isImportSourceName,
   isWorkKind,
-  parseTaxonomy,
   parseWorkMeta,
+  problemMarkSummaryOf,
   projectLegacyReview,
-  seedTaxonomy,
   slugForAttempt,
   slugWithRandomSuffix,
   unregisteredKindHint,
@@ -45,11 +44,13 @@ import {
   type WorkOpenApp,
   type WorkMeta,
   type WorkMetaRecord,
+  type ProblemMarkSummary,
+  type ProblemMarksDto,
+  type ProblemMarksFile,
+  type WorkArenaGhost,
   type WorkObjectDetailDto,
   type WorkObjectDto,
   type WorkScanErrorDto,
-  type WorkTaxonomyDto,
-  type WorkTaxonomyFile,
   type WorkTemplateFileDto,
   type WorkTemplateSaveInput,
   type WorkTreeDto,
@@ -87,6 +88,12 @@ import {
   type RecordHostInfo,
   type RecordTrashManifest,
 } from './records.ts';
+import {
+  problemMarksDetailOf,
+  readProblemMarks,
+  syncProblemMarks,
+  updateProblemMarks,
+} from './problem-marks.ts';
 
 export interface WorkServiceDeps {
   db: DatabaseSync;
@@ -109,7 +116,6 @@ export interface WorkCreateInput {
   parentId?: string;
   problemKey?: string;
   arenaPath?: string;
-  topId?: string;
   /** 省略 = 用默认模板；null / '' = 明确不复制模板；字符串 = 指定模板 */
   templateId?: string | null;
 }
@@ -125,11 +131,22 @@ export interface WorkAdoptInput {
 export interface WorkUpdateInput {
   id: string;
   title?: string;
-  tags?: { primary?: string | null; related?: string[] };
   labels?: unknown;
   archived?: boolean;
   /** 仅 problemset：null = 清除关联 */
   parentId?: string | null;
+}
+
+export interface ProblemMarksSyncServiceInput {
+  arenaPath: string;
+  problems: unknown;
+  recordId?: string;
+}
+
+export interface ProblemMarksUpdateServiceInput {
+  arenaPath: string;
+  expectedRevision: string;
+  marks: unknown;
 }
 
 export interface WorkInitInput {
@@ -155,11 +172,14 @@ interface IndexedObject {
   record: WorkMetaRecord;
   relPath: string;
   absPath: string;
+  root: string;
   files: WorkFileDto[];
   fileCount: number;
   sourceCount: number;
   filesTruncated: boolean;
   effectiveArchived: boolean;
+  /** 仅带 arenaPath 的比赛且标记文件合法时有值 */
+  problemMarkSummary?: ProblemMarkSummary;
 }
 
 interface WorkIndex {
@@ -172,8 +192,8 @@ interface WorkIndex {
   trashDirs: Map<string, string>;
   unregistered: WorkUnregisteredDto[];
   errors: WorkScanErrorDto[];
-  taxonomy: WorkTaxonomyFile | null;
-  taxonomyError: string | null;
+  /** 扫描时读到的合法标记文件（用于标签补全汇总） */
+  problemMarkFiles: ProblemMarksFile[];
 }
 
 interface CollectedObject {
@@ -535,6 +555,49 @@ export class WorkService {
   }
 
   /* ------------------------------------------------------------------ */
+  /* 赛后题目标记（docs/contracts/30）                                   */
+  /* ------------------------------------------------------------------ */
+
+  syncProblemMarks(input: ProblemMarksSyncServiceInput): Promise<ProblemMarksDto> {
+    return this.enqueue(() => {
+      const idx = this.ensureIndex();
+      const obj = this.requireContestForArena(idx, input.arenaPath);
+      const host = this.hostOf(idx, obj);
+      const outcome = syncProblemMarks(host, input, {
+        now: this.nowDate(),
+        readGhost: (recordId) => this.readGhostOf(host, recordId),
+      });
+      this.index = null;
+      return outcome.dto;
+    });
+  }
+
+  updateProblemMarks(input: ProblemMarksUpdateServiceInput): Promise<ProblemMarksDto> {
+    return this.enqueue(() => {
+      const idx = this.ensureIndex();
+      const obj = this.requireContestForArena(idx, input.arenaPath);
+      const dto = updateProblemMarks(this.hostOf(idx, obj), input, { now: this.nowDate() });
+      this.index = null;
+      return dto;
+    });
+  }
+
+  /** 预填只读存档 ghost；recordId 不存在 / 不属于这场比赛一律 404（30 §4.2） */
+  private readGhostOf(host: RecordHostInfo, recordId: string): WorkArenaGhost | null {
+    try {
+      const read = readRecordFile(host, recordId);
+      if (read.kind === 'missing') throw new WorkError('not-found', '找不到这份存档');
+      // 每条可读存档（含旧 review / 旧 live）都有 ghost；预填只认 ghost，不信任客户端 AC 列表
+      return read.record.ghost;
+    } catch (err) {
+      if (err instanceof WorkError && (err.kind === 'not-found' || err.kind === 'conflict')) {
+        throw new WorkError('not-found', '这份存档不属于这场比赛');
+      }
+      throw err;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* init                                                               */
   /* ------------------------------------------------------------------ */
 
@@ -591,10 +654,7 @@ export class WorkService {
     if (lstatOrNull(rootJson) === null) {
       writeFileAtomic(rootJson, `${JSON.stringify({ schema: 1, app: 'anvil', createdAt: this.nowDate().toISOString() }, null, 2)}\n`);
     }
-    const taxPath = join(anvil, 'taxonomy.json');
-    if (lstatOrNull(taxPath) === null) {
-      writeFileAtomic(taxPath, `${JSON.stringify(seedTaxonomy(), null, 2)}\n`);
-    }
+    // 词表已退役（30 §3.6）：新建工作区不再生成 taxonomy.json；旧文件原样保留、不读取
 
     this.deps.setRoot(abs);
     return this.toTree(this.refreshIndex(), false);
@@ -671,7 +731,6 @@ export class WorkService {
       throw new WorkError('invalid', 'templateId 只属于 problem / problemset');
     }
     if (kind !== 'contest' && input.arenaPath !== undefined) throw new WorkError('invalid', 'arenaPath 只属于 contest');
-    if (kind !== 'template' && input.topId !== undefined) throw new WorkError('invalid', 'topId 只属于 template');
 
     const problemKey = input.problemKey === undefined ? '' : input.problemKey.trim();
     if (problemKey.length > 80) throw new WorkError('invalid', 'problemKey 太长');
@@ -702,13 +761,6 @@ export class WorkService {
     }
     if (title.length > 120) throw new WorkError('invalid', 'title 太长');
 
-    let topId: string | null = null;
-    if (input.topId !== undefined && input.topId !== '') {
-      if (idx.taxonomy === null) throw new WorkError('invalid', '词表不可用，暂时不能指定模板分类');
-      if (!idx.taxonomy.nodes.some((n) => n.id === input.topId)) throw new WorkError('invalid', 'topId 必须是一级词表节点');
-      topId = input.topId;
-    }
-
     let templateSource: IndexedObject | null = null;
     const explicitTemplate = typeof input.templateId === 'string' ? input.templateId.trim() : '';
     if (explicitTemplate !== '') {
@@ -726,7 +778,6 @@ export class WorkService {
       problemKey,
       arenaPath,
       parentRelPath: parent === null ? null : parent.relPath,
-      topId,
       date,
     };
     const base = buildWorkRelPath(kind, pathInput);
@@ -776,7 +827,6 @@ export class WorkService {
         createdAt: now,
         updatedAt: now,
         parentId: parent === null ? null : parent.record.meta.id,
-        tags: { primary: null, related: [] },
         labels: [],
         links,
         archived: false,
@@ -975,7 +1025,6 @@ export class WorkService {
       createdAt: now,
       updatedAt: now,
       parentId: input.kind === 'problemset' ? linkParentId : parent === null ? null : parent.record.meta.id,
-      tags: { primary: null, related: [] },
       labels: [],
       links: {},
       archived: false,
@@ -996,12 +1045,11 @@ export class WorkService {
     // 归档冻结（27 §4）：已归档对象只允许取消归档，其余字段一律拒绝。
     // 判据用 effectiveArchived，与 trash / create 同一词：旧 problem 随父比赛定格时也读。
     if (obj.effectiveArchived) {
-      const frozenFields = [input.title, input.tags, input.labels, input.parentId].some((field) => field !== undefined);
+      const frozenFields = [input.title, input.labels, input.parentId].some((field) => field !== undefined);
       if (frozenFields) throw new WorkError('conflict', '已归档的对象是只读的；先取消归档再修改');
     }
     const next: WorkMeta = {
       ...current,
-      tags: { primary: current.tags.primary, related: [...current.tags.related] },
       labels: [...current.labels],
       links: { ...current.links },
     };
@@ -1012,37 +1060,6 @@ export class WorkService {
       if (title.length < 1 || title.length > 120) throw new WorkError('invalid', 'title 长度必须在 1–120 之间');
       if (title !== next.title) {
         next.title = title;
-        changed = true;
-      }
-    }
-
-    if (input.tags !== undefined) {
-      const nodeIds = idx.taxonomy === null ? null : new Set(flattenTaxonomy(idx.taxonomy.nodes).map((n) => n.id));
-      const checkNode = (id: string): void => {
-        if (nodeIds === null || !nodeIds.has(id)) throw new WorkError('invalid', `词表里没有这个节点：${id}`);
-      };
-      if (input.tags.primary !== undefined) {
-        if (input.tags.primary !== null) checkNode(input.tags.primary);
-        if (next.tags.primary !== input.tags.primary) {
-          next.tags.primary = input.tags.primary;
-          changed = true;
-        }
-      }
-      if (input.tags.related !== undefined) {
-        if (!Array.isArray(input.tags.related)) throw new WorkError('invalid', 'related 必须是数组');
-        const related: string[] = [];
-        for (const id of input.tags.related) {
-          checkNode(id);
-          if (id !== next.tags.primary && !related.includes(id)) related.push(id);
-        }
-        if (JSON.stringify(related) !== JSON.stringify(next.tags.related)) {
-          next.tags.related = related;
-          changed = true;
-        }
-      }
-      // primary 改了以后，related 里不能再留同一个节点
-      if (next.tags.primary !== null && next.tags.related.includes(next.tags.primary)) {
-        next.tags.related = next.tags.related.filter((id) => id !== next.tags.primary);
         changed = true;
       }
     }
@@ -1289,24 +1306,6 @@ export class WorkService {
     const unregistered: WorkUnregisteredDto[] = [];
     const collected: CollectedObject[] = [];
 
-    let taxonomy: WorkTaxonomyFile | null = null;
-    let taxonomyError: string | null = null;
-    const taxPath = join(root, '.anvil', 'taxonomy.json');
-    const taxStat = lstatOrNull(taxPath);
-    if (taxStat === null) {
-      taxonomyError = '词表读取失败：.anvil/taxonomy.json 不存在';
-    } else if (taxStat.isSymbolicLink() || !taxStat.isFile()) {
-      taxonomyError = '词表读取失败：taxonomy.json 必须是普通文件，不允许符号链接';
-    } else {
-      try {
-        const parsed = parseTaxonomy(JSON.parse(readFileSync(taxPath, 'utf8')));
-        if (parsed.ok) taxonomy = parsed.taxonomy;
-        else taxonomyError = parsed.message;
-      } catch (err) {
-        taxonomyError = `词表读取失败：${asError(err).message}`;
-      }
-    }
-
     const walk = (absDir: string, relDir: string): void => {
       const metaPath = join(absDir, '.anvil.json');
       const metaStat = lstatOrNull(metaPath);
@@ -1385,17 +1384,40 @@ export class WorkService {
     const byId = new Map<string, IndexedObject>();
     const byRel = new Map<string, IndexedObject>();
     const objects: IndexedObject[] = [];
+    const problemMarkFiles: ProblemMarksFile[] = [];
     for (const item of survivors) {
       const indexed: IndexedObject = {
         record: item.record,
         relPath: item.relPath,
         absPath: item.absPath,
+        root,
         files: item.files,
         fileCount: item.fileCount,
         sourceCount: item.sourceCount,
         filesTruncated: item.filesTruncated,
         effectiveArchived: item.record.meta.archived,
       };
+      // 列表徽章在扫描时派生（30 §4.1）：坏文件 / schema 过高只让这一场没有徽章，不阻塞其它对象
+      const arenaPath = item.record.meta.links.arenaPath;
+      if (item.record.meta.kind === 'contest' && arenaPath !== undefined) {
+        const host: RecordHostInfo = {
+          root,
+          contestId: item.record.meta.id,
+          contestRelPath: item.relPath,
+          contestAbs: item.absPath,
+          arenaPath,
+          effectiveArchived: indexed.effectiveArchived,
+        };
+        try {
+          const read = readProblemMarks(host);
+          if (read.kind === 'ok') {
+            indexed.problemMarkSummary = problemMarkSummaryOf(read.file);
+            problemMarkFiles.push(read.file);
+          }
+        } catch {
+          /* 标记文件坏 / 路径不安全：这一场没有徽章，不影响扫描其它对象 */
+        }
+      }
       byId.set(item.record.meta.id, indexed);
       byRel.set(item.relPath, indexed);
       objects.push(indexed);
@@ -1420,17 +1442,6 @@ export class WorkService {
     }
 
     // 0..n（27 §2.1）：多个题组关联同一个比赛不再算冲突；父缺失 / 父不是 contest 的检查保持上面不变
-
-    if (taxonomy !== null) {
-      const nodeIds = new Set(flattenTaxonomy(taxonomy.nodes).map((n) => n.id));
-      for (const obj of objects) {
-        const tags = obj.record.meta.tags;
-        const missing = [tags.primary, ...tags.related].filter((id): id is string => id !== null && !nodeIds.has(id));
-        if (missing.length > 0) {
-          errors.push({ relPath: obj.relPath, kind: 'tag-missing', message: `词表里找不到：${missing.join(', ')}` });
-        }
-      }
-    }
 
     for (let pass = 0; pass < 2; pass += 1) {
       for (const obj of objects) {
@@ -1532,8 +1543,7 @@ export class WorkService {
       trashDirs,
       unregistered: unregistered.sort((a, b) => comparePosix(a.relPath, b.relPath)),
       errors: errors.sort((a, b) => comparePosix(a.relPath, b.relPath)),
-      taxonomy,
-      taxonomyError,
+      problemMarkFiles,
     };
   }
 
@@ -1594,8 +1604,7 @@ export class WorkService {
       objects: idx.objects.filter((obj) => obj.effectiveArchived === archived).map((obj) => this.dtoOf(obj)),
       unregistered: idx.unregistered,
       errors: idx.errors,
-      taxonomy: this.taxonomyDto(idx, archived),
-      taxonomyError: idx.taxonomyError,
+      problemTags: collectProblemTags(idx.problemMarkFiles),
       trash: idx.trash,
     };
   }
@@ -1608,7 +1617,6 @@ export class WorkService {
       title: meta.title,
       relPath: obj.relPath,
       parentId: meta.parentId,
-      tags: { primary: meta.tags.primary, related: [...meta.tags.related] },
       labels: [...meta.labels],
       links: { ...meta.links },
       archived: meta.archived,
@@ -1618,33 +1626,26 @@ export class WorkService {
       fileCount: obj.fileCount,
       sourceCount: obj.sourceCount,
       ...(meta.sourcePath === undefined ? {} : { sourcePath: meta.sourcePath }),
+      ...(obj.problemMarkSummary === undefined ? {} : { problemMarkSummary: obj.problemMarkSummary }),
     };
   }
 
   private detailOf(obj: IndexedObject): WorkObjectDetailDto {
-    return { ...this.dtoOf(obj), files: [...obj.files], filesTruncated: obj.filesTruncated };
-  }
-
-  private taxonomyDto(idx: WorkIndex, archived = false): WorkTaxonomyDto | null {
-    if (idx.taxonomy === null) return null;
-    const flat = flattenTaxonomy(idx.taxonomy.nodes);
-    const parentOf = new Map(flat.map((n) => [n.id, n.parentId]));
-    const valid = new Set(flat.map((n) => n.id));
-    const counts = new Map<string, number>();
-    for (const obj of idx.objects) {
-      if (obj.effectiveArchived !== archived) continue;
-      const primary = obj.record.meta.tags.primary;
-      if (primary === null || !valid.has(primary)) continue;
-      counts.set(primary, (counts.get(primary) ?? 0) + 1);
-      const parent = parentOf.get(primary);
-      if (parent !== undefined && parent !== null) counts.set(parent, (counts.get(parent) ?? 0) + 1);
-    }
-    const mapNode = (node: WorkTaxonomyFile['nodes'][number]): WorkTaxonomyDto['nodes'][number] => ({
-      id: node.id,
-      name: node.name,
-      count: counts.get(node.id) ?? 0,
-      ...(node.children === undefined ? {} : { children: node.children.map(mapNode) }),
+    const base: WorkObjectDetailDto = { ...this.dtoOf(obj), files: [...obj.files], filesTruncated: obj.filesTruncated };
+    if (obj.record.meta.kind !== 'contest') return base;
+    if (obj.record.meta.links.arenaPath === undefined) return { ...base, problemMarks: null };
+    const detail = problemMarksDetailOf({
+      root: obj.root,
+      contestId: obj.record.meta.id,
+      contestRelPath: obj.relPath,
+      contestAbs: obj.absPath,
+      arenaPath: obj.record.meta.links.arenaPath,
+      effectiveArchived: obj.effectiveArchived,
     });
-    return { version: idx.taxonomy.version, nodes: idx.taxonomy.nodes.map(mapNode) };
+    return {
+      ...base,
+      problemMarks: detail.dto,
+      ...(detail.error === undefined ? {} : { problemMarksError: detail.error }),
+    };
   }
 }

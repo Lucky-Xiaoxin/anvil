@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { WorkObjectDto, WorkScanErrorDto, WorkTaxonomyDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
+import type { WorkObjectDto, WorkScanErrorDto, WorkTrashDto, WorkUnregisteredDto } from '@anvil/shared';
 import { fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
 import {
@@ -11,7 +11,6 @@ import {
   groupWorkObjectsBySource,
   isoDate,
   pathBreadcrumb,
-  primaryName,
   problemsetLinkOf,
   type WorkContestGroup,
   type WorkSourceGroup,
@@ -24,11 +23,12 @@ interface Props {
   allObjects: WorkObjectDto[];
   /** 全量 byId（活动 + 归档，27 §5.3）：关联状态解析统一走这一份 */
   allById: ReadonlyMap<string, WorkObjectDto>;
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   unregistered: WorkUnregisteredDto[];
   errors: WorkScanErrorDto[];
+  /** 「有待补题」筛选开启时的空态文案 */
+  emptyText?: string;
   trash: WorkTrashDto[];
   trashView: boolean;
   onAdopt: (item: WorkUnregisteredDto) => void;
@@ -42,14 +42,38 @@ interface Props {
 const ERROR_NAME: Record<WorkScanErrorDto['kind'], string> = {
   'meta-invalid': 'meta 不合法',
   'parent-missing': '父对象缺失',
-  'tag-missing': '标签悬空',
   symlink: '符号链接',
   scan: '读取失败',
 };
 
+function ProblemMarkBadges({ obj }: { obj: WorkObjectDto }) {
+  const summary = obj.problemMarkSummary;
+  if (obj.kind !== 'contest' || summary === undefined) return null;
+  if (summary.todo === 0 && summary.starred === 0) return null;
+  return (
+    <>
+      {summary.todo > 0 ? (
+        <>
+          <span className="wk-dot" />
+          <span className="wk-markbadge wk-markbadge--todo" title={`待补题 ${summary.todo} 道`}>
+            待补 {summary.todo}
+          </span>
+        </>
+      ) : null}
+      {summary.starred > 0 ? (
+        <>
+          <span className="wk-dot" />
+          <span className="wk-markbadge wk-markbadge--star" title={`重点 ${summary.starred} 道`}>
+            重点 {summary.starred}
+          </span>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function ObjectRow(props: {
   obj: WorkObjectDto;
-  taxonomy: WorkTaxonomyDto | null;
   selected: boolean;
   onSelect: (id: string) => void;
   child?: boolean;
@@ -61,8 +85,7 @@ function ObjectRow(props: {
   /** 模板行：这件就是新建对象默认套用的那件（23 §6.1） */
   defaultTag?: boolean;
 }) {
-  const { obj, taxonomy, selected, child = false, breadcrumb = false } = props;
-  const primary = primaryName(obj, taxonomy);
+  const { obj, selected, child = false, breadcrumb = false } = props;
   const crumbs = breadcrumb ? pathBreadcrumb(obj.relPath) : [];
   const link =
     obj.kind === 'problemset' && props.allById !== undefined
@@ -97,12 +120,7 @@ function ObjectRow(props: {
         ) : null}
         <div className="wk-row__meta">
           <span>{isoDate(obj.createdAt)}</span>
-          {primary !== null ? (
-            <>
-              <span className="wk-dot" />
-              <span className="wk-row__tag">{primary}</span>
-            </>
-          ) : null}
+          <ProblemMarkBadges obj={obj} />
           <span className="wk-dot" />
           <span>{fmtInt(obj.fileCount)} 个文件</span>
           {obj.kind === 'contest' && (props.setCount ?? 0) > 0 ? (
@@ -154,7 +172,6 @@ function ObjectRow(props: {
 
 function ContestGroupItems(props: {
   groups: WorkContestGroup[];
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   allById: ReadonlyMap<string, WorkObjectDto>;
@@ -162,20 +179,18 @@ function ContestGroupItems(props: {
   collapsed: Set<string>;
   onToggle: (id: string) => void;
 }) {
-  const { groups, taxonomy, selectedId, collapsed, allById, setCountByContest } = props;
+  const { groups, selectedId, collapsed, allById, setCountByContest } = props;
   return (
     <>
       {groups.map((group) => {
         const contest = group.contest;
         const folded = collapsed.has(contest.id);
-        const primary = primaryName(contest, taxonomy);
         const setCount = setCountByContest.get(contest.id) ?? 0;
         if (group.problems.length === 0) {
           return (
             <ObjectRow
               key={contest.id}
               obj={contest}
-              taxonomy={taxonomy}
               selected={selectedId === contest.id}
               onSelect={props.onSelect}
               allById={allById}
@@ -208,12 +223,7 @@ function ContestGroupItems(props: {
                 </div>
                 <div className="wk-group__meta">
                   <span>{isoDate(contest.createdAt)}</span>
-                  {primary !== null ? (
-                    <>
-                      <span className="wk-dot" />
-                      <span className="wk-row__tag">{primary}</span>
-                    </>
-                  ) : null}
+                  <ProblemMarkBadges obj={contest} />
                   <span className="wk-dot" />
                   <span>{fmtInt(contest.fileCount)} 个文件</span>
                 </div>
@@ -226,7 +236,6 @@ function ContestGroupItems(props: {
                 <ObjectRow
                   key={problem.id}
                   obj={problem}
-                  taxonomy={taxonomy}
                   selected={selectedId === problem.id}
                   onSelect={props.onSelect}
                   child
@@ -242,7 +251,6 @@ function ContestGroupItems(props: {
 
 function ContestGroups(props: {
   groups: WorkContestGroup[];
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   allById: ReadonlyMap<string, WorkObjectDto>;
@@ -263,7 +271,6 @@ function ContestGroups(props: {
 
 function SourceGroupNode(props: {
   node: WorkSourceGroup;
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   allById: ReadonlyMap<string, WorkObjectDto>;
@@ -299,7 +306,6 @@ function SourceGroupNode(props: {
             <ObjectRow
               key={obj.id}
               obj={obj}
-              taxonomy={props.taxonomy}
               selected={props.selectedId === obj.id}
               onSelect={props.onSelect}
               allById={props.allById}
@@ -309,7 +315,6 @@ function SourceGroupNode(props: {
             <SourceGroupNode
               key={child.key}
               node={child}
-              taxonomy={props.taxonomy}
               selectedId={props.selectedId}
               onSelect={props.onSelect}
               allById={props.allById}
@@ -325,7 +330,6 @@ function SourceGroupNode(props: {
 
 function ProblemsetRows(props: {
   objects: WorkObjectDto[];
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   allById: ReadonlyMap<string, WorkObjectDto>;
@@ -336,7 +340,6 @@ function ProblemsetRows(props: {
         <ObjectRow
           key={obj.id}
           obj={obj}
-          taxonomy={props.taxonomy}
           selected={props.selectedId === obj.id}
           onSelect={props.onSelect}
           allById={props.allById}
@@ -348,7 +351,6 @@ function ProblemsetRows(props: {
 
 function ProblemsetGroups(props: {
   model: WorkSourceModel;
-  taxonomy: WorkTaxonomyDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   allById: ReadonlyMap<string, WorkObjectDto>;
@@ -365,7 +367,6 @@ function ProblemsetGroups(props: {
       {model.root !== null ? (
         <SourceGroupNode
           node={model.root}
-          taxonomy={props.taxonomy}
           selectedId={props.selectedId}
           onSelect={props.onSelect}
           allById={props.allById}
@@ -373,13 +374,13 @@ function ProblemsetGroups(props: {
           onToggle={props.onToggle}
         />
       ) : null}
-      {model.unsourced.length > 0 ? <ProblemsetRows objects={model.unsourced} taxonomy={props.taxonomy} selectedId={props.selectedId} onSelect={props.onSelect} allById={props.allById} /> : null}
+      {model.unsourced.length > 0 ? <ProblemsetRows objects={model.unsourced} selectedId={props.selectedId} onSelect={props.onSelect} allById={props.allById} /> : null}
     </div>
   );
 }
 
 export function WorkList(props: Props) {
-  const { objects, allObjects, allById, taxonomy, selectedId, trashView, trash, unregistered, errors } = props;
+  const { objects, allObjects, allById, selectedId, trashView, trash, unregistered, errors } = props;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [purgeArmed, setPurgeArmed] = useState(false);
   const model = useMemo(() => groupWorkObjects(objects, allObjects), [objects, allObjects]);
@@ -530,12 +531,13 @@ export function WorkList(props: Props) {
         <span>对象</span>
         <b className="num">{objects.length}</b>
       </div>
-      {objects.length === 0 ? <div className="wk-empty">没有符合条件的对象。换个筛选，或新建一个。</div> : null}
+      {objects.length === 0 ? (
+        <div className="wk-empty">{props.emptyText ?? '没有符合条件的对象。换个筛选，或新建一个。'}</div>
+      ) : null}
 
       {model.groups.length > 0 ? (
         <ContestGroups
           groups={model.groups}
-          taxonomy={taxonomy}
           selectedId={selectedId}
           onSelect={props.onSelect}
           allById={allById}
@@ -549,7 +551,6 @@ export function WorkList(props: Props) {
         sourceModel.hasSourcePath ? (
           <ProblemsetGroups
             model={sourceModel}
-            taxonomy={taxonomy}
             selectedId={selectedId}
             onSelect={props.onSelect}
             allById={allById}
@@ -564,7 +565,6 @@ export function WorkList(props: Props) {
             </div>
             <ProblemsetRows
               objects={model.problemSets}
-              taxonomy={taxonomy}
               selectedId={selectedId}
               onSelect={props.onSelect}
               allById={allById}
@@ -583,7 +583,6 @@ export function WorkList(props: Props) {
             <ObjectRow
               key={obj.id}
               obj={obj}
-              taxonomy={taxonomy}
               selected={selectedId === obj.id}
               onSelect={props.onSelect}
               breadcrumb
@@ -602,7 +601,6 @@ export function WorkList(props: Props) {
             <ObjectRow
               key={obj.id}
               obj={obj}
-              taxonomy={taxonomy}
               selected={selectedId === obj.id}
               onSelect={props.onSelect}
               defaultTag={obj.id === model.defaultTemplateId}
@@ -618,7 +616,7 @@ export function WorkList(props: Props) {
             <b className="num">{model.notes.length}</b>
           </div>
           {model.notes.map((obj) => (
-            <ObjectRow key={obj.id} obj={obj} taxonomy={taxonomy} selected={selectedId === obj.id} onSelect={props.onSelect} />
+            <ObjectRow key={obj.id} obj={obj} selected={selectedId === obj.id} onSelect={props.onSelect} />
           ))}
         </div>
       ) : null}
@@ -633,7 +631,6 @@ export function WorkList(props: Props) {
             <ObjectRow
               key={obj.id}
               obj={obj}
-              taxonomy={taxonomy}
               selected={selectedId === obj.id}
               onSelect={props.onSelect}
               breadcrumb

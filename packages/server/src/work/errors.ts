@@ -9,6 +9,7 @@ export type WorkErrorKind =
   | 'invalid'
   | 'not-found'
   | 'conflict'
+  | 'problem-set-mismatch'
   | 'unsafe-path'
   | 'path-occupied'
   | 'parent-missing'
@@ -31,6 +32,7 @@ const STATUS: Record<WorkErrorKind, number> = {
   invalid: 400,
   'not-found': 404,
   conflict: 409,
+  'problem-set-mismatch': 409,
   'unsafe-path': 400,
   'path-occupied': 409,
   'parent-missing': 409,

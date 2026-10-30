@@ -918,7 +918,6 @@ export class WorkImportService {
       createdAt: iso,
       updatedAt: iso,
       parentId: null,
-      tags: { primary: null, related: [] },
       labels: [],
       links: {},
       archived: false,

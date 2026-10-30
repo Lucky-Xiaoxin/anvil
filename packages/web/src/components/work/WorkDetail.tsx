@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import type { WorkObjectDetailDto, WorkObjectDto, WorkOpenApp, WorkTaxonomyDto } from '@anvil/shared';
+import type { WorkObjectDetailDto, WorkObjectDto, WorkOpenApp } from '@anvil/shared';
 import { fullStamp, fmtInt } from '../../format.ts';
 import { Icon } from '../ui.tsx';
+import { ProblemMarks } from './ProblemMarks.tsx';
 import { TemplateEditor } from './TemplateEditor.tsx';
 import { WorkRecords } from './WorkRecords.tsx';
 import {
@@ -9,24 +10,21 @@ import {
   WORK_SECTION,
   availableContests,
   fileSize,
-  flatNodes,
   folderActionsOf,
   isoDate,
   linkedProblemsetsOf,
-  nodeNameMap,
   problemsetLinkOf,
 } from './derive.ts';
 
 interface Props {
   detail: WorkObjectDetailDto;
-  taxonomy: WorkTaxonomyDto | null;
-  taxonomyError: string | null;
+  /** 本工作区已用过的题目标签（30 §6.2 自动补全） */
+  problemTags: string[];
   parentTitle: string | null;
   /** 全量对象（活动 + 归档，27 §5.3）：关联比赛选择器与「关联题组」展示统一从这里派生 */
   objects: WorkObjectDto[];
   busy: string | null;
   onRetitle: (title: string) => void;
-  onTags: (tags: { primary?: string | null; related?: string[] }) => void;
   onLabels: (labels: string[]) => void;
   onArchive: (archived: boolean) => void;
   /** 仅题组：设置 / 清除关联比赛（null = 清除） */
@@ -38,16 +36,19 @@ interface Props {
   onRestoreArenaLegacy: () => void;
   /** 存档改名 / 回收后刷新回收站计数（不动选中项） */
   onRecordsChanged: () => void;
+  /** 题目标记写成功后刷新详情 / 列表徽章 */
+  onProblemMarksChanged: () => void;
+  /** 标记有未落盘修改：切换对象前拦一下 */
+  onProblemMarksUnsaved: (unsaved: boolean) => void;
   onTrash: () => void;
   onOpen: (relPath?: string, app?: WorkOpenApp) => void;
   onOpenArena: (arenaPath: string) => void;
-  onSelectTag: (id: string) => void;
   onFilterLabel: (label: string) => void;
   onTemplateSaved: () => void;
 }
 
 export function WorkDetail(props: Props) {
-  const { detail, taxonomy } = props;
+  const { detail } = props;
   const [title, setTitle] = useState(detail.title);
   const [editing, setEditing] = useState(false);
   const [labelInput, setLabelInput] = useState('');
@@ -76,10 +77,6 @@ export function WorkDetail(props: Props) {
     [],
   );
 
-  const nodes = flatNodes(taxonomy);
-  const names = nodeNameMap(taxonomy);
-  const primary = detail.tags.primary;
-  const related = detail.tags.related;
   const objectsById = new Map(props.objects.map((obj) => [obj.id, obj]));
   const parentLink = detail.kind === 'problemset' ? problemsetLinkOf(detail, objectsById) : null;
   const linkedSets = detail.kind === 'contest' ? linkedProblemsetsOf(detail, props.objects) : null;
@@ -92,20 +89,6 @@ export function WorkDetail(props: Props) {
       return;
     }
     props.onRetitle(next);
-  };
-
-  const setPrimary = (value: string): void => {
-    const next = value === '' ? null : value;
-    props.onTags({ primary: next, related: related.filter((id) => id !== next) });
-  };
-
-  const addRelated = (value: string): void => {
-    if (value === '' || related.includes(value) || value === primary) return;
-    props.onTags({ related: [...related, value] });
-  };
-
-  const removeRelated = (id: string): void => {
-    props.onTags({ related: related.filter((x) => x !== id) });
   };
 
   const addLabel = (): void => {
@@ -219,72 +202,6 @@ export function WorkDetail(props: Props) {
       {detail.kind === 'template' && !frozen ? (
         <TemplateEditor objectId={detail.id} busy={props.busy !== null} onSaved={props.onTemplateSaved} />
       ) : null}
-
-      <section className="wk-sec">
-        <div className="wk-sec__title">
-          <span>标签</span>
-          {props.taxonomyError !== null ? <span className="wk-sec__note">词表坏掉，编辑已禁用</span> : null}
-        </div>
-        <div className="wk-field">
-          <label className="wk-label" htmlFor="wk-primary">
-            primary
-          </label>
-          <select
-            id="wk-primary"
-            className="wk-select"
-            value={primary ?? ''}
-            disabled={frozen || props.busy !== null || props.taxonomyError !== null}
-            onChange={(e) => setPrimary(e.target.value)}
-          >
-            <option value="">未分类</option>
-            {nodes.map((node) => (
-              <option value={node.id} key={node.id}>
-                {node.parentId === null ? node.name : `  ${node.name}`}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="wk-field">
-          <span className="wk-label">related</span>
-          <div className="wk-chips">
-            {related.length === 0 ? <span className="wk-muted">没有关联标签</span> : null}
-            {related.map((id) => (
-              <span className="wk-chip wk-chip--tag" key={id}>
-                <button className="wk-chip__txt" onClick={() => props.onSelectTag(id)}>
-                  {names.get(id) ?? id}
-                </button>
-                <button
-                  className="wk-chip__x"
-                  aria-label={`移除 ${names.get(id) ?? id}`}
-                  disabled={frozen || props.busy !== null || props.taxonomyError !== null}
-                  onClick={() => removeRelated(id)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <select
-              className="wk-select wk-select--inline"
-              value=""
-              disabled={frozen || props.busy !== null || props.taxonomyError !== null}
-              aria-label="添加关联标签"
-              onChange={(e) => {
-                addRelated(e.target.value);
-                e.target.value = '';
-              }}
-            >
-              <option value="">＋ 关联标签</option>
-              {nodes
-                .filter((node) => node.id !== primary && !related.includes(node.id))
-                .map((node) => (
-                  <option value={node.id} key={node.id}>
-                    {node.parentId === null ? node.name : `  ${node.name}`}
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-      </section>
 
       <section className="wk-sec">
         <div className="wk-sec__title">
@@ -436,6 +353,19 @@ export function WorkDetail(props: Props) {
       ) : null}
 
       {detail.kind === 'contest' && detail.links.arenaPath !== undefined ? (
+        <ProblemMarks
+          contestId={detail.id}
+          arenaPath={detail.links.arenaPath}
+          marks={detail.problemMarks ?? null}
+          error={detail.problemMarksError ?? null}
+          archived={frozen}
+          suggestions={props.problemTags}
+          onChanged={props.onProblemMarksChanged}
+          onUnsavedChange={props.onProblemMarksUnsaved}
+        />
+      ) : null}
+
+      {detail.kind === 'contest' && detail.links.arenaPath !== undefined ? (
         <WorkRecords
           arenaPath={detail.links.arenaPath}
           contestTitle={detail.title}
@@ -460,6 +390,11 @@ export function WorkDetail(props: Props) {
               <button className="wk-file" key={file.path} onClick={() => props.onOpen(file.path)} title={`打开 ${file.path}`}>
                 <Icon id="i-file" />
                 <span className="wk-file__path">{file.path}</span>
+                <span className="wk-file__meta">
+                  {file.path === 'problem-marks.json' || file.path === 'record.json' ? (
+                    <span className="wk-badge wk-badge--meta">元数据</span>
+                  ) : null}
+                </span>
                 <span className="wk-file__size">{fileSize(file.size)}</span>
                 <span className="wk-file__time">{fullStamp(file.mtime)}</span>
               </button>
