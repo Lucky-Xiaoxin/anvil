@@ -46,6 +46,7 @@ interface SetupState {
 }
 
 const SETUP_KINDS = new Set(['workspace-unconfigured', 'workspace-uninitialized', 'root-missing', 'root-invalid', 'root-version']);
+const LEAVE_MARKS_TEXT = '标记尚未保存：离开会丢掉本地未提交的修改。继续？';
 
 function RootSetup({ setup, onReady }: { setup: SetupState; onReady: (tree: WorkTreeDto) => void }) {
   const [path, setPath] = useState('');
@@ -157,16 +158,23 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
   /** 当前视图 / 选中项的同步镜像：异步响应回来时按“此刻”判定，不用闭包里的旧值 */
   const archivedRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
+  const detailRef = useRef<WorkObjectDetailDto | null>(null);
+  detailRef.current = detail;
   const [busy, setBusy] = useState<string | null>(null);
   /** 题目标记有未落盘修改：切对象 / 切视图前确认，不静默丢（30 §6.2） */
   const marksUnsaved = useRef(false);
-  const canLeaveMarks = (): boolean => {
+  /** 只确认、不清标志：调用方失败或对话框被取消时面板还在，保护必须继续生效 */
+  const confirmLeaveMarks = useCallback((): boolean => {
     if (!marksUnsaved.current) return true;
-    if (!window.confirm('标记尚未保存：离开会丢掉本地未提交的修改。继续？')) return false;
+    return window.confirm(LEAVE_MARKS_TEXT);
+  }, []);
+  /** 确认并清标志：只给「确认后一定会卸载面板 / 路由离开」的入口用，避免 App 的 hashchange 守卫二次弹窗 */
+  const canLeaveMarks = useCallback((): boolean => {
+    if (!confirmLeaveMarks()) return false;
     marksUnsaved.current = false;
     (window as unknown as { __anvilMarksUnsaved?: boolean }).__anvilMarksUnsaved = false;
     return true;
-  };
+  }, [confirmLeaveMarks]);
   const [trashView, setTrashView] = useState(false);
   const [dialog, setDialog] = useState<WorkDialog | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -285,7 +293,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
   }, []);
 
   /* 深链（30 §6.4）：只在活动视图定位；归档 / 回收站 / 不存在一律不可用，停在列表 */
-  const entryHandled = useRef<string | null>(null);
+  /** 记录已处理的那一个 entry 对象（App 每次 hashchange 都会新建）；同 key 的新深链仍会重新处理 */
+  const entryHandled = useRef<MasterEntry | null>(null);
   const focusAfterDetail = useRef<{ objectId: string; panel: 'problems' } | null>(null);
   useEffect(() => {
     if (entry === null) return;
@@ -295,21 +304,45 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
       return;
     }
     if (tree === null || loading) return;
-    const key = `${entry.objectId}|${entry.panel ?? ''}`;
-    if (entryHandled.current === key) return;
-    entryHandled.current = key;
+    if (entryHandled.current === entry) return;
     const exists = tree.objects.some((obj) => obj.id === entry.objectId && obj.kind === 'contest');
     if (!exists) {
+      entryHandled.current = entry;
       setNotice({ kind: 'err', text: '这场比赛不可用' });
       onEntryConsumed();
       return;
     }
+    // 同一个对象已经在看：只定位，不重载详情（重载会卸载面板、丢掉未保存的标记）
+    if (entry.objectId === selectedIdRef.current && detailRef.current?.id === entry.objectId) {
+      entryHandled.current = entry;
+      setTrashView(false);
+      if (entry.panel === 'problems') {
+        const el = document.getElementById('wk-problems');
+        if (el !== null) {
+          el.scrollIntoView({ block: 'start' });
+          el.focus({ preventScroll: true });
+        } else {
+          focusAfterDetail.current = { objectId: entry.objectId, panel: 'problems' };
+        }
+      }
+      onEntryConsumed();
+      return;
+    }
+    if (!canLeaveMarks()) {
+      // 用户选择保留本地修改：地址栏退回当前对象，避免 URL 与界面不一致
+      entryHandled.current = entry;
+      onEntryConsumed();
+      const current = selectedIdRef.current;
+      window.history.replaceState(null, '', current === null ? '#/master' : `#/master?object=${encodeURIComponent(current)}`);
+      return;
+    }
+    entryHandled.current = entry;
     setTrashView(false);
     setSelected(entry.objectId);
     void loadDetail(entry.objectId);
     if (entry.panel === 'problems') focusAfterDetail.current = { objectId: entry.objectId, panel: 'problems' };
     onEntryConsumed();
-  }, [entry, tree, loading, setup, loadDetail, onEntryConsumed, setSelected]);
+  }, [entry, tree, loading, setup, loadDetail, onEntryConsumed, setSelected, canLeaveMarks]);
 
   useEffect(() => {
     const target = focusAfterDetail.current;
@@ -346,6 +379,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
   };
 
   const selectObject = (id: string): void => {
+    // 点当前行不重载：重载会卸载标记面板，白白丢掉未保存的本地修改
+    if (id === selectedIdRef.current && detailRef.current?.id === id) return;
     if (!canLeaveMarks()) return;
     setTrashView(false);
     setSelected(id);
@@ -354,6 +389,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
 
   const afterMutation = async (label: string, make: () => Promise<WorkObjectDetailDto>): Promise<void> => {
     if (busy !== null) return;
+    // 改标题 / 标签 / 归档 / 关联完成后会重载详情、卸载标记面板（30 §6.2）
+    if (!confirmLeaveMarks()) return;
     const viewAtStart = archivedRef.current;
     const selectionAtStart = selectedIdRef.current;
     setBusy(label);
@@ -383,6 +420,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
 
   const rescan = async (): Promise<void> => {
     if (busy !== null) return;
+    // 重新扫描后会重载选中对象详情，标记面板会重新挂载（30 §6.2）
+    if (!confirmLeaveMarks()) return;
     setBusy('rescan');
     setNotice(null);
     try {
@@ -473,6 +512,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
           className={`btn btn--sm${importOpen ? ' is-on' : ''}`}
           disabled={busy !== null || importOpen}
           onClick={() => {
+            // 打开导入会把整块工作区换成导入页，标记面板立即卸载
+            if (!canLeaveMarks()) return;
             setNotice(null);
             setImportOpen(true);
           }}
@@ -685,7 +726,8 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
                   marksUnsaved.current = unsaved;
                 }}
                 onTrash={() => {
-                  if (detail === null || !canLeaveMarks()) return;
+                  // 回收失败时面板还在，确认后不清标志，保护继续生效
+                  if (detail === null || !confirmLeaveMarks()) return;
                   const id = detail.id;
                   void (async () => {
                     setBusy('trash');
@@ -736,6 +778,12 @@ export function Workbench({ entry, onEntryConsumed }: Props) {
           dialog={dialog}
           onDone={(title, id) => {
             setDialog(null);
+            // 新建/登记已经落盘；这里才真正切换对象。标记未保存时先确认，取消就留在当前对象
+            if (!confirmLeaveMarks()) {
+              void load(archivedRef.current, false);
+              setNotice({ kind: 'ok', text: `已保存「${title}」` });
+              return;
+            }
             setTrashView(false);
             // 在「看归档」里新建 / 登记出来的是未归档对象，先切回活动视图再拉树，否则会“保存成功但看不见”
             setViewArchived(false);
