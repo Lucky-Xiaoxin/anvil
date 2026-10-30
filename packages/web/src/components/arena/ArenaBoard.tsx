@@ -137,7 +137,15 @@ type Pop =
 type MarksPrompt =
   | { status: 'syncing'; contestId: string }
   | { status: 'ok'; contestId: string; archived: boolean }
-  | { status: 'failed'; contestId: string; recordId: string; problems: ProblemMarksProblem[]; message: string };
+  | {
+      status: 'failed';
+      contestId: string;
+      recordId: string;
+      problems: ProblemMarksProblem[];
+      message: string;
+      /** 题目清单 alias 集合变化：重试不会成功，且详情里没有「从榜单补齐」 */
+      mismatch: boolean;
+    };
 
 const pct = (ms: number, dur: number): string => `${(ms / dur) * 100}%`;
 
@@ -599,7 +607,14 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
           setMarksPrompt({ status: 'ok', contestId: res.problemMarks.contestId, archived: detail?.archived === true });
         } catch (err) {
           if (seq !== marksSyncSeq.current) return;
-          setMarksPrompt({ status: 'failed', contestId, recordId, problems, message: messageOf(err) });
+          setMarksPrompt({
+            status: 'failed',
+            contestId,
+            recordId,
+            problems,
+            message: messageOf(err),
+            mismatch: err instanceof ApiError && err.kind === 'problem-set-mismatch',
+          });
         }
       })();
     },
@@ -1309,10 +1324,17 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
                     <div className="hint">只标记你在意的题；没标记的不影响统计。</div>
                     {marksPrompt.archived ? <div className="hint">这场已归档，题目标记仍可修改。</div> : null}
                   </>
+                ) : marksPrompt.mismatch ? (
+                  <>
+                    <b>成绩已保存 · 题目清单与当前榜单不一致</b>
+                    <div className="hint">
+                      这场已有题目清单，alias 集合与当前榜单不同；暂不自动重建，避免丢标记。成绩与已有标记不受影响。
+                    </div>
+                  </>
                 ) : (
                   <>
                     <b>成绩已保存 · 题目清单同步失败</b> · {marksPrompt.message}
-                    <div className="hint">成绩不受影响；工坊详情里仍可用「从榜单补齐」。</div>
+                    <div className="hint">成绩不受影响；可重试，或到工坊详情处理。</div>
                   </>
                 )}
               </div>
@@ -1332,21 +1354,39 @@ export function ArenaBoard({ row, store, onBack, mode, recordId = null, openHist
                 </span>
               ) : marksPrompt.status === 'failed' ? (
                 <span className="arena-alert-acts">
-                  <button
-                    className="btn btn--xs"
-                    disabled={saveBusy}
-                    onClick={() => runMarksSync(marksPrompt.contestId, marksPrompt.recordId, marksPrompt.problems)}
-                  >
-                    重试
-                  </button>
-                  <button
-                    className="btn btn--xs btn--ghost"
-                    onClick={() => {
-                      window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
-                    }}
-                  >
-                    去工坊
-                  </button>
+                  {marksPrompt.mismatch ? (
+                    <>
+                      <button
+                        className="btn btn--xs btn--primary"
+                        onClick={() => {
+                          window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
+                        }}
+                      >
+                        去工坊
+                      </button>
+                      <button className="btn btn--xs btn--ghost" onClick={() => setMarksPrompt(null)}>
+                        知道了
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn--xs"
+                        disabled={saveBusy}
+                        onClick={() => runMarksSync(marksPrompt.contestId, marksPrompt.recordId, marksPrompt.problems)}
+                      >
+                        重试
+                      </button>
+                      <button
+                        className="btn btn--xs btn--ghost"
+                        onClick={() => {
+                          window.location.hash = `/master?object=${encodeURIComponent(marksPrompt.contestId)}&panel=problems`;
+                        }}
+                      >
+                        去工坊
+                      </button>
+                    </>
+                  )}
                 </span>
               ) : null}
             </div>
